@@ -28,7 +28,23 @@
     </script>
     <link rel="icon" type="image/png" href="./assets/NBE.png" />
     <link rel="shortcut icon" href="./assets/NBE.ico" />
-    <script type="module" crossorigin src="./assets/index-BPsnFuWz.js"></script>
+    <script>
+      window.addEventListener('error', function(e) {
+        var root = document.getElementById('root');
+        if (root && root.children.length === 0) {
+          root.innerHTML = '<div style="min-height:100vh;background:#020617;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;padding:20px;text-align:center;">' +
+            '<div style="max-width:440px;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:24px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);">' +
+              '<div style="font-size:32px;margin-bottom:12px;">⚠️</div>' +
+              '<h2 style="font-size:18px;font-weight:bold;margin:0 0 8px 0;color:#fff;">Pembaruan Sistem SPECTRA</h2>' +
+              '<p style="font-size:13px;color:#94a3b8;margin:0 0 16px 0;line-height:1.5;">Data versi lama terdeteksi di penyimpanan browser Anda. Silakan klik tombol di bawah untuk menyegarkan sistem ke versi Accurate terbaru:</p>' +
+              '<button onclick="localStorage.clear();sessionStorage.clear();window.location.reload();" style="width:100%;background:#2563eb;color:#fff;font-weight:bold;font-size:13px;padding:12px 16px;border:none;border-radius:8px;cursor:pointer;margin-bottom:8px;">Bersihkan Cache & Buka Aplikasi</button>' +
+              '<button onclick="window.location.reload();" style="width:100%;background:#1e293b;color:#cbd5e1;font-size:12px;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;">Muat Ulang Halaman</button>' +
+            '</div>' +
+          '</div>';
+        }
+      });
+    </script>
+    <script type="module" crossorigin src="./assets/index-Dr0ngFTH.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-bHiplkWk.css">
   </head>
   <body class="bg-slate-50 text-slate-900 min-h-screen">
