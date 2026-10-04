@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "convex:dev": "convex dev",
+    "deploy:gh": "gh-pages -d dist",
+    "deploy:cf": "wrangler pages deploy dist --project-name spectra-financial-system"
   },
   "dependencies": {
     "convex": "^1.46.0",
