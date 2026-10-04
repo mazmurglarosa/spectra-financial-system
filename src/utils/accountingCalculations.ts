@@ -26,16 +26,35 @@ export function formatRupiah(amount: number | null | undefined, includeSymbol: b
   return includeSymbol ? `Rp ${formatted}` : formatted;
 }
 
-export function calculateAccountBalance(account: Account, transactions: Transaction[]): {
+export function getTransactionLines(trx: any): any[] {
+  if (!trx) return [];
+  if (Array.isArray(trx.lines)) return trx.lines;
+  if (Array.isArray(trx.items)) {
+    return trx.items.map((l: any, idx: number) => ({
+      id: l.id || `line-${idx}`,
+      accountId: l.accountId || l.accountCode || '',
+      accountCode: l.accountCode || '',
+      accountName: l.accountName || '',
+      debit: Number(l.debit) || 0,
+      credit: Number(l.credit) || 0,
+      memo: l.memo || ''
+    }));
+  }
+  return [];
+}
+
+export function calculateAccountBalance(account: Account, transactions: Transaction[] = []): {
   debitMutation: number;
   creditMutation: number;
   endingBalance: number;
 } {
   let debitMutation = 0;
   let creditMutation = 0;
+  const safeTrxList = Array.isArray(transactions) ? transactions : [];
 
-  for (const trx of transactions) {
-    for (const line of trx.lines) {
+  for (const trx of safeTrxList) {
+    const lines = getTransactionLines(trx);
+    for (const line of lines) {
       if (line.accountId === account.id || line.accountCode === account.code) {
         debitMutation += Number(line.debit) || 0;
         creditMutation += Number(line.credit) || 0;
@@ -43,25 +62,27 @@ export function calculateAccountBalance(account: Account, transactions: Transact
     }
   }
 
-  // Normal balance handling
-  // Db normal: Ending = (debetAwal - kreditAwal) + debitMutation - creditMutation
-  // Kr normal: Ending = (kreditAwal - debetAwal) + creditMutation - debitMutation
+  const debetAwal = Number(account?.debetAwal) || 0;
+  const kreditAwal = Number(account?.kreditAwal) || 0;
   let endingBalance = 0;
-  if (account.sn === 'Db') {
-    endingBalance = (account.debetAwal - account.kreditAwal) + debitMutation - creditMutation;
+  if (account?.sn === 'Db') {
+    endingBalance = (debetAwal - kreditAwal) + debitMutation - creditMutation;
   } else {
-    endingBalance = (account.kreditAwal - account.debetAwal) + creditMutation - debitMutation;
+    endingBalance = (kreditAwal - debetAwal) + creditMutation - debitMutation;
   }
 
   return { debitMutation, creditMutation, endingBalance };
 }
 
-export function generateAccountLedger(account: Account, transactions: Transaction[], startDate?: string, endDate?: string): AccountLedger {
-  const sortedTrx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+export function generateAccountLedger(account: Account, transactions: Transaction[] = [], startDate?: string, endDate?: string): AccountLedger {
+  const safeTrxList = Array.isArray(transactions) ? transactions : [];
+  const sortedTrx = [...safeTrxList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
-  const startingBalance = account.sn === 'Db' 
-    ? (account.debetAwal - account.kreditAwal) 
-    : (account.kreditAwal - account.debetAwal);
+  const debetAwal = Number(account?.debetAwal) || 0;
+  const kreditAwal = Number(account?.kreditAwal) || 0;
+  const startingBalance = account?.sn === 'Db' 
+    ? (debetAwal - kreditAwal) 
+    : (kreditAwal - debetAwal);
 
   let currentBalance = startingBalance;
   let totalDebit = 0;
@@ -72,7 +93,8 @@ export function generateAccountLedger(account: Account, transactions: Transactio
     if (startDate && trx.date < startDate) continue;
     if (endDate && trx.date > endDate) continue;
 
-    for (const line of trx.lines) {
+    const lines = getTransactionLines(trx);
+    for (const line of lines) {
       if (line.accountId === account.id || line.accountCode === account.code) {
         const d = Number(line.debit) || 0;
         const c = Number(line.credit) || 0;
@@ -88,7 +110,7 @@ export function generateAccountLedger(account: Account, transactions: Transactio
         entries.push({
           transactionId: trx.id,
           date: trx.date,
-          refNumber: trx.refNumber,
+          refNumber: trx.refNumber || (trx as any).ref || 'JU-1',
           description: trx.description,
           debit: d,
           credit: c,
@@ -202,8 +224,10 @@ export function generateWorksheet(accounts: Account[], transactions: Transaction
     // 2. Adjustments/mutations from transactions
     let adjDebit = 0;
     let adjCredit = 0;
-    for (const trx of transactions) {
-      for (const line of trx.lines) {
+    const safeTrxList = Array.isArray(transactions) ? transactions : [];
+    for (const trx of safeTrxList) {
+      const lines = getTransactionLines(trx);
+      for (const line of lines) {
         if (line.accountId === acc.id || line.accountCode === acc.code) {
           adjDebit += Number(line.debit) || 0;
           adjCredit += Number(line.credit) || 0;
@@ -437,13 +461,15 @@ export function generateCashFlowStatement(accounts: Account[], transactions: Tra
   let cashForLoanRepayment = 0;
   let cashForPrive = 0;
 
-  for (const trx of transactions) {
-    const hasKasDebit = trx.lines.some(l => l.accountCode === '10001' && l.debit > 0);
-    const hasKasCredit = trx.lines.some(l => l.accountCode === '10001' && l.credit > 0);
+  const safeTrxList = Array.isArray(transactions) ? transactions : [];
+  for (const trx of safeTrxList) {
+    const lines = getTransactionLines(trx);
+    const hasKasDebit = lines.some(l => l.accountCode === '10001' && l.debit > 0);
+    const hasKasCredit = lines.some(l => l.accountCode === '10001' && l.credit > 0);
 
     if (hasKasDebit) {
       // Inflow
-      for (const l of trx.lines) {
+      for (const l of lines) {
         if (l.accountCode === '10001') continue;
         if (l.accountCode.startsWith('40') || l.accountCode === '10003') {
           cashFromCustomers += l.credit;
@@ -457,7 +483,7 @@ export function generateCashFlowStatement(accounts: Account[], transactions: Tra
 
     if (hasKasCredit) {
       // Outflow
-      for (const l of trx.lines) {
+      for (const l of lines) {
         if (l.accountCode === '10001') continue;
         if (l.accountCode === '10006' || l.accountCode === '10007' || l.accountCode === '10002') {
           cashForSupplies += l.debit;

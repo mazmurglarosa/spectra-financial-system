@@ -38,9 +38,16 @@ const MainContent: React.FC = () => {
 
   // If no user is logged in, show AuthGate
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    // Check if user session exists in sessionStorage or localStorage
-    const session = sessionStorage.getItem('spectra_auth_session_v1') || localStorage.getItem('spectra_auth_session_v1');
-    return !!session;
+    try {
+      const session = sessionStorage.getItem('spectra_auth_session_v1') || localStorage.getItem('spectra_auth_session_v1');
+      if (session && session !== 'null' && session !== 'undefined') {
+        const parsed = JSON.parse(session);
+        return Boolean(parsed && parsed.username);
+      }
+    } catch (e) {
+      console.warn('Session parse error:', e);
+    }
+    return false;
   });
 
   const handleOpenNewTransaction = (preset: TransactionType = 'general') => {

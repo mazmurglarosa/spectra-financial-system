@@ -1,5 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { Account, Transaction, CompanySettings, User, ActivityLog, Complaint, Contact, TransactionType } from '../types/accounting';
+import { 
+  Account, 
+  Transaction, 
+  CompanySettings, 
+  User, 
+  ActivityLog, 
+  Complaint, 
+  Contact, 
+  TransactionType,
+  AccountCategory,
+  ReportType,
+  NormalBalance
+} from '../types/accounting';
 import { defaultAccounts, defaultTransactions, initialCompanySettings } from '../data/defaultAccounts';
 
 export interface SyncStatus {
@@ -93,12 +105,93 @@ const BROADCAST_CHANNEL_NAME = 'spectra_realtime_sync_channel';
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
 
+function normalizeAccount(raw: any, index: number): Account {
+  if (!raw || typeof raw !== 'object') {
+    return defaultAccounts[index % defaultAccounts.length];
+  }
+  const code = String(raw.code || (10000 + index));
+  const name = String(raw.name || 'Akun');
+  const pos: ReportType = raw.pos === 'Lr' ? 'Lr' : 'Nrc';
+  const sn: NormalBalance = raw.sn === 'Kr' ? 'Kr' : 'Db';
+  const debetAwal = Number(raw.debetAwal ?? raw.debit ?? 0) || 0;
+  const kreditAwal = Number(raw.kreditAwal ?? raw.credit ?? 0) || 0;
+  const isHeader = raw.isHeader !== undefined ? Boolean(raw.isHeader) : raw.type === 'header';
+  
+  let category: AccountCategory = raw.category;
+  let categoryName = raw.categoryName || '';
+  
+  const num = parseInt(code, 10);
+  if (!category || typeof category !== 'string' || !category.includes('_')) {
+    if (num < 11000) { category = 'HARTA_LANCAR'; categoryName = 'Harta Lancar'; }
+    else if (num < 20000) { category = 'HARTA_TETAP'; categoryName = 'Harta Tetap'; }
+    else if (num < 21000) { category = 'UTANG_LANCAR'; categoryName = 'Utang Lancar'; }
+    else if (num < 30000) { category = 'UTANG_JANGKA_PANJANG'; categoryName = 'Utang Jangka Panjang'; }
+    else if (num < 40000) { category = 'EKUITAS'; categoryName = 'Modal / Ekuitas'; }
+    else if (num < 41000) { category = 'PENDAPATAN_OPERASIONAL'; categoryName = 'Pendapatan Operasional'; }
+    else if (num < 50000) { category = 'PENDAPATAN_NON_OPERASIONAL'; categoryName = 'Pendapatan Non Operasional'; }
+    else if (num < 60000) { category = 'BEBAN_OPERASIONAL'; categoryName = 'Beban Operasional'; }
+    else { category = 'BEBAN_NON_OPERASIONAL'; categoryName = 'Beban Lain-lain'; }
+  }
+
+  return {
+    id: raw.id || code,
+    code,
+    name,
+    category,
+    categoryName: categoryName || 'Akun',
+    pos,
+    sn,
+    debetAwal,
+    kreditAwal,
+    description: raw.description || '',
+    isHeader
+  };
+}
+
+function normalizeTransaction(raw: any, index: number): Transaction {
+  if (!raw || typeof raw !== 'object') {
+    return defaultTransactions[0];
+  }
+  const rawLines = Array.isArray(raw.lines) ? raw.lines : Array.isArray(raw.items) ? raw.items : [];
+  const lines = rawLines.map((l: any, lIdx: number) => ({
+    id: l.id || `line-${lIdx}`,
+    accountId: l.accountId || l.accountCode || '',
+    accountCode: l.accountCode || '',
+    accountName: l.accountName || '',
+    debit: Number(l.debit) || 0,
+    credit: Number(l.credit) || 0,
+    memo: l.memo || ''
+  }));
+
+  const totalDebit = Number(raw.totalDebit) || lines.reduce((s: number, l: any) => s + l.debit, 0);
+  const totalCredit = Number(raw.totalCredit) || lines.reduce((s: number, l: any) => s + l.credit, 0);
+
+  return {
+    id: raw.id || `tx-${Date.now()}-${index}`,
+    date: raw.date || new Date().toISOString().split('T')[0],
+    refNumber: raw.refNumber || raw.ref || `JU-${index + 1}`,
+    type: raw.type || 'general',
+    description: raw.description || '',
+    lines,
+    totalDebit,
+    totalCredit,
+    createdAt: Number(raw.createdAt) || Date.now(),
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+    partner: raw.partner || raw.contact || '-'
+  };
+}
+
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 1. Initialize State with safe fallbacks
+  // 1. Initialize State with safe fallbacks and normalization
   const [accounts, setAccounts] = useState<Account[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS) || localStorage.getItem('sikeu_coa_v3');
-      if (saved) return JSON.parse(saved);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((acc, idx) => normalizeAccount(acc, idx));
+        }
+      }
     } catch (e) {
       console.error('Failed to load accounts from storage:', e);
     }
@@ -108,7 +201,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || localStorage.getItem('sikeu_transactions_v3');
-      if (saved) return JSON.parse(saved);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((trx, idx) => normalizeTransaction(trx, idx));
+        }
+      }
     } catch (e) {
       console.error('Failed to load transactions from storage:', e);
     }
@@ -118,7 +216,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [settings, setSettings] = useState<CompanySettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS) || localStorage.getItem('sikeu_company_v3');
-      if (saved) return JSON.parse(saved);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return { ...initialCompanySettings, ...parsed };
+        }
+      }
     } catch (e) {
       console.error('Failed to load settings from storage:', e);
     }
@@ -128,7 +231,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [contacts, setContacts] = useState<Contact[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CONTACTS) || localStorage.getItem('sikeu_contacts_v3');
-      if (saved) return JSON.parse(saved);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {
       console.error('Failed to load contacts:', e);
     }
@@ -138,12 +244,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USERS) || localStorage.getItem('sikeu_users_v3');
-      if (saved) {
-        const parsed: User[] = JSON.parse(saved);
-        if (!parsed.some(u => u.username === 'admin' || u.username === 'administrator')) {
-          parsed.unshift(DEFAULT_SUPERADMIN);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (!parsed.some(u => u && (u.username === 'admin' || u.username === 'administrator'))) {
+            parsed.unshift(DEFAULT_SUPERADMIN);
+          }
+          return parsed;
         }
-        return parsed;
       }
     } catch (e) {
       console.error('Failed to load users:', e);
@@ -154,11 +262,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEYS.SESSION) || localStorage.getItem(STORAGE_KEYS.SESSION);
-      if (saved) return JSON.parse(saved);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && parsed.username) {
+          return parsed;
+        }
+      }
     } catch (e) {
       console.error('Failed to load current session:', e);
     }
-    // Default logged in as Superadmin for convenience
     return DEFAULT_SUPERADMIN;
   });
 
