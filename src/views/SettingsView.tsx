@@ -26,6 +26,7 @@ import {
 } from '../utils/accountingCalculations';
 import { ResetModal } from '../components/modals/ResetModal';
 import { PwaInstallBanner } from '../components/common/PwaInstallBanner';
+import { ApiIntegrationBanner } from '../components/common/ApiIntegrationBanner';
 import * as XLSX from 'xlsx';
 
 export const SettingsView: React.FC = () => {
@@ -364,6 +365,9 @@ export const SettingsView: React.FC = () => {
 
       {/* PWA Portal Installation Banner */}
       <PwaInstallBanner />
+
+      {/* REST API Integration Banner */}
+      <ApiIntegrationBanner />
 
       {/* Cloud & Full Online Status Card */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">

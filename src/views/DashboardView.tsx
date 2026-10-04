@@ -25,6 +25,7 @@ import {
 } from '../utils/accountingCalculations';
 import { ActiveTab } from '../components/layout/Sidebar';
 import { PwaInstallBanner } from '../components/common/PwaInstallBanner';
+import { ApiIntegrationBanner } from '../components/common/ApiIntegrationBanner';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -66,6 +67,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       
       {/* PWA Portal Banner */}
       <PwaInstallBanner />
+
+      {/* REST API Integration Banner */}
+      <ApiIntegrationBanner />
 
       {/* Top 4 Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
