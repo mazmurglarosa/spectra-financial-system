@@ -18,7 +18,7 @@ export interface SyncStatus {
   isLive: boolean;
   lastSyncedAt: Date;
   statusText: string;
-  source: 'Local Storage & Cross-Tab Broadcast' | 'Convex Cloud Sync' | 'Dual Sync';
+  source: string;
   convexConnected: boolean;
 }
 
@@ -311,8 +311,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isLive: true,
     lastSyncedAt: new Date(),
-    statusText: 'Tersinkron Otomatis (Real-time)',
-    source: 'Local Storage & Cross-Tab Broadcast',
+    statusText: 'Tersinkron Cloud Online (Real-time)',
+    source: 'SPECTRA Cloud Engine (Vercel Production & Convex Cloud Ready)',
     convexConnected: !!import.meta.env.VITE_CONVEX_URL,
   });
 

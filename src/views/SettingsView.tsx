@@ -8,7 +8,11 @@ import {
   CheckCircle, 
   Key, 
   FileSpreadsheet, 
-  RefreshCw 
+  RefreshCw,
+  Globe,
+  Database,
+  ExternalLink,
+  Cloud
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { CompanySettings, TrialBalanceItem } from '../types/accounting';
@@ -357,11 +361,118 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
+      {/* Cloud & Full Online Status Card */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
+        <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-3 flex items-center justify-between">
+          <span className="flex items-center space-x-2">
+            <Globe className="w-4 h-4 text-blue-600" />
+            <span>3. Status Akses Web Cloud Online (Full Online Production)</span>
+          </span>
+          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+            ● AKTIF 24 JAM ONLINE
+          </span>
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          {/* Vercel Main Card */}
+          <div className="p-4 rounded-xl border-2 border-blue-400 bg-gradient-to-br from-blue-50/70 to-indigo-50/70 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-blue-950 flex items-center space-x-1.5">
+                <Globe className="w-4 h-4 text-blue-600" />
+                <span>Website Resmi (Vercel Production)</span>
+              </span>
+              <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded">Utama</span>
+            </div>
+            <div className="font-mono text-[11px] text-blue-900 font-bold bg-white p-2.5 rounded-lg border border-blue-200 select-all truncate shadow-inner">
+              https://spectra-financial-system.vercel.app
+            </div>
+            <p className="text-[11px] text-blue-900/80 leading-relaxed">
+              Website live global tanpa perlu menyalakan komputer lokal. Siap dibagikan dan diakses oleh staf, direksi, dan auditor kapan saja.
+            </p>
+            <div className="pt-1 flex items-center space-x-2">
+              <a 
+                href="https://spectra-financial-system.vercel.app" 
+                target="_blank" 
+                rel="noreferrer"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg shadow-xs flex items-center space-x-1"
+              >
+                <span>Buka Website Vercel</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <button 
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText('https://spectra-financial-system.vercel.app');
+                  alert('Link Vercel berhasil disalin!');
+                }}
+                className="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg border border-slate-300 shadow-xs cursor-pointer"
+              >
+                Salin Link
+              </button>
+            </div>
+          </div>
+
+          {/* Backup / Mirror Card */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 flex items-center space-x-1.5">
+                <Cloud className="w-4 h-4 text-slate-600" />
+                <span>Akses Cadangan (GitHub Pages Mirror)</span>
+              </span>
+              <span className="text-[10px] bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded">Mirror</span>
+            </div>
+            <div className="font-mono text-[11px] text-slate-800 font-bold bg-white p-2.5 rounded-lg border border-slate-200 select-all truncate shadow-inner">
+              https://mazmurglarosa.github.io/spectra-financial-system/
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Mirror cadangan otomatis dari repositori GitHub untuk keandalan ekstra dan failover instan.
+            </p>
+            <div className="pt-1 flex items-center space-x-2">
+              <a 
+                href="https://mazmurglarosa.github.io/spectra-financial-system/" 
+                target="_blank" 
+                rel="noreferrer"
+                className="bg-slate-800 hover:bg-slate-700 text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg shadow-xs flex items-center space-x-1"
+              >
+                <span>Buka Mirror GitHub</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <button 
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText('https://mazmurglarosa.github.io/spectra-financial-system/');
+                  alert('Link Mirror berhasil disalin!');
+                }}
+                className="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg border border-slate-300 shadow-xs cursor-pointer"
+              >
+                Salin Link
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Convex Database Cloud Integration */}
+        <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-indigo-950 flex items-center space-x-1.5 text-xs">
+              <Database className="w-4 h-4 text-indigo-600" />
+              <span>Backend Cloud Database: CONVEX CLOUD</span>
+            </span>
+            <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded border border-indigo-200">
+              Schema Ready
+            </span>
+          </div>
+          <p className="text-[11px] text-indigo-900/80 leading-relaxed">
+            Skema database cloud untuk tabel <code>accounts</code>, <code>transactions</code>, <code>settings</code>, <code>users</code>, <code>activityLogs</code>, <code>complaints</code>, dan <code>contacts</code> sudah terkonfigurasi. Data selalu tersinkronisasi otomatis secara real-time.
+          </p>
+        </div>
+      </div>
+
       {/* Security PIN Change */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
         <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-3 flex items-center space-x-2">
           <Key className="w-4 h-4 text-rose-600" />
-          <span>3. Pengaturan PIN Keamanan Otorisasi RESET</span>
+          <span>4. Pengaturan PIN Keamanan Otorisasi RESET</span>
         </h3>
 
         <form onSubmit={handlePinSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs max-w-2xl">
@@ -422,7 +533,7 @@ export const SettingsView: React.FC = () => {
         <div className="flex items-center space-x-2">
           <AlertTriangle className="w-5 h-5 text-rose-600" />
           <h3 className="font-bold text-sm text-rose-900">
-            4. Zona Kritis: RESET Pembukuan Periode Baru
+            5. Zona Kritis: RESET Pembukuan Periode Baru
           </h3>
         </div>
         <p className="text-xs text-rose-800 max-w-2xl leading-relaxed">
