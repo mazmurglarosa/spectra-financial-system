@@ -225,4 +225,28 @@ body {
     margin-top: 3rem;
     page-break-inside: avoid;
   }
+  .page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+  .psak-sheet {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin-bottom: 2rem !important;
+  }
+}
+
+/* PSAK Accounting Double Underline */
+.double-underline {
+  border-bottom: 3px double #0f172a !important;
+  border-top: 1px solid #0f172a !important;
+  font-weight: 800 !important;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+  }
 }

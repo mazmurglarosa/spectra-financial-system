@@ -23,6 +23,7 @@ import { SettingsView } from './views/SettingsView';
 import { AdminPanelView } from './views/AdminPanelView';
 import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
+import { PsakReportView } from './views/PsakReportView';
 
 // Modals
 import { TransactionModal } from './components/modals/TransactionModal';
@@ -126,6 +127,8 @@ const MainContent: React.FC = () => {
         return <CashFlowView />;
       case 'ratios':
         return <FinancialRatiosView />;
+      case 'psak-report':
+        return <PsakReportView />;
       case 'settings':
         return <SettingsView />;
       case 'admin-panel':

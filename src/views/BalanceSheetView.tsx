@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download, Building, Printer, CheckCircle, AlertCircle } from 'lucide-react';
+import { Download, Building, Printer, CheckCircle, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateBalanceSheet, exportTableToExcel } from '../utils/accountingCalculations';
+import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
 
 export const BalanceSheetView: React.FC = () => {
   const { accounts, transactions, settings } = useAccounting();
@@ -79,12 +80,20 @@ export const BalanceSheetView: React.FC = () => {
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <button onClick={() => window.print()} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
             <Printer size={15} /> Cetak
           </button>
-          <button onClick={handleExport} className="btn btn-success" style={{ fontSize: '0.825rem' }}>
+          <button onClick={handleExport} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
             <Download size={15} /> Export Excel
+          </button>
+          <button 
+            onClick={() => exportFullPsakWorkbook(generatePsakReportData(accounts, transactions, settings))} 
+            className="btn btn-primary" 
+            style={{ fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            title="Unduh Laporan Keuangan Format Standar Publik / PSAK Resmi (Contoh Laporan Keuangan)"
+          >
+            <FileSpreadsheet size={15} /> Unduh Format PSAK (.xlsx)
           </button>
         </div>
       </div>

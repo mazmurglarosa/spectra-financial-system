@@ -110,6 +110,10 @@ export interface CompanySettings {
   email: string;
   directorName: string;
   accountantName: string;
+  preparerName?: string;
+  preparerTitle?: string;
+  approverName?: string;
+  approverTitle?: string;
   lastSyncedAt?: number;
   convexUrl?: string;
 }

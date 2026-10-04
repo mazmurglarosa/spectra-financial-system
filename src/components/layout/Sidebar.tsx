@@ -18,7 +18,8 @@ import {
   ShieldAlert, 
   AlertTriangle, 
   AlertCircle, 
-  Activity 
+  Activity,
+  Award 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -37,6 +38,7 @@ export type ActiveTab =
   | 'capital-changes'
   | 'cash-flow'
   | 'ratios'
+  | 'psak-report'
   | 'settings'
   | 'admin-panel'
   | 'authority-panel'
@@ -134,6 +136,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Laporan Keuangan */}
         <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
           Laporan Keuangan
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('psak-report')}
+          className={`nav-item ${activeTab === 'psak-report' ? '!bg-indigo-600 !text-white shadow-md' : 'text-amber-300 hover:text-white hover:bg-slate-800'}`}
+        >
+          <Award className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="font-semibold text-xs">Laporan Resmi (PSAK)</span>
+          <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            PUBLIK
+          </span>
         </div>
 
         <div 

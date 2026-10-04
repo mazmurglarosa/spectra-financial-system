@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download, DollarSign, Printer, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Download, DollarSign, Printer, ArrowUpRight, ArrowDownRight, FileSpreadsheet } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateCashFlowStatement, exportTableToExcel } from '../utils/accountingCalculations';
+import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
 
 export const CashFlowView: React.FC = () => {
   const { accounts, transactions, settings } = useAccounting();
@@ -49,12 +50,20 @@ export const CashFlowView: React.FC = () => {
   return (
     <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '960px', margin: '0 auto', width: '100%' }}>
       {/* Top Action Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px' }} className="no-print">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }} className="no-print">
         <button onClick={() => window.print()} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
           <Printer size={15} /> Cetak
         </button>
-        <button onClick={handleExport} className="btn btn-success" style={{ fontSize: '0.825rem' }}>
+        <button onClick={handleExport} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
           <Download size={15} /> Export Excel
+        </button>
+        <button 
+          onClick={() => exportFullPsakWorkbook(generatePsakReportData(accounts, transactions, settings))} 
+          className="btn btn-primary" 
+          style={{ fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+          title="Unduh Seluruh Laporan Keuangan Format Standar Publik / PSAK Resmi (Contoh Laporan Keuangan)"
+        >
+          <FileSpreadsheet size={15} /> Unduh Format PSAK (.xlsx)
         </button>
       </div>
 
