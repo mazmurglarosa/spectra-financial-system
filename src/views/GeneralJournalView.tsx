@@ -1,46 +1,73 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, Download, Calendar, CheckCircle, AlertCircle, Filter } from 'lucide-react';
+import { 
+  Search, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Download, 
+  Printer, 
+  BookOpen, 
+  CheckCircle2, 
+  AlertTriangle 
+} from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { Transaction } from '../types/accounting';
+import { Transaction, TransactionType } from '../types/accounting';
 import { formatRupiah, exportTableToExcel } from '../utils/accountingCalculations';
 
 interface GeneralJournalViewProps {
-  openNewTransactionModal: () => void;
+  openNewTransactionModal: (preset?: any) => void;
   onEditTransaction: (trx: Transaction) => void;
 }
 
-export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({ openNewTransactionModal, onEditTransaction }) => {
+export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({ 
+  openNewTransactionModal, 
+  onEditTransaction 
+}) => {
   const { transactions, deleteTransaction } = useAccounting();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(trx => {
-      const matchSearch = trx.refNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          trx.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (trx.partner && trx.partner.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          trx.lines.some(l => l.accountCode.includes(searchQuery) || l.accountName.toLowerCase().includes(searchQuery.toLowerCase()));
+      // Type filter
+      if (selectedType !== 'all') {
+        if (trx.type !== selectedType && !(selectedType === 'general' && !trx.type)) {
+          return false;
+        }
+      }
 
+      // Search match
+      const q = searchQuery.toLowerCase();
+      const matchSearch = 
+        !q ||
+        trx.refNumber.toLowerCase().includes(q) ||
+        trx.description.toLowerCase().includes(q) ||
+        (trx.partner && trx.partner.toLowerCase().includes(q)) ||
+        trx.lines.some(l => l.accountCode.includes(q) || l.accountName.toLowerCase().includes(q));
+
+      // Date match
       const matchDate = (!startDate || trx.date >= startDate) && (!endDate || trx.date <= endDate);
+
       return matchSearch && matchDate;
     });
-  }, [transactions, searchQuery, startDate, endDate]);
+  }, [transactions, selectedType, searchQuery, startDate, endDate]);
 
   const totalDebit = filteredTransactions.reduce((acc, t) => acc + t.totalDebit, 0);
   const totalCredit = filteredTransactions.reduce((acc, t) => acc + t.totalCredit, 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 1;
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
 
   const handleDelete = (trx: Transaction) => {
-    if (confirm(`Hapus transaksi ${trx.refNumber}: "${trx.description}"? Tindakan ini akan mengupdate semua buku besar dan laporan.`)) {
+    if (confirm(`Hapus transaksi ${trx.refNumber}: "${trx.description}"? Tindakan ini akan mengupdate semua buku besar dan laporan keuangan.`)) {
       deleteTransaction(trx.id);
     }
   };
 
   const handleExport = () => {
     const data: any[][] = [
-      ['TANGGAL', 'REF / NO. BUKTI', 'KETERANGAN', 'KODE AKUN', 'NAMA AKUN', 'DEBIT (RP)', 'KREDIT (RP)', 'PIHAK TERKAIT']
+      ['TANGGAL', 'REF / NO. BUKTI', 'TIPE', 'KETERANGAN', 'KODE AKUN', 'NAMA AKUN', 'DEBIT (RP)', 'KREDIT (RP)', 'PIHAK TERKAIT']
     ];
 
     filteredTransactions.forEach(trx => {
@@ -48,6 +75,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({ openNewT
         data.push([
           idx === 0 ? trx.date : '',
           idx === 0 ? trx.refNumber : '',
+          idx === 0 ? (trx.type || 'general') : '',
           idx === 0 ? trx.description : (line.memo || ''),
           line.accountCode,
           line.accountName,
@@ -58,199 +86,263 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({ openNewT
       });
     });
 
-    data.push(['', '', 'TOTAL BALANCE (Ʃ)', '', '', totalDebit, totalCredit, '']);
-
+    data.push(['', '', '', 'TOTAL BALANCE', '', '', totalDebit, totalCredit, '']);
     exportTableToExcel(data, `Jurnal_Umum_SPECTRA_${new Date().toISOString().split('T')[0]}`, 'Jurnal Umum');
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Top Filter and Action Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          {/* Search Input */}
-          <div style={{ position: 'relative', width: '280px' }}>
-            <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-            <input 
-              type="text" 
-              placeholder="Cari bukti, akun, keterangan..." 
-              value={searchQuery} 
-              onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '38px' }}
-            />
-          </div>
-
-          {/* Date range filters */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <input 
-              type="date" 
-              value={startDate} 
-              onChange={e => setStartDate(e.target.value)} 
-              style={{ width: '150px', fontSize: '0.8rem' }}
-              title="Dari Tanggal"
-            />
-            <span style={{ color: 'var(--text-muted)' }}>-</span>
-            <input 
-              type="date" 
-              value={endDate} 
-              onChange={e => setEndDate(e.target.value)} 
-              style={{ width: '150px', fontSize: '0.8rem' }}
-              title="Sampai Tanggal"
-            />
-            {(startDate || endDate) && (
-              <button 
-                onClick={() => { setStartDate(''); setEndDate(''); }}
-                className="btn-ghost"
-                style={{ fontSize: '0.75rem', padding: '6px' }}
-              >
-                Reset
-              </button>
-            )}
-          </div>
+    <div className="p-5 space-y-4 animate-fadeIn pb-12">
+      {/* Top Banner & Control Bar */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-xl shadow-xs border border-slate-200">
+        <div>
+          <h2 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+            <BookOpen className="w-5 h-5 text-blue-600" />
+            <span>Jurnal Umum & Jurnal Penyesuaian (AJP)</span>
+          </h2>
+          <p className="text-xs text-slate-500">
+            Daftar seluruh voucher transaksi keuangan dengan validasi keseimbangan debit-kredit otomatis.
+          </p>
         </div>
 
-        {/* Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={handleExport} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
-            <Download size={15} />
-            Export Excel
+        <div className="flex items-center space-x-2 flex-wrap gap-2">
+          <button 
+            type="button"
+            onClick={() => openNewTransactionModal('general')}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1.5 shadow transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Jurnal Baru</span>
           </button>
-          <button onClick={openNewTransactionModal} className="btn btn-primary" style={{ fontSize: '0.825rem' }}>
-            <Plus size={15} />
-            Catat Jurnal Baru
+
+          <button 
+            type="button"
+            onClick={handleExport}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1 border border-slate-300 transition cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export Excel</span>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => window.print()}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1 border border-slate-300 transition cursor-pointer"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Cetak</span>
           </button>
         </div>
       </div>
 
-      {/* Journal Table */}
-      <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        <div className="table-container" style={{ border: 'none', borderRadius: 0 }}>
-          <table>
+      {/* Filter Tabs & Search */}
+      <div className="bg-white p-3.5 rounded-xl shadow-xs border border-slate-200 space-y-3">
+        {/* Type Filter Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-3 text-xs">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-2">Tipe:</span>
+          {[
+            { id: 'all', label: 'Semua Transaksi' },
+            { id: 'general', label: 'Jurnal Umum (JU)' },
+            { id: 'adjustment', label: 'Penyesuaian (AJP)' },
+            { id: 'cash_in', label: 'Kas Masuk (KM)' },
+            { id: 'cash_out', label: 'Kas Keluar (KK)' },
+            { id: 'sales', label: 'Penjualan (FP)' },
+            { id: 'purchase', label: 'Pembelian (FB)' },
+          ].map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSelectedType(t.id)}
+              className={`px-3 py-1 rounded-md font-semibold transition cursor-pointer ${
+                selectedType === t.id 
+                  ? 'bg-blue-600 text-white shadow-xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search & Dates */}
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
+            <input 
+              type="text" 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Cari bukti, akun, keterangan, mitra..."
+              className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-900 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <input 
+              type="date" 
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white"
+            />
+            <span className="text-slate-400">-</span>
+            <input 
+              type="date" 
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white"
+            />
+          </div>
+
+          <div className="flex items-center space-x-2 text-xs">
+            <span className="font-semibold text-slate-500">Total Transaksi:</span>
+            <span className="font-bold text-slate-900 font-mono">{filteredTransactions.length}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Journal Table */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="table-accurate text-xs">
             <thead>
               <tr>
-                <th style={{ width: '11%' }}>Tanggal</th>
-                <th style={{ width: '10%' }}>No. Bukti</th>
-                <th style={{ width: '28%' }}>Keterangan / Akun</th>
-                <th style={{ width: '10%' }}>Kode Akun</th>
-                <th style={{ width: '17%', textAlign: 'right' }}>Debit (Rp)</th>
-                <th style={{ width: '17%', textAlign: 'right' }}>Kredit (Rp)</th>
-                <th style={{ width: '7%', textAlign: 'center' }} className="no-print">Aksi</th>
+                <th className="w-24">Tanggal</th>
+                <th className="w-24">No. Bukti</th>
+                <th>Keterangan Transaksi</th>
+                <th className="w-28">Kode Akun</th>
+                <th className="w-48">Nama Akun Perkiraan</th>
+                <th className="num w-32">Debit (Rp)</th>
+                <th className="num w-32">Kredit (Rp)</th>
+                <th className="text-center w-24 no-print">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={8} className="text-center py-8 text-xs text-slate-400">
                     Tidak ada transaksi jurnal yang ditemukan.
                   </td>
                 </tr>
               ) : (
-                filteredTransactions.map(trx => (
-                  <React.Fragment key={trx.id}>
-                    {/* Header Row for Transaction Voucher */}
-                    <tr style={{ backgroundColor: 'rgba(30, 41, 59, 0.4)', borderTop: '2px solid var(--border-medium)' }}>
-                      <td style={{ fontWeight: 700, fontSize: '0.825rem' }}>
-                        {trx.date}
-                      </td>
-                      <td>
-                        <span className="badge badge-info mono" style={{ fontSize: '0.75rem' }}>
-                          {trx.refNumber}
-                        </span>
-                      </td>
-                      <td colSpan={2}>
-                        <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
-                          {trx.description}
-                        </div>
-                        {trx.partner && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                            Pihak: {trx.partner}
-                          </div>
-                        )}
-                      </td>
-                      <td colSpan={2} style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Total: <strong className="mono" style={{ color: '#fff' }}>{formatRupiah(trx.totalDebit)}</strong>
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }} className="no-print">
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                          <button 
-                            onClick={() => onEditTransaction(trx)}
-                            className="btn-ghost"
-                            style={{ padding: '6px', borderRadius: '4px' }}
-                            title="Edit Jurnal"
-                          >
-                            <Edit2 size={14} color="var(--primary)" />
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(trx)}
-                            className="btn-ghost"
-                            style={{ padding: '6px', borderRadius: '4px' }}
-                            title="Hapus Jurnal"
-                          >
-                            <Trash2 size={14} color="#f43f5e" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                filteredTransactions.map(trx => {
+                  let badgeType = "bg-slate-100 text-slate-700";
+                  if (trx.type === "adjustment") badgeType = "bg-amber-100 text-amber-800";
+                  else if (trx.type === "cash_in") badgeType = "bg-emerald-100 text-emerald-800";
+                  else if (trx.type === "cash_out") badgeType = "bg-rose-100 text-rose-800";
+                  else if (trx.type === "sales") badgeType = "bg-blue-100 text-blue-800";
+                  else if (trx.type === "purchase") badgeType = "bg-purple-100 text-purple-800";
 
-                    {/* Detailed Account Lines */}
-                    {trx.lines.map((line, idx) => (
-                      <tr key={line.id || idx} style={{ borderBottom: idx === trx.lines.length - 1 ? '1px solid var(--border-medium)' : '1px solid var(--border-subtle)' }}>
-                        <td></td>
-                        <td></td>
-                        <td style={{ paddingLeft: line.credit > 0 ? '36px' : '16px' }}>
-                          <span style={{ color: line.credit > 0 ? 'var(--text-secondary)' : 'var(--text-main)', fontWeight: line.credit > 0 ? 400 : 500 }}>
+                  return (
+                    <React.Fragment key={trx.id}>
+                      {trx.lines.map((line, lIdx) => (
+                        <tr 
+                          key={line.id || lIdx}
+                          className={lIdx === 0 ? 'border-t border-slate-200' : ''}
+                        >
+                          {/* Tanggal (only on 1st line) */}
+                          <td className="font-mono text-slate-700">
+                            {lIdx === 0 ? trx.date : ''}
+                          </td>
+
+                          {/* No. Bukti & Type Badge (only on 1st line) */}
+                          <td>
+                            {lIdx === 0 && (
+                              <div>
+                                <span className="font-mono font-bold text-blue-600">{trx.refNumber}</span>
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded ml-1 font-semibold ${badgeType}`}>
+                                  {trx.type || 'general'}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Keterangan & Partner (only on 1st line) */}
+                          <td>
+                            {lIdx === 0 ? (
+                              <div>
+                                <div className="font-medium text-slate-900">{trx.description}</div>
+                                {trx.partner && (
+                                  <div className="text-[11px] text-slate-400">Mitra: {trx.partner}</div>
+                                )}
+                              </div>
+                            ) : (
+                              line.memo ? <span className="text-[11px] text-slate-400 italic">└ {line.memo}</span> : ''
+                            )}
+                          </td>
+
+                          {/* Kode Akun */}
+                          <td className="font-mono font-bold text-slate-700">
+                            {line.accountCode}
+                          </td>
+
+                          {/* Nama Akun */}
+                          <td className={line.credit > 0 ? 'pl-6 text-slate-800' : 'font-medium text-slate-900'}>
                             {line.accountName}
-                          </span>
-                          {line.memo && (
-                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                              ({line.memo})
-                            </span>
-                          )}
-                        </td>
-                        <td className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          {line.accountCode}
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: line.debit > 0 ? 600 : 400 }}>
-                          {line.debit > 0 ? formatRupiah(line.debit) : '-'}
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: line.credit > 0 ? 600 : 400 }}>
-                          {line.credit > 0 ? formatRupiah(line.credit) : '-'}
-                        </td>
-                        <td className="no-print"></td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))
+                          </td>
+
+                          {/* Debit */}
+                          <td className="num font-mono">
+                            {line.debit > 0 ? formatRupiah(line.debit) : '-'}
+                          </td>
+
+                          {/* Kredit */}
+                          <td className="num font-mono">
+                            {line.credit > 0 ? formatRupiah(line.credit) : '-'}
+                          </td>
+
+                          {/* Aksi (only on 1st line) */}
+                          <td className="text-center no-print">
+                            {lIdx === 0 && (
+                              <div className="flex items-center justify-center space-x-1">
+                                <button 
+                                  type="button"
+                                  onClick={() => onEditTransaction(trx)}
+                                  title="Edit Transaksi"
+                                  className="text-slate-500 hover:text-blue-600 p-1 rounded cursor-pointer"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => handleDelete(trx)}
+                                  title="Hapus Transaksi"
+                                  className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
-            {/* Total Balance Footer */}
-            <tfoot>
-              <tr style={{ backgroundColor: 'var(--bg-surface)', fontWeight: 700, fontSize: '0.9rem' }}>
-                <td colSpan={4} style={{ textAlign: 'right', padding: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                    {isBalanced ? (
-                      <CheckCircle size={18} color="#10b981" />
-                    ) : (
-                      <AlertCircle size={18} color="#f43f5e" />
-                    )}
-                    <span>TOTAL KESEIMBANGAN JURNAL (Ʃ Balance):</span>
-                  </div>
+            <tfoot className="total-row text-xs font-bold">
+              <tr>
+                <td colSpan={5} className="text-right uppercase p-2.5">
+                  TOTAL KESEIMBANGAN JURNAL:
                 </td>
-                <td className="mono" style={{ textAlign: 'right', color: '#34d399', padding: '16px' }}>
+                <td className="num font-mono p-2.5 text-slate-900">
                   {formatRupiah(totalDebit)}
                 </td>
-                <td className="mono" style={{ textAlign: 'right', color: '#34d399', padding: '16px' }}>
+                <td className="num font-mono p-2.5 text-slate-900">
                   {formatRupiah(totalCredit)}
                 </td>
-                <td className="no-print"></td>
+                <td className="text-center p-2.5 no-print">
+                  {isBalanced ? (
+                    <span className="text-emerald-700 font-bold flex items-center justify-center space-x-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Seimbang</span>
+                    </span>
+                  ) : (
+                    <span className="text-rose-700 font-bold flex items-center justify-center space-x-1">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Selisih</span>
+                    </span>
+                  )}
+                </td>
               </tr>
             </tfoot>
           </table>

@@ -36,10 +36,13 @@ export interface TransactionLine {
   memo?: string;
 }
 
+export type TransactionType = 'general' | 'adjustment' | 'cash_in' | 'cash_out' | 'sales' | 'purchase';
+
 export interface Transaction {
   id: string;
   date: string; // YYYY-MM-DD
-  refNumber: string; // e.g. JU-001, BKK-001
+  refNumber: string; // e.g. JU-001, BKK-001, AP-1, KM-1, KK-1, FP-1, FB-1
+  type?: TransactionType;
   description: string;
   lines: TransactionLine[];
   totalDebit: number;
@@ -48,6 +51,51 @@ export interface Transaction {
   updatedAt: number;
   tags?: string[];
   partner?: string; // Client or Vendor for subsidiary ledger
+}
+
+export interface User {
+  id: string;
+  username: string;
+  password?: string;
+  fullName: string;
+  position: string;
+  specialCode?: string;
+  role: 'admin' | 'user';
+  isAuthority: boolean;
+  status: 'active' | 'pending';
+  registeredAt: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  timestamp: string;
+  username: string;
+  fullName: string;
+  position: string;
+  action: string;
+  detail: string;
+}
+
+export interface Complaint {
+  id: string;
+  timestamp: string;
+  username: string;
+  fullName: string;
+  position: string;
+  subject: string;
+  message: string;
+  status: 'pending' | 'resolved';
+  response?: string;
+  respondedAt?: string;
+}
+
+export interface Contact {
+  id: string;
+  code: string;
+  name: string;
+  type: 'customer' | 'vendor';
+  phone?: string;
+  balance: number;
 }
 
 export interface CompanySettings {

@@ -1,143 +1,198 @@
-import React from 'react';
-import { Download, Printer, PlusCircle, Building2, Calendar, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  CheckCircle2, 
+  AlertTriangle, 
+  PlusCircle, 
+  Download, 
+  Printer, 
+  LogOut,
+  Radio
+} from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
-import { ActiveTab } from './Sidebar';
+import { calculateBalanceSheet, formatRupiah } from '../../utils/accountingCalculations';
+import { SyncInfoModal } from '../modals/SyncInfoModal';
 
 interface HeaderProps {
-  activeTab: ActiveTab;
-  openNewTransactionModal: () => void;
-  onExportExcel?: () => void;
+  openNewTransactionModal: (preset?: any) => void;
+  onLogout?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeTab, openNewTransactionModal, onExportExcel }) => {
-  const { settings, syncStatus } = useAccounting();
+export const Header: React.FC<HeaderProps> = ({ 
+  openNewTransactionModal, 
+  onLogout 
+}) => {
+  const { 
+    settings, 
+    accounts, 
+    transactions, 
+    currentUser, 
+    exportDatabaseJson, 
+    logout 
+  } = useAccounting();
 
-  const getPageInfo = (tab: ActiveTab) => {
-    switch (tab) {
-      case 'dashboard':
-        return { title: 'Dashboard Keuangan', desc: 'Ringkasan posisi keuangan, likuiditas, laba rugi, dan aktivitas terkini.' };
-      case 'accounts':
-        return { title: 'Bagan Akun (Chart of Accounts)', desc: 'Daftar kode akun, klasifikasi posisi neraca/laba rugi, dan saldo awal.' };
-      case 'journal':
-        return { title: 'Jurnal Umum (General Journal)', desc: 'Pencatatan bukti transaksi debit dan kredit berpasangan dengan validasi seimbang.' };
-      case 'ledger':
-        return { title: 'Buku Besar (General Ledger)', desc: 'Rincian mutasi debit/kredit dan saldo berjalan per akun akuntansi.' };
-      case 'subsidiary-ledger':
-        return { title: 'Buku Pembantu Piutang & Hutang', desc: 'Pengawasan saldo piutang pelanggan dan kewajiban hutang pemasok.' };
-      case 'trial-balance':
-        return { title: 'Neraca Saldo (Trial Balance)', desc: 'Kompilasi saldo akhir seluruh akun dan pembuktian keseimbangan debit-kredit.' };
-      case 'worksheet':
-        return { title: 'Neraca Lajur (10-Column Worksheet)', desc: 'Kertas kerja komprehensif dari neraca saldo, penyesuaian, hingga laba rugi dan neraca.' };
-      case 'income-statement':
-        return { title: 'Laporan Laba Rugi (Profit & Loss)', desc: 'Perhitungan pendapatan operasional, beban usaha, dan laba bersih periode berjalan.' };
-      case 'balance-sheet':
-        return { title: 'Laporan Posisi Keuangan (Neraca)', desc: 'Penyajian aset, liabilitas, dan ekuitas perusahaan dengan persamaan akuntansi seimbang.' };
-      case 'capital-statement':
-        return { title: 'Laporan Perubahan Modal', desc: 'Pergerakan ekuitas pemilik dari modal awal, penambahan laba, dan penarikan prive.' };
-      case 'cash-flow':
-        return { title: 'Laporan Arus Kas (Cash Flow)', desc: 'Aliran kas bersih dari aktivitas operasi, investasi, dan pendanaan.' };
-      case 'financial-ratios':
-        return { title: 'Analisis Rasio Keuangan', desc: 'Evaluasi kesehatan finansial berdasarkan rasio likuiditas, solvabilitas, dan profitabilitas.' };
-      case 'closing-journal':
-        return { title: 'Jurnal Penutup & Neraca Akhir', desc: 'Penutupan akun nominal pendapatan dan beban ke ekuitas modal.' };
-      case 'settings':
-        return { title: 'Pengaturan Perusahaan & Sinkronisasi', desc: 'Konfigurasi profil entitas, cloud database Convex, dan cadangan data.' };
-      default:
-        return { title: 'SPECTRA Financial System', desc: 'Sistem Pencatatan dan Pelaporan Keuangan Otomatis' };
-    }
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
+  // Global balance verification matching SIKEU
+  const balanceSheet = calculateBalanceSheet(accounts, transactions);
+  const isBalanced = balanceSheet.isBalanced;
+  const balanceDiff = balanceSheet.difference;
+
+  const handleBackup = () => {
+    const jsonStr = exportDatabaseJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SPECTRA_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const { title, desc } = getPageInfo(activeTab);
+  const handleLogoutClick = () => {
+    if (confirm("Apakah Anda yakin ingin keluar (logout) dari SPECTRA?")) {
+      logout();
+      if (onLogout) onLogout();
+    }
+  };
 
   const handlePrint = () => {
     window.print();
   };
 
   return (
-    <header style={{
-      padding: '20px 32px',
-      borderBottom: '1px solid var(--border-subtle)',
-      backgroundColor: 'rgba(15, 23, 42, 0.75)',
-      backdropFilter: 'blur(12px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      position: 'sticky',
-      top: 0,
-      zIndex: 40
-    }} className="no-print">
-      {/* Title & Description */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <h2 style={{ fontSize: '1.35rem', margin: 0 }}>{title}</h2>
-          <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
-            <ShieldCheck size={13} />
-            Auto-Sync Aktif
-          </span>
-        </div>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-          {desc}
-        </p>
-      </div>
-
-      {/* Meta info & Action Buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        {/* Company & Period Pill */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          padding: '6px 14px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-md)',
-          fontSize: '0.78rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
-            <Building2 size={14} color="var(--primary)" />
-            {settings.companyName}
+    <>
+      <header 
+        id="top-nav" 
+        className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md no-print"
+      >
+        <div className="px-4 py-2 flex items-center justify-between flex-wrap gap-2">
+          
+          {/* Brand Info */}
+          <div className="flex items-center space-x-3.5">
+            <div className="bg-white p-1 rounded-md shadow-xs border border-slate-700/50 flex items-center justify-center">
+              <img 
+                src="./assets/NBE.png" 
+                alt="Logo NBE" 
+                className="h-9 w-auto object-contain"
+                onError={(e) => {
+                  // Fallback if relative path fails
+                  (e.target as HTMLImageElement).src = './NBE.png';
+                }}
+              />
+            </div>
+            <div>
+              <h1 className="font-bold text-sm leading-tight text-white flex items-center space-x-2">
+                <span className="text-blue-400 font-black tracking-wider text-base">SPECTRA</span>
+                <span className="text-xs text-slate-400 font-medium">| {settings.companyName}</span>
+                <span className="text-[11px] bg-blue-950/80 text-blue-300 px-2 py-0.5 rounded font-mono border border-blue-800/60 shadow-xs">
+                  Accurate Edition
+                </span>
+              </h1>
+              <p className="text-[11px] text-slate-400">
+                Sistem Pencatatan dan Evaluasi Keuangan Terpadu & Akurat &bull; Periode: <span className="font-semibold text-slate-200">{settings.fiscalPeriod}</span>
+              </p>
+            </div>
           </div>
-          <div style={{ height: '14px', width: '1px', background: 'var(--border-medium)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-            <Calendar size={14} />
-            {settings.fiscalPeriod}
+
+          {/* Action Bar & Indicators */}
+          <div className="flex items-center space-x-2.5 flex-wrap">
+            
+            {/* Balance Status Badge */}
+            <div 
+              className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-xs transition-all duration-300 ${
+                isBalanced 
+                  ? 'badge-balanced' 
+                  : 'badge-unbalanced'
+              }`}
+            >
+              {isBalanced ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                  <span>STATUS: BALANCE ✓</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-4 h-4 text-rose-700" />
+                  <span>STATUS: UNBALANCED (Selisih: {formatRupiah(balanceDiff)})</span>
+                </>
+              )}
+            </div>
+
+            {/* Sync Badge Button */}
+            <button 
+              type="button"
+              onClick={() => setIsSyncModalOpen(true)}
+              title="Klik untuk Informasi Koneksi & Akses Web HP/Laptop" 
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 transition hover:bg-emerald-900/80 cursor-pointer shadow-xs"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Tersinkron (Web & App)</span>
+            </button>
+
+            {/* + Jurnal Baru Button */}
+            <button 
+              type="button"
+              onClick={() => openNewTransactionModal('general')}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded flex items-center space-x-1.5 shadow transition cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>+ Jurnal Baru</span>
+            </button>
+
+            {/* Backup Button */}
+            <button 
+              type="button"
+              onClick={handleBackup}
+              title="Cadangkan Seluruh Data ke File JSON" 
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-slate-700 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Backup</span>
+            </button>
+
+            {/* Print Button */}
+            <button 
+              type="button"
+              onClick={handlePrint}
+              title="Cetak Halaman Ini" 
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-slate-700 transition cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak</span>
+            </button>
+
+            <div className="h-5 w-px bg-slate-700 mx-1"></div>
+
+            {/* User Profile Badge & Logout */}
+            <div className="flex items-center space-x-2 pl-1">
+              <div className="text-right">
+                <div className="text-xs font-bold text-white leading-tight">
+                  {currentUser ? currentUser.fullName : 'Admin'}
+                </div>
+                <div className="text-[10px] text-amber-400 font-semibold leading-tight">
+                  {currentUser?.role === 'admin' ? `👑 ${currentUser.position}` : currentUser?.position || 'Administrator'}
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={handleLogoutClick}
+                title="Keluar dari Akun" 
+                className="bg-rose-950/60 hover:bg-rose-800 text-rose-200 hover:text-white text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-rose-800/80 transition shadow-xs cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
+            </div>
+
           </div>
         </div>
+      </header>
 
-        {/* Print Button */}
-        <button 
-          onClick={handlePrint}
-          className="btn btn-outline"
-          style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-          title="Cetak Laporan / Simpan PDF"
-        >
-          <Printer size={15} />
-          Cetak
-        </button>
-
-        {/* Export Excel Button */}
-        {onExportExcel && (
-          <button 
-            onClick={onExportExcel}
-            className="btn btn-success"
-            style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-            title="Unduh format Microsoft Excel (.xlsx)"
-          >
-            <Download size={15} />
-            Export Excel
-          </button>
-        )}
-
-        {/* Quick Add Journal Button */}
-        <button 
-          onClick={openNewTransactionModal}
-          className="btn btn-primary"
-          style={{ padding: '8px 16px', fontSize: '0.8rem' }}
-        >
-          <PlusCircle size={15} />
-          Input Jurnal
-        </button>
-      </div>
-    </header>
+      {/* Sync Modal */}
+      <SyncInfoModal 
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+      />
+    </>
   );
 };

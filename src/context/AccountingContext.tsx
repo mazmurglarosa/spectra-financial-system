@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { Account, Transaction, CompanySettings } from '../types/accounting';
+import { Account, Transaction, CompanySettings, User, ActivityLog, Complaint, Contact, TransactionType } from '../types/accounting';
 import { defaultAccounts, defaultTransactions, initialCompanySettings } from '../data/defaultAccounts';
 
-interface SyncStatus {
+export interface SyncStatus {
   isLive: boolean;
   lastSyncedAt: Date;
   statusText: string;
@@ -10,27 +10,85 @@ interface SyncStatus {
   convexConnected: boolean;
 }
 
+export const DEFAULT_SUPERADMIN: User = {
+  id: "usr-admin-master",
+  username: "admin",
+  password: "Ringgo5t@r",
+  fullName: "Administrator",
+  position: "Administrator Sistem",
+  specialCode: "MASTER-SPECTRA-2026",
+  role: "admin",
+  isAuthority: true,
+  status: "active",
+  registeredAt: "24/09/2026, 00.00"
+};
+
+export const DEFAULT_CONTACTS: Contact[] = [
+  { id: "c-001", code: "CUST-001", name: "Andi Transport Service", type: "customer", phone: "08123456789", balance: 500000 },
+  { id: "c-002", code: "CUST-002", name: "CV Mitra Sejati", type: "customer", phone: "08198765432", balance: 0 },
+  { id: "v-001", code: "VEND-001", name: "Toko ATK Sejahtera", type: "vendor", phone: "08561234567", balance: 0 },
+  { id: "v-002", code: "VEND-002", name: "PT Sumber Perlengkapan", type: "vendor", phone: "08771122334", balance: 0 }
+];
+
 interface AccountingContextType {
   accounts: Account[];
   transactions: Transaction[];
   settings: CompanySettings;
+  contacts: Contact[];
   syncStatus: SyncStatus;
+  users: User[];
+  currentUser: User | null;
+  securityPin: string;
+  activityLogs: ActivityLog[];
+  complaints: Complaint[];
+  
+  // Transaction CRUD
   addTransaction: (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>) => Transaction;
   updateTransaction: (id: string, trx: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
+  getNextRefNumber: (type: TransactionType) => string;
+
+  // Account CRUD
   addAccount: (acc: Omit<Account, 'id'>) => Account;
   updateAccount: (id: string, acc: Partial<Account>) => void;
   deleteAccount: (id: string) => { success: boolean; message?: string };
+
+  // Settings & DB
   updateSettings: (newSettings: Partial<CompanySettings>) => void;
   resetToDefault: () => void;
+  resetWithPin: (pin: string) => { success: boolean; message: string };
+  changePin: (oldPin: string, newPin: string) => { success: boolean; message: string };
   exportDatabaseJson: () => string;
   importDatabaseJson: (jsonStr: string) => { success: boolean; message: string };
   triggerManualSync: () => void;
+
+  // Auth & User Management
+  login: (username: string, pass: string) => { success: boolean; message: string; user?: User; isPending?: boolean };
+  register: (user: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => { success: boolean; message: string };
+  logout: () => void;
+  approveUser: (userId: string) => void;
+  rejectUser: (userId: string) => void;
+  deleteUser: (userId: string) => void;
+  toggleAuthority: (userId: string) => void;
+
+  // Logs & Complaints
+  logActivity: (action: string, detail: string) => void;
+  submitComplaint: (subject: string, message: string) => void;
+  respondComplaint: (complaintId: string, response: string) => void;
 }
 
-const STORAGE_KEY_ACCOUNTS = 'spectra_accounts_v1';
-const STORAGE_KEY_TRANSACTIONS = 'spectra_transactions_v1';
-const STORAGE_KEY_SETTINGS = 'spectra_settings_v1';
+const STORAGE_KEYS = {
+  ACCOUNTS: 'spectra_accounts_v1',
+  TRANSACTIONS: 'spectra_transactions_v1',
+  SETTINGS: 'spectra_settings_v1',
+  USERS: 'spectra_users_v1',
+  SESSION: 'spectra_auth_session_v1',
+  PIN: 'spectra_security_pin_v1',
+  LOGS: 'spectra_activity_logs_v1',
+  COMPLAINTS: 'spectra_complaints_v1',
+  CONTACTS: 'spectra_contacts_v1'
+};
+
 const BROADCAST_CHANNEL_NAME = 'spectra_realtime_sync_channel';
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -39,7 +97,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // 1. Initialize State with safe fallbacks
   const [accounts, setAccounts] = useState<Account[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+      const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS) || localStorage.getItem('sikeu_coa_v3');
       if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error('Failed to load accounts from storage:', e);
@@ -49,7 +107,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_TRANSACTIONS);
+      const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || localStorage.getItem('sikeu_transactions_v3');
       if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error('Failed to load transactions from storage:', e);
@@ -59,7 +117,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [settings, setSettings] = useState<CompanySettings>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
+      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS) || localStorage.getItem('sikeu_company_v3');
       if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error('Failed to load settings from storage:', e);
@@ -67,10 +125,81 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return initialCompanySettings;
   });
 
+  const [contacts, setContacts] = useState<Contact[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CONTACTS) || localStorage.getItem('sikeu_contacts_v3');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to load contacts:', e);
+    }
+    return DEFAULT_CONTACTS;
+  });
+
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.USERS) || localStorage.getItem('sikeu_users_v3');
+      if (saved) {
+        const parsed: User[] = JSON.parse(saved);
+        if (!parsed.some(u => u.username === 'admin' || u.username === 'administrator')) {
+          parsed.unshift(DEFAULT_SUPERADMIN);
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load users:', e);
+    }
+    return [DEFAULT_SUPERADMIN];
+  });
+
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEYS.SESSION) || localStorage.getItem(STORAGE_KEYS.SESSION);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to load current session:', e);
+    }
+    // Default logged in as Superadmin for convenience
+    return DEFAULT_SUPERADMIN;
+  });
+
+  const [securityPin, setSecurityPin] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEYS.PIN) || localStorage.getItem('spectra_security_pin_v3') || '1234';
+  });
+
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.LOGS) || localStorage.getItem('sikeu_activity_logs_v3');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to load activity logs:', e);
+    }
+    return [
+      {
+        id: "log-init",
+        timestamp: new Date().toLocaleString("id-ID", { dateStyle: "short", timeStyle: "medium" }),
+        username: "admin",
+        fullName: "Administrator",
+        position: "Administrator Sistem",
+        action: "Inisialisasi Sistem",
+        detail: "Sistem SPECTRA Accurate Edition aktif dan tersinkronisasi."
+      }
+    ];
+  });
+
+  const [complaints, setComplaints] = useState<Complaint[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.COMPLAINTS) || localStorage.getItem('sikeu_complaints_v3');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to load complaints:', e);
+    }
+    return [];
+  });
+
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isLive: true,
     lastSyncedAt: new Date(),
-    statusText: 'Tersingkron Otomatis (Real-time)',
+    statusText: 'Tersinkron Otomatis (Real-time)',
     source: 'Local Storage & Cross-Tab Broadcast',
     convexConnected: !!import.meta.env.VITE_CONVEX_URL,
   });
@@ -87,7 +216,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return null;
   }, []);
 
-  const broadcastChange = useCallback((type: 'ACCOUNTS' | 'TRANSACTIONS' | 'SETTINGS' | 'ALL', payload: any) => {
+  const broadcastChange = useCallback((type: string, payload: any) => {
     if (broadcastChannel) {
       try {
         broadcastChannel.postMessage({ type, payload, timestamp: Date.now() });
@@ -98,7 +227,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSyncStatus(prev => ({
       ...prev,
       lastSyncedAt: new Date(),
-      statusText: 'Tersingkron Otomatis'
+      statusText: 'Tersinkron Otomatis'
     }));
   }, [broadcastChannel]);
 
@@ -110,26 +239,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { type, payload } = event.data || {};
       if (type === 'ACCOUNTS' && Array.isArray(payload)) {
         setAccounts(payload);
-        localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(payload));
+        localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(payload));
       } else if (type === 'TRANSACTIONS' && Array.isArray(payload)) {
         setTransactions(payload);
-        localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(payload));
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(payload));
       } else if (type === 'SETTINGS' && payload) {
         setSettings(payload);
-        localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(payload));
-      } else if (type === 'ALL' && payload) {
-        if (payload.accounts) {
-          setAccounts(payload.accounts);
-          localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(payload.accounts));
-        }
-        if (payload.transactions) {
-          setTransactions(payload.transactions);
-          localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(payload.transactions));
-        }
-        if (payload.settings) {
-          setSettings(payload.settings);
-          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(payload.settings));
-        }
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(payload));
+      } else if (type === 'USERS' && Array.isArray(payload)) {
+        setUsers(payload);
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(payload));
+      } else if (type === 'LOGS' && Array.isArray(payload)) {
+        setActivityLogs(payload);
+        localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(payload));
+      } else if (type === 'COMPLAINTS' && Array.isArray(payload)) {
+        setComplaints(payload);
+        localStorage.setItem(STORAGE_KEYS.COMPLAINTS, JSON.stringify(payload));
       }
       setSyncStatus(prev => ({
         ...prev,
@@ -144,233 +269,422 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [broadcastChannel]);
 
-  // Periodic heartbeat synchronization to assure user of zero data loss
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSyncStatus(prev => ({
-        ...prev,
-        isLive: true,
-        lastSyncedAt: new Date(),
-        statusText: 'Selalu Singkron'
-      }));
-    }, 15000);
-    return () => clearInterval(timer);
-  }, []);
+  // Helper to log activities
+  const logActivity = useCallback((action: string, detail: string) => {
+    const newLog: ActivityLog = {
+      id: "log-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+      timestamp: new Date().toLocaleString("id-ID", { dateStyle: "short", timeStyle: "medium" }),
+      username: currentUser ? currentUser.username : "admin",
+      fullName: currentUser ? currentUser.fullName : "Administrator",
+      position: currentUser ? currentUser.position : "Administrator Sistem",
+      action,
+      detail
+    };
+    setActivityLogs(prev => {
+      const updated = [newLog, ...prev.slice(0, 499)];
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(updated));
+      broadcastChange('LOGS', updated);
+      return updated;
+    });
+  }, [currentUser, broadcastChange]);
 
-  // 3. CRUD: Transactions
-  const addTransaction = useCallback((newTrxData: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Transaction => {
-    const now = Date.now();
-    const newTrx: Transaction = {
-      ...newTrxData,
-      id: `trx_${now}_${Math.random().toString(36).substring(2, 7)}`,
-      createdAt: now,
-      updatedAt: now,
+  // Transaction CRUD
+  const getNextRefNumber = useCallback((type: TransactionType) => {
+    const prefix = 
+      type === 'adjustment' ? 'AP-' :
+      type === 'cash_in' ? 'KM-' :
+      type === 'cash_out' ? 'KK-' :
+      type === 'sales' ? 'FP-' :
+      type === 'purchase' ? 'FB-' : 'JU-';
+    
+    const count = transactions.filter(t => t.refNumber?.startsWith(prefix) || t.type === type).length + 1;
+    return `${prefix}${count}`;
+  }, [transactions]);
+
+  const addTransaction = useCallback((trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Transaction => {
+    const newTx: Transaction = {
+      ...trx,
+      id: 'tx-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      type: trx.type || 'general',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
 
     setTransactions(prev => {
-      const updated = [newTrx, ...prev];
-      localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(updated));
+      const updated = [...prev, newTx];
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
       broadcastChange('TRANSACTIONS', updated);
       return updated;
     });
 
-    return newTrx;
-  }, [broadcastChange]);
+    logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
+    return newTx;
+  }, [broadcastChange, logActivity]);
 
-  const updateTransaction = useCallback((id: string, trxData: Partial<Transaction>) => {
+  const updateTransaction = useCallback((id: string, trx: Partial<Transaction>) => {
     setTransactions(prev => {
-      const updated = prev.map(t => {
-        if (t.id === id) {
-          return {
-            ...t,
-            ...trxData,
-            updatedAt: Date.now()
-          };
-        }
-        return t;
-      });
-      localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(updated));
+      const updated = prev.map(t => t.id === id ? { ...t, ...trx, updatedAt: Date.now() } : t);
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
       broadcastChange('TRANSACTIONS', updated);
       return updated;
     });
-  }, [broadcastChange]);
+    logActivity('Edit Jurnal', `Memperbarui transaksi ID: ${id}`);
+  }, [broadcastChange, logActivity]);
 
   const deleteTransaction = useCallback((id: string) => {
+    const target = transactions.find(t => t.id === id);
     setTransactions(prev => {
       const updated = prev.filter(t => t.id !== id);
-      localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(updated));
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
       broadcastChange('TRANSACTIONS', updated);
       return updated;
     });
-  }, [broadcastChange]);
+    logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
+  }, [transactions, broadcastChange, logActivity]);
 
-  // 4. CRUD: Accounts
-  const addAccount = useCallback((newAccData: Omit<Account, 'id'>): Account => {
+  // Account CRUD
+  const addAccount = useCallback((acc: Omit<Account, 'id'>): Account => {
     const newAcc: Account = {
-      ...newAccData,
-      id: `acc_${newAccData.code}_${Date.now()}`
+      ...acc,
+      id: 'acc-' + acc.code
     };
-
     setAccounts(prev => {
       const updated = [...prev, newAcc].sort((a, b) => a.code.localeCompare(b.code));
-      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(updated));
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
-
+    logActivity('Tambah Akun', `Menambah akun baru: ${newAcc.code} - ${newAcc.name}`);
     return newAcc;
-  }, [broadcastChange]);
+  }, [broadcastChange, logActivity]);
 
-  const updateAccount = useCallback((id: string, accData: Partial<Account>) => {
+  const updateAccount = useCallback((id: string, acc: Partial<Account>) => {
     setAccounts(prev => {
-      const updated = prev.map(a => (a.id === id ? { ...a, ...accData } : a));
-      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(updated));
+      const updated = prev.map(a => a.id === id ? { ...a, ...acc } : a);
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
-  }, [broadcastChange]);
+    logActivity('Edit Akun', `Memperbarui akun ID: ${id}`);
+  }, [broadcastChange, logActivity]);
 
   const deleteAccount = useCallback((id: string): { success: boolean; message?: string } => {
-    const accountToDelete = accounts.find(a => a.id === id);
-    if (!accountToDelete) return { success: false, message: 'Akun tidak ditemukan' };
+    const target = accounts.find(a => a.id === id);
+    if (!target) return { success: false, message: 'Akun tidak ditemukan' };
 
-    // Check if account is used in any transactions
+    // Check if account has transactions
     const hasTransactions = transactions.some(t => 
-      t.lines.some(l => l.accountId === id || l.accountCode === accountToDelete.code)
+      t.lines.some(l => l.accountId === id || l.accountCode === target.code)
     );
-
     if (hasTransactions) {
-      return { 
-        success: false, 
-        message: `Akun "${accountToDelete.code} - ${accountToDelete.name}" telah digunakan dalam transaksi dan tidak dapat dihapus untuk menjaga integritas pembukuan.` 
-      };
+      return { success: false, message: `Akun ${target.code} - ${target.name} tidak dapat dihapus karena sudah memiliki riwayat mutasi jurnal!` };
     }
 
     setAccounts(prev => {
       const updated = prev.filter(a => a.id !== id);
-      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(updated));
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
-
+    logActivity('Hapus Akun', `Menghapus akun: ${target.code} - ${target.name}`);
     return { success: true };
-  }, [accounts, transactions, broadcastChange]);
+  }, [accounts, transactions, broadcastChange, logActivity]);
 
-  // 5. Settings
+  // Settings & Reset
   const updateSettings = useCallback((newSettings: Partial<CompanySettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(updated));
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       broadcastChange('SETTINGS', updated);
       return updated;
     });
-  }, [broadcastChange]);
+    logActivity('Pengaturan Perusahaan', 'Memperbarui profil atau konfigurasi entitas');
+  }, [broadcastChange, logActivity]);
 
-  // 6. Reset to Default Template
   const resetToDefault = useCallback(() => {
     setAccounts(defaultAccounts);
     setTransactions(defaultTransactions);
     setSettings(initialCompanySettings);
+    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(defaultAccounts));
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(defaultTransactions));
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(initialCompanySettings));
+    broadcastChange('ALL', { accounts: defaultAccounts, transactions: defaultTransactions, settings: initialCompanySettings });
+    logActivity('Reset Sistem', 'Mengembalikan data ke template bawaan SIKEU PT BARU');
+  }, [broadcastChange, logActivity]);
 
-    localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(defaultAccounts));
-    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(defaultTransactions));
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(initialCompanySettings));
+  const resetWithPin = useCallback((pin: string): { success: boolean; message: string } => {
+    if (pin.trim() !== securityPin.trim()) {
+      return { success: false, message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
+    }
 
-    broadcastChange('ALL', {
-      accounts: defaultAccounts,
-      transactions: defaultTransactions,
-      settings: initialCompanySettings
-    });
-  }, [broadcastChange]);
+    // Clear all transactions
+    setTransactions([]);
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
 
-  // 7. Backup & Restore
-  const exportDatabaseJson = useCallback(() => {
-    const backupData = {
-      system: 'SPECTRA-Financial System',
-      version: '1.0.0',
-      exportedAt: new Date().toISOString(),
-      settings,
-      accounts,
-      transactions
+    // Zero out all accounts
+    const zeroed = accounts.map(a => ({
+      ...a,
+      debetAwal: 0,
+      kreditAwal: 0
+    }));
+    setAccounts(zeroed);
+    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(zeroed));
+
+    broadcastChange('TRANSACTIONS', []);
+    broadcastChange('ACCOUNTS', zeroed);
+    logActivity('RESET PEMBUKUAN (KRITIS)', 'Seluruh transaksi jurnal dihapus dan saldo nominal dinol-kan (Rp 0) dengan otorisasi PIN.');
+
+    return { 
+      success: true, 
+      message: 'SUKSES: Seluruh jurnal telah dihapus dan seluruh saldo nominal akun telah dinol-kan (Rp 0). Sistem SPECTRA siap untuk periode baru!' 
     };
+  }, [securityPin, accounts, broadcastChange, logActivity]);
+
+  const changePin = useCallback((oldPin: string, newPin: string): { success: boolean; message: string } => {
+    if (oldPin.trim() !== securityPin.trim()) {
+      return { success: false, message: 'PIN Saat Ini salah! Gagal memperbarui PIN.' };
+    }
+    if (newPin.trim().length < 4) {
+      return { success: false, message: 'PIN Baru minimal 4 karakter/digit.' };
+    }
+    setSecurityPin(newPin.trim());
+    localStorage.setItem(STORAGE_KEYS.PIN, newPin.trim());
+    logActivity('Ganti PIN', 'Memperbarui PIN otorisasi keamanan RESET');
+    return { success: true, message: 'PIN Keamanan berhasil diperbarui!' };
+  }, [securityPin, logActivity]);
+
+  // Auth & User Management
+  const login = useCallback((username: string, pass: string) => {
+    const cleanUser = username.trim().toLowerCase();
+    let found = users.find(u => u.username.toLowerCase() === cleanUser);
+    if (!found && (cleanUser === 'admin' || cleanUser === 'administrator')) {
+      found = users.find(u => u.role === 'admin');
+    }
+
+    if (!found) {
+      return { success: false, message: 'Nama akun (username) tidak ditemukan! Silakan periksa kembali atau ajukan pendaftaran akun baru.' };
+    }
+    if (found.password !== pass) {
+      return { success: false, message: 'Password akun salah! Silakan coba lagi.' };
+    }
+    if (found.status === 'pending') {
+      return { 
+        success: false, 
+        isPending: true,
+        message: 'Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.' 
+      };
+    }
+
+    setCurrentUser(found);
+    sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(found));
+    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(found));
+    logActivity('Login', `${found.fullName} (${found.position}) berhasil masuk ke sistem`);
+    return { success: true, message: 'Login berhasil', user: found };
+  }, [users, logActivity]);
+
+  const register = useCallback((data: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => {
+    const cleanUser = data.username.trim().toLowerCase();
+    if (users.some(u => u.username.toLowerCase() === cleanUser)) {
+      return { success: false, message: 'Nama akun (username) ini sudah terdaftar. Silakan pilih nama akun lain.' };
+    }
+
+    const newUser: User = {
+      ...data,
+      id: 'usr-' + Date.now(),
+      username: cleanUser,
+      role: 'user',
+      isAuthority: false,
+      status: 'pending',
+      registeredAt: new Date().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
+    };
+
+    setUsers(prev => {
+      const updated = [...prev, newUser];
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      broadcastChange('USERS', updated);
+      return updated;
+    });
+
+    logActivity('Registrasi Akun', `Pengajuan pendaftaran: ${newUser.fullName} (${newUser.position}), username: ${newUser.username}`);
+    return { 
+      success: true, 
+      message: 'Pendaftaran Berhasil! Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.' 
+    };
+  }, [users, broadcastChange, logActivity]);
+
+  const logout = useCallback(() => {
+    if (currentUser) {
+      logActivity('Logout', `${currentUser.fullName} (${currentUser.position}) keluar dari sistem`);
+    }
+    setCurrentUser(null);
+    sessionStorage.removeItem(STORAGE_KEYS.SESSION);
+    localStorage.removeItem(STORAGE_KEYS.SESSION);
+  }, [currentUser, logActivity]);
+
+  const approveUser = useCallback((userId: string) => {
+    setUsers(prev => {
+      const updated = prev.map(u => u.id === userId ? { ...u, status: 'active' as const } : u);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      broadcastChange('USERS', updated);
+      return updated;
+    });
+    logActivity('Aktivasi Pengguna', `Administrator mengaktifkan akun ID: ${userId}`);
+  }, [broadcastChange, logActivity]);
+
+  const rejectUser = useCallback((userId: string) => {
+    setUsers(prev => {
+      const updated = prev.filter(u => u.id !== userId);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      broadcastChange('USERS', updated);
+      return updated;
+    });
+    logActivity('Tolak Pengguna', `Administrator menolak permohonan akun ID: ${userId}`);
+  }, [broadcastChange, logActivity]);
+
+  const deleteUser = useCallback((userId: string) => {
+    setUsers(prev => {
+      const updated = prev.filter(u => u.id !== userId);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      broadcastChange('USERS', updated);
+      return updated;
+    });
+    logActivity('Hapus Pengguna', `Administrator menghapus akun pengguna ID: ${userId}`);
+  }, [broadcastChange, logActivity]);
+
+  const toggleAuthority = useCallback((userId: string) => {
+    setUsers(prev => {
+      const updated = prev.map(u => u.id === userId ? { ...u, isAuthority: !u.isAuthority } : u);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      broadcastChange('USERS', updated);
+      return updated;
+    });
+    logActivity('Ubah Hak Otoritas', `Mengubah hak otoritas pengguna ID: ${userId}`);
+  }, [broadcastChange, logActivity]);
+
+  // Complaints
+  const submitComplaint = useCallback((subject: string, message: string) => {
+    const newComplaint: Complaint = {
+      id: 'comp-' + Date.now(),
+      timestamp: new Date().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
+      username: currentUser?.username || 'user',
+      fullName: currentUser?.fullName || 'Pengguna',
+      position: currentUser?.position || 'Staff',
+      subject,
+      message,
+      status: 'pending'
+    };
+    setComplaints(prev => {
+      const updated = [newComplaint, ...prev];
+      localStorage.setItem(STORAGE_KEYS.COMPLAINTS, JSON.stringify(updated));
+      broadcastChange('COMPLAINTS', updated);
+      return updated;
+    });
+    logActivity('Kirim Keluhan', `Keluhan dari ${newComplaint.fullName}: ${subject}`);
+  }, [currentUser, broadcastChange, logActivity]);
+
+  const respondComplaint = useCallback((complaintId: string, response: string) => {
+    setComplaints(prev => {
+      const updated = prev.map(c => c.id === complaintId ? {
+        ...c,
+        response,
+        respondedAt: new Date().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
+        status: 'resolved' as const
+      } : c);
+      localStorage.setItem(STORAGE_KEYS.COMPLAINTS, JSON.stringify(updated));
+      broadcastChange('COMPLAINTS', updated);
+      return updated;
+    });
+    logActivity('Tanggapi Keluhan', `Administrator menanggapi keluhan ID: ${complaintId}`);
+  }, [broadcastChange, logActivity]);
+
+  // JSON Database Export/Import
+  const exportDatabaseJson = useCallback((): string => {
+    const backupData = {
+      version: '3.0',
+      timestamp: new Date().toISOString(),
+      company: settings,
+      accounts,
+      transactions,
+      contacts,
+      users: users.map(u => ({ ...u, password: '***' })),
+      activityLogs: activityLogs.slice(0, 100)
+    };
+    logActivity('Backup Database', 'Mencadangkan seluruh database sistem ke berkas JSON');
     return JSON.stringify(backupData, null, 2);
-  }, [settings, accounts, transactions]);
+  }, [settings, accounts, transactions, contacts, users, activityLogs, logActivity]);
 
   const importDatabaseJson = useCallback((jsonStr: string): { success: boolean; message: string } => {
     try {
-      const parsed = JSON.parse(jsonStr);
-      if (!parsed.accounts || !Array.isArray(parsed.accounts)) {
-        return { success: false, message: 'Format file backup tidak valid: data akun tidak ditemukan.' };
+      const data = JSON.parse(jsonStr);
+      if (!data.accounts || !data.transactions) {
+        return { success: false, message: 'Format file JSON tidak valid. Memerlukan properti accounts dan transactions.' };
       }
+      setAccounts(data.accounts);
+      setTransactions(data.transactions);
+      if (data.company) setSettings(data.company);
+      if (data.contacts) setContacts(data.contacts);
 
-      const importedAccounts: Account[] = parsed.accounts;
-      const importedTrx: Transaction[] = Array.isArray(parsed.transactions) ? parsed.transactions : [];
-      const importedSettings: CompanySettings = parsed.settings || settings;
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(data.accounts));
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(data.transactions));
+      if (data.company) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.company));
+      if (data.contacts) localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(data.contacts));
 
-      setAccounts(importedAccounts);
-      setTransactions(importedTrx);
-      setSettings(importedSettings);
-
-      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(importedAccounts));
-      localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(importedTrx));
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(importedSettings));
-
-      broadcastChange('ALL', {
-        accounts: importedAccounts,
-        transactions: importedTrx,
-        settings: importedSettings
-      });
-
-      return { success: true, message: `Berhasil mengimpor ${importedAccounts.length} akun dan ${importedTrx.length} transaksi.` };
+      broadcastChange('ALL', data);
+      logActivity('Restore Database', `Memulihkan database: ${data.accounts.length} akun, ${data.transactions.length} transaksi`);
+      return { success: true, message: `Berhasil memulihkan ${data.accounts.length} akun dan ${data.transactions.length} transaksi!` };
     } catch (e: any) {
-      return { success: false, message: `Gagal membaca file: ${e.message}` };
+      return { success: false, message: `Gagal membaca berkas JSON: ${e.message}` };
     }
-  }, [settings, broadcastChange]);
+  }, [broadcastChange, logActivity]);
 
   const triggerManualSync = useCallback(() => {
     setSyncStatus(prev => ({
       ...prev,
       lastSyncedAt: new Date(),
-      statusText: 'Disinkronkan secara instan'
+      statusText: 'Disinkronkan secara manual'
     }));
-  }, []);
-
-  const value = useMemo(() => ({
-    accounts,
-    transactions,
-    settings,
-    syncStatus,
-    addTransaction,
-    updateTransaction,
-    deleteTransaction,
-    addAccount,
-    updateAccount,
-    deleteAccount,
-    updateSettings,
-    resetToDefault,
-    exportDatabaseJson,
-    importDatabaseJson,
-    triggerManualSync
-  }), [
-    accounts,
-    transactions,
-    settings,
-    syncStatus,
-    addTransaction,
-    updateTransaction,
-    deleteTransaction,
-    addAccount,
-    updateAccount,
-    deleteAccount,
-    updateSettings,
-    resetToDefault,
-    exportDatabaseJson,
-    importDatabaseJson,
-    triggerManualSync
-  ]);
+    broadcastChange('ALL', { accounts, transactions, settings, users });
+  }, [accounts, transactions, settings, users, broadcastChange]);
 
   return (
-    <AccountingContext.Provider value={value}>
+    <AccountingContext.Provider
+      value={{
+        accounts,
+        transactions,
+        settings,
+        contacts,
+        syncStatus,
+        users,
+        currentUser,
+        securityPin,
+        activityLogs,
+        complaints,
+        addTransaction,
+        updateTransaction,
+        deleteTransaction,
+        getNextRefNumber,
+        addAccount,
+        updateAccount,
+        deleteAccount,
+        updateSettings,
+        resetToDefault,
+        resetWithPin,
+        changePin,
+        exportDatabaseJson,
+        importDatabaseJson,
+        triggerManualSync,
+        login,
+        register,
+        logout,
+        approveUser,
+        rejectUser,
+        deleteUser,
+        toggleAuthority,
+        logActivity,
+        submitComplaint,
+        respondComplaint
+      }}
+    >
       {children}
     </AccountingContext.Provider>
   );

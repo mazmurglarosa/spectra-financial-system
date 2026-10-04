@@ -610,3 +610,56 @@ export function exportTableToExcel(data: any[][], fileName: string, sheetName: s
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
+
+export function calculateBalanceSheet(accounts: Account[], transactions: Transaction[]) {
+  const bs = generateBalanceSheet(accounts, transactions);
+  return {
+    ...bs,
+    totalAssets: bs.totalAset,
+    totalLiabilities: bs.totalKewajiban,
+    totalLiabilitiesAndEquity: bs.totalKewajibanDanEkuitas,
+    diff: bs.discrepancy,
+    difference: bs.discrepancy
+  };
+}
+
+export function calculateProfitAndLoss(accounts: Account[], transactions: Transaction[]) {
+  const is = generateIncomeStatement(accounts, transactions);
+  const totalRevenues = is.totalOperasionalRevenue + is.totalNonOperasionalRevenue;
+  const totalCOGS = 0;
+  const totalOperatingExpenses = is.totalOperasionalExpense;
+  const grossProfit = is.labaKotor;
+  const operatingIncome = is.labaOperasi;
+  const netIncome = is.labaBersih;
+  const isProfit = is.labaBersih >= 0;
+
+  return {
+    ...is,
+    totalRevenues,
+    totalCOGS,
+    totalOperatingExpenses,
+    grossProfit,
+    operatingIncome,
+    netIncome,
+    isProfit
+  };
+}
+
+export function calculateGeneralLedgers(accounts: Account[], transactions: Transaction[]): Record<string, AccountLedger> {
+  const ledgers: Record<string, AccountLedger> = {};
+  for (const acc of accounts) {
+    if (!acc.isHeader) {
+      ledgers[acc.code] = generateAccountLedger(acc, transactions);
+    }
+  }
+  return ledgers;
+}
+
+export function calculateTrialBalance(accounts: Account[], transactions: Transaction[]): TrialBalanceItem[] {
+  return generateTrialBalance(accounts, transactions).items;
+}
+
+export function calculateWorksheet(accounts: Account[], transactions: Transaction[]) {
+  return generateWorksheet(accounts, transactions);
+}
+

@@ -2,42 +2,50 @@ import React, { useState } from 'react';
 import { 
   Building2, 
   Save, 
-  Database, 
-  Cloud, 
   Download, 
   Upload, 
-  RotateCcw, 
+  AlertTriangle, 
   CheckCircle, 
-  ShieldCheck, 
-  FileSpreadsheet,
-  ExternalLink 
+  Key, 
+  FileSpreadsheet, 
+  RefreshCw 
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { CompanySettings } from '../types/accounting';
+import { CompanySettings, TrialBalanceItem } from '../types/accounting';
 import { 
-  generateTrialBalance, 
-  generateWorksheet, 
-  generateIncomeStatement, 
-  generateBalanceSheet, 
-  calculateAccountBalance 
+  calculateGeneralLedgers, 
+  calculateBalanceSheet, 
+  calculateProfitAndLoss, 
+  calculateWorksheet,
+  calculateTrialBalance,
+  exportTableToExcel 
 } from '../utils/accountingCalculations';
+import { ResetModal } from '../components/modals/ResetModal';
 import * as XLSX from 'xlsx';
 
 export const SettingsView: React.FC = () => {
   const { 
     settings, 
     updateSettings, 
-    syncStatus, 
     accounts, 
     transactions, 
-    resetToDefault, 
     exportDatabaseJson, 
-    importDatabaseJson 
+    importDatabaseJson,
+    changePin 
   } = useAccounting();
 
   const [formData, setFormData] = useState<CompanySettings>({ ...settings });
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // PIN change state
+  const [currPin, setCurrPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinFeedback, setPinFeedback] = useState<{ message: string; isSuccess: boolean } | null>(null);
+
+  // Reset modal state
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   const handleChange = (field: keyof CompanySettings, val: any) => {
     setFormData(prev => ({ ...prev, [field]: val }));
@@ -46,7 +54,7 @@ export const SettingsView: React.FC = () => {
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     updateSettings(formData);
-    setSuccessMsg('Profil perusahaan berhasil disimpan dan disinkronkan secara real-time.');
+    setSuccessMsg('Profil entitas berhasil disimpan dan disinkronkan secara real-time.');
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
@@ -80,376 +88,364 @@ export const SettingsView: React.FC = () => {
     reader.readAsText(file);
   };
 
-  // Export COMPLETE Excel Workbook with all sheets
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPin !== confirmPin) {
+      setPinFeedback({ message: 'Konfirmasi PIN Baru tidak cocok!', isSuccess: false });
+      return;
+    }
+    const res = changePin(currPin, newPin);
+    setPinFeedback({ message: res.message, isSuccess: res.success });
+    if (res.success) {
+      setCurrPin('');
+      setNewPin('');
+      setConfirmPin('');
+    }
+  };
+
   const handleExportFullWorkbook = () => {
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: COA
     const coaData: any[][] = [
-      ['KODE', 'NAMA AKUN', 'KELOMPOK', 'POS', 'SN', 'DEBET AWAL', 'KREDIT AWAL', 'SALDO AKHIR']
+      ['KODE', 'NAMA AKUN', 'KELOMPOK', 'POS', 'SN', 'DEBET AWAL', 'KREDIT AWAL']
     ];
     accounts.forEach(a => {
-      const { endingBalance } = calculateAccountBalance(a, transactions);
-      coaData.push([a.code, a.name, a.categoryName, a.pos, a.sn, a.debetAwal, a.kreditAwal, endingBalance]);
+      coaData.push([a.code, a.name, a.categoryName, a.pos, a.sn, a.debetAwal, a.kreditAwal]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(coaData), 'Daftar Akun');
 
     // Sheet 2: Jurnal Umum
     const juData: any[][] = [
-      ['TANGGAL', 'REF', 'KETERANGAN', 'KODE AKUN', 'NAMA AKUN', 'DEBET', 'KREDIT', 'PIHAK TERKAIT']
+      ['TANGGAL', 'REF', 'TIPE', 'KETERANGAN', 'KODE AKUN', 'NAMA AKUN', 'DEBET', 'KREDIT']
     ];
-    transactions.forEach(t => {
-      t.lines.forEach((l, idx) => {
+    transactions.forEach(trx => {
+      trx.lines.forEach((l, idx) => {
         juData.push([
-          idx === 0 ? t.date : '',
-          idx === 0 ? t.refNumber : '',
-          idx === 0 ? t.description : (l.memo || ''),
+          idx === 0 ? trx.date : '',
+          idx === 0 ? trx.refNumber : '',
+          idx === 0 ? (trx.type || 'general') : '',
+          idx === 0 ? trx.description : (l.memo || ''),
           l.accountCode,
           l.accountName,
           l.debit,
-          l.credit,
-          idx === 0 ? (t.partner || '') : ''
+          l.credit
         ]);
       });
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(juData), 'Jurnal Umum');
 
     // Sheet 3: Neraca Saldo
-    const tb = generateTrialBalance(accounts, transactions);
+    const tb = calculateTrialBalance(accounts, transactions);
     const tbData: any[][] = [
-      ['KODE', 'NAMA AKUN', 'KELOMPOK', 'DEBET', 'KREDIT']
+      ['KODE', 'NAMA AKUN', 'DEBET', 'KREDIT']
     ];
-    tb.items.forEach(i => tbData.push([i.code, i.name, i.categoryName, i.debit, i.credit]));
-    tbData.push(['', 'TOTAL KESEIMBANGAN', '', tb.totalDebit, tb.totalCredit]);
+    tb.forEach((r: TrialBalanceItem) => {
+      tbData.push([r.code, r.name, r.debit, r.credit]);
+    });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tbData), 'Neraca Saldo');
 
     // Sheet 4: Laba Rugi
-    const is = generateIncomeStatement(accounts, transactions);
-    const lrData: any[][] = [
-      ['LAPORAN LABA RUGI'],
-      ['KETERANGAN', 'NOMINAL (RP)'],
-      ['TOTAL PENDAPATAN OPERASIONAL', is.totalOperasionalRevenue],
-      ['TOTAL BEBAN OPERASIONAL', is.totalOperasionalExpense],
-      ['LABA OPERASIONAL', is.labaOperasi],
-      ['TOTAL LUAR USAHA BERSIH', is.totalLuarUsaha],
-      ['LABA BERSIH PERIODE BERJALAN', is.labaBersih]
+    const pl = calculateProfitAndLoss(accounts, transactions);
+    const plData: any[][] = [
+      ['KATEGORI', 'KODE', 'NAMA AKUN', 'NOMINAL'],
+      ['PENDAPATAN', '', '', pl.totalRevenues],
+      ['HPP', '', '', pl.totalCOGS],
+      ['LABA KOTOR', '', '', pl.grossProfit],
+      ['BEBAN OPERASIONAL', '', '', pl.totalOperatingExpenses],
+      ['LABA BERSIH', '', '', pl.netIncome]
     ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lrData), 'Laba Rugi');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(plData), 'Laba Rugi');
 
-    // Sheet 5: Posisi Keuangan (Neraca)
-    const bs = generateBalanceSheet(accounts, transactions);
-    const bsData: any[][] = [
-      ['LAPORAN POSISI KEUANGAN (NERACA)'],
-      ['TOTAL ASET LANCAR', bs.totalAsetLancar],
-      ['TOTAL ASET TETAP', bs.totalAsetTetap],
-      ['TOTAL ASET', bs.totalAset],
-      ['TOTAL KEWAJIBAN LANCAR', bs.totalUtangLancar],
-      ['TOTAL KEWAJIBAN JK. PANJANG', bs.totalUtangJangkaPanjang],
-      ['TOTAL KEWAJIBAN', bs.totalKewajiban],
-      ['TOTAL EKUITAS', bs.totalEkuitas],
-      ['TOTAL PASIVA (KEWAJIBAN & EKUITAS)', bs.totalKewajibanDanEkuitas],
-      ['STATUS SEIMBANG', bs.isBalanced ? 'SEIMBANG' : 'TIDAK SEIMBANG']
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(bsData), 'Neraca');
-
-    XLSX.writeFile(wb, `Buku_Keuangan_Lengkap_SPECTRA_${new Date().toISOString().split('T')[0]}.xlsx`);
-  };
-
-  const handleReset = () => {
-    if (confirm('PERINGATAN: Tindakan ini akan mengembalikan data ke template awal SIKEU PT BARU. Apakah Anda yakin?')) {
-      resetToDefault();
-      setFormData({ ...settings });
-      setSuccessMsg('Data telah berhasil direset ke template default SIKEU PT BARU.');
-      setTimeout(() => setSuccessMsg(''), 4000);
-    }
+    XLSX.writeFile(wb, `SPECTRA_${formData.companyName.replace(/\s+/g, '_')}_Komprehensif.xlsx`);
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
-      {/* Messages */}
+    <div className="p-5 space-y-6 max-w-5xl mx-auto pb-16 animate-fadeIn">
+      {/* Header Banner */}
+      <div className="bg-white p-4 rounded-xl shadow-xs border border-slate-200">
+        <h2 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+          <Building2 className="w-5 h-5 text-blue-600" />
+          <span>Pengaturan Perusahaan & Manajemen Data</span>
+        </h2>
+        <p className="text-xs text-slate-500">
+          Konfigurasi identitas entitas bisnis, pencadangan dan pemulihan basis data, serta otorisasi keamanan.
+        </p>
+      </div>
+
       {successMsg && (
-        <div style={{
-          padding: '14px 20px',
-          backgroundColor: 'var(--success-bg)',
-          border: '1px solid var(--success-border)',
-          borderRadius: 'var(--radius-md)',
-          color: '#34d399',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px'
-        }}>
-          <CheckCircle size={18} />
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2">
+          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{successMsg}</span>
         </div>
       )}
 
-      {/* Cloud & Real-Time Sync Status Card */}
-      <div className="card" style={{ padding: '28px', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.9) 100%)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '10px',
-              background: 'rgba(16, 185, 129, 0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#10b981'
-            }}>
-              <Cloud size={22} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '1.15rem', margin: 0 }}>Status Sinkronisasi & Convex Cloud</h3>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Arsitektur database ganda menjamin nol risiko kehilangan data (Zero Data Loss).
-              </p>
-            </div>
-          </div>
-          <span className="badge badge-success" style={{ fontSize: '0.78rem', padding: '6px 14px' }}>
-            <ShieldCheck size={14} /> Selalu Singkron (Live)
-          </span>
+      {errorMsg && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold text-rose-800 flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
+      )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px' }}>
-          <div style={{ padding: '14px', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Multi-Tab Broadcast Sync</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#34d399', marginTop: '4px' }}>Aktif & Terhubung</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>BroadcastChannel v1</div>
+      {/* Profil Perusahaan Form */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
+        <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-3 flex items-center space-x-2">
+          <Building2 className="w-4 h-4 text-blue-600" />
+          <span>1. Profil Identitas Perusahaan / Entitas</span>
+        </h3>
+
+        <form onSubmit={handleSaveProfile} className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Nama Perusahaan / PT</label>
+            <input 
+              type="text" 
+              required
+              value={formData.companyName}
+              onChange={e => handleChange('companyName', e.target.value)}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium"
+            />
           </div>
 
-          <div style={{ padding: '14px', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Penyimpanan Persistent</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#38bdf8', marginTop: '4px' }}>Tersimpan Otomatis</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{accounts.length} Akun • {transactions.length} Transaksi</div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Periode Pembukuan</label>
+            <input 
+              type="text" 
+              required
+              value={formData.fiscalPeriod}
+              onChange={e => handleChange('fiscalPeriod', e.target.value)}
+              placeholder="Desember 2021"
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium"
+            />
           </div>
 
-          <div style={{ padding: '14px', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Koneksi Backend Convex</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: syncStatus.convexConnected ? '#34d399' : '#fbbf24', marginTop: '4px' }}>
-              {syncStatus.convexConnected ? 'Cloud Connected' : 'Schema & API Ready'}
-            </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Folder /convex terkonfigurasi</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Company Profile Settings Form */}
-      <div className="card" style={{ padding: '32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <Building2 size={22} color="var(--primary)" />
-          <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Profil Entitas Perusahaan</h3>
-        </div>
-
-        <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Nama Perusahaan / Entitas *
-              </label>
-              <input 
-                type="text" 
-                value={formData.companyName} 
-                onChange={e => handleChange('companyName', e.target.value)} 
-                required 
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Jenis Usaha
-              </label>
-              <input 
-                type="text" 
-                value={formData.businessType} 
-                onChange={e => handleChange('businessType', e.target.value)} 
-              />
-            </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Bidang Usaha</label>
+            <input 
+              type="text" 
+              value={formData.businessType}
+              onChange={e => handleChange('businessType', e.target.value)}
+              placeholder="Perdagangan & Jasa"
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
+            />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Periode Laporan *
-              </label>
-              <input 
-                type="text" 
-                value={formData.fiscalPeriod} 
-                onChange={e => handleChange('fiscalPeriod', e.target.value)} 
-                required 
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Tahun Buku
-              </label>
-              <input 
-                type="number" 
-                value={formData.fiscalYear} 
-                onChange={e => handleChange('fiscalYear', parseInt(e.target.value) || 2021)} 
-                required 
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Mata Uang
-              </label>
-              <input 
-                type="text" 
-                value={formData.currency} 
-                onChange={e => handleChange('currency', e.target.value)} 
-                required 
-              />
-            </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Mata Uang</label>
+            <input 
+              type="text" 
+              value={formData.currency}
+              onChange={e => handleChange('currency', e.target.value)}
+              placeholder="IDR (Rp)"
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-mono"
+            />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Nama Direktur Utama (Tanda Tangan Laporan)
-              </label>
-              <input 
-                type="text" 
-                value={formData.directorName} 
-                onChange={e => handleChange('directorName', e.target.value)} 
-                required 
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Nama Bagian Keuangan / Akuntan
-              </label>
-              <input 
-                type="text" 
-                value={formData.accountantName} 
-                onChange={e => handleChange('accountantName', e.target.value)} 
-                required 
-              />
-            </div>
+          <div className="md:col-span-2">
+            <label className="block font-semibold text-slate-700 mb-1">Alamat Kantor / Perusahaan</label>
+            <input 
+              type="text" 
+              value={formData.address}
+              onChange={e => handleChange('address', e.target.value)}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
+            />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-            <button type="submit" className="btn btn-primary" style={{ padding: '10px 24px' }}>
-              <Save size={16} />
-              Simpan Perubahan Profil
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Nama Direktur / Pimpinan</label>
+            <input 
+              type="text" 
+              value={formData.directorName}
+              onChange={e => handleChange('directorName', e.target.value)}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Nama Akuntan / Penyusun</label>
+            <input 
+              type="text" 
+              value={formData.accountantName}
+              onChange={e => handleChange('accountantName', e.target.value)}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
+            />
+          </div>
+
+          <div className="md:col-span-2 flex justify-end pt-2">
+            <button 
+              type="submit" 
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2 rounded shadow-xs flex items-center space-x-1.5 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>Simpan Profil Perusahaan</span>
             </button>
           </div>
         </form>
       </div>
 
-      {/* Data Backup, Full Excel & Restore Card */}
-      <div className="card" style={{ padding: '32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Database size={22} color="var(--primary)" />
-          <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Cadangan Data & Export Lengkap</h3>
-        </div>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-          Simpan seluruh pembukuan akuntansi ke format berkas Excel multi-sheet atau cadangan JSON untuk pemulihan instan kapan saja.
-        </p>
+      {/* Backup & Restore Data */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
+        <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-3 flex items-center space-x-2">
+          <Download className="w-4 h-4 text-emerald-600" />
+          <span>2. Cadangan & Pemulihan Basis Data (Backup & Restore)</span>
+        </h3>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-          {/* Export Full Excel */}
-          <div style={{
-            padding: '20px',
-            backgroundColor: 'var(--bg-surface)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-medium)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            gap: '14px'
-          }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>
-                <FileSpreadsheet size={18} color="#10b981" />
-                Buku Keuangan Excel (.xlsx)
-              </div>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                Unduh seluruh modul (COA, Jurnal Umum, Neraca Saldo, Laba Rugi, Neraca) dalam 1 file Excel multi-sheet.
-              </p>
-            </div>
-            <button onClick={handleExportFullWorkbook} className="btn btn-success" style={{ width: '100%', fontSize: '0.8rem' }}>
-              <Download size={14} /> Unduh Full Excel
-            </button>
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Backup JSON */}
-          <div style={{
-            padding: '20px',
-            backgroundColor: 'var(--bg-surface)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-medium)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            gap: '14px'
-          }}>
+          <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3 flex flex-col justify-between">
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>
-                <Download size={18} color="#3b82f6" />
-                Backup Data JSON
+              <div className="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+                <Download className="w-4 h-4 text-blue-600" />
+                <span>Cadangkan Data (JSON)</span>
               </div>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                Simpan snapshot seluruh database termasuk transaksi, akun, dan preferensi untuk cadangan aman.
+              <p className="text-[11px] text-slate-500 mt-1">
+                Unduh seluruh data COA, transaksi jurnal, pengaturan, dan histori log ke satu berkas JSON.
               </p>
             </div>
-            <button onClick={handleDownloadBackup} className="btn btn-outline" style={{ width: '100%', fontSize: '0.8rem' }}>
-              Unduh Backup JSON
+            <button 
+              type="button"
+              onClick={handleDownloadBackup}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Unduh File Cadangan</span>
             </button>
           </div>
 
           {/* Restore JSON */}
-          <div style={{
-            padding: '20px',
-            backgroundColor: 'var(--bg-surface)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-medium)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            gap: '14px'
-          }}>
+          <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3 flex flex-col justify-between">
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>
-                <Upload size={18} color="#c084fc" />
-                Restore / Impor Data
+              <div className="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+                <Upload className="w-4 h-4 text-emerald-600" />
+                <span>Pulihkan Data (JSON)</span>
               </div>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                Pulihkan data dari berkas cadangan JSON yang telah diunduh sebelumnya.
+              <p className="text-[11px] text-slate-500 mt-1">
+                Unggah file JSON cadangan untuk memulihkan seluruh catatan pembukuan sebelumnya.
               </p>
             </div>
-            <label className="btn btn-outline" style={{ width: '100%', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'center' }}>
-              Pilih File Backup
-              <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} />
+            <label className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-3 rounded shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer text-center">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Pilih File Cadangan...</span>
+              <input 
+                type="file" 
+                accept=".json" 
+                onChange={handleFileUpload} 
+                className="hidden" 
+              />
             </label>
           </div>
-        </div>
 
-        {/* Reset to Default Template */}
-        <div style={{
-          marginTop: '28px',
-          paddingTop: '20px',
-          borderTop: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              Reset ke Template Awal (SIKEU PT BARU)
+          {/* Full Excel Export */}
+          <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3 flex flex-col justify-between">
+            <div>
+              <div className="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Ekspor Excel (.xlsx)</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Ekspor seluruh lembar kerja (COA, Jurnal Umum, Neraca Saldo, Laba Rugi) ke format Microsoft Excel.
+              </p>
             </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              Mengembalikan 73 akun standar dan transaksi contoh bawaan berkas Excel.
-            </div>
+            <button 
+              type="button"
+              onClick={handleExportFullWorkbook}
+              className="w-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold py-2 px-3 rounded shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Unduh Semua Sheet Excel</span>
+            </button>
           </div>
-          <button onClick={handleReset} className="btn btn-danger" style={{ fontSize: '0.8rem' }}>
-            <RotateCcw size={14} /> Reset ke Bawaan
+        </div>
+      </div>
+
+      {/* Security PIN Change */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
+        <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-3 flex items-center space-x-2">
+          <Key className="w-4 h-4 text-rose-600" />
+          <span>3. Pengaturan PIN Keamanan Otorisasi RESET</span>
+        </h3>
+
+        <form onSubmit={handlePinSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs max-w-2xl">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">PIN Saat Ini</label>
+            <input 
+              type="password" 
+              required 
+              value={currPin}
+              onChange={e => setCurrPin(e.target.value)}
+              placeholder="PIN saat ini (bawaan: 1234)" 
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-mono text-center bg-white"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">PIN Baru (min 4 digit)</label>
+            <input 
+              type="password" 
+              required 
+              value={newPin}
+              onChange={e => setNewPin(e.target.value)}
+              placeholder="PIN baru..." 
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-mono text-center bg-white"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Konfirmasi PIN Baru</label>
+            <input 
+              type="password" 
+              required 
+              value={confirmPin}
+              onChange={e => setConfirmPin(e.target.value)}
+              placeholder="Konfirmasi..." 
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-mono text-center bg-white"
+            />
+          </div>
+
+          <div className="sm:col-span-3 flex items-center justify-between pt-2">
+            <div>
+              {pinFeedback && (
+                <span className={`font-semibold ${pinFeedback.isSuccess ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {pinFeedback.message}
+                </span>
+              )}
+            </div>
+            <button 
+              type="submit" 
+              className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-1.5 rounded shadow-xs cursor-pointer"
+            >
+              Simpan PIN Baru
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Danger Zone: PIN Protected RESET */}
+      <div className="bg-rose-50 rounded-xl shadow-xs border-2 border-rose-200 p-5 space-y-3">
+        <div className="flex items-center space-x-2">
+          <AlertTriangle className="w-5 h-5 text-rose-600" />
+          <h3 className="font-bold text-sm text-rose-900">
+            4. Zona Kritis: RESET Pembukuan Periode Baru
+          </h3>
+        </div>
+        <p className="text-xs text-rose-800 max-w-2xl leading-relaxed">
+          Tindakan ini akan <b>menghapus seluruh transaksi jurnal</b> (baik Jurnal Umum maupun Penyesuaian) dan me-nol-kan kembali seluruh nominal saldo akun perkiraan (Rp 0) untuk memulai pembukuan periode baru yang bersih. Tindakan ini dilindungi oleh PIN keamanan otorisasi.
+        </p>
+
+        <div className="pt-2">
+          <button 
+            type="button"
+            onClick={() => setIsResetModalOpen(true)}
+            className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-5 py-2.5 rounded-lg shadow-sm flex items-center space-x-2 transition cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>RESET SISTEM (DENGAN PROTEKSI PIN)</span>
           </button>
         </div>
       </div>
+
+      {/* Reset Modal */}
+      <ResetModal 
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+      />
     </div>
   );
 };

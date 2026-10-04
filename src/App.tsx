@@ -2,7 +2,13 @@ import React, { useState } from 'react';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { AuthGate } from './components/layout/AuthGate';
+
+// Views
 import { DashboardView } from './views/DashboardView';
+import { CashBankView } from './views/CashBankView';
+import { SalesView } from './views/SalesView';
+import { PurchasesView } from './views/PurchasesView';
 import { AccountsView } from './views/AccountsView';
 import { GeneralJournalView } from './views/GeneralJournalView';
 import { GeneralLedgerView } from './views/GeneralLedgerView';
@@ -12,27 +18,54 @@ import { IncomeStatementView } from './views/IncomeStatementView';
 import { BalanceSheetView } from './views/BalanceSheetView';
 import { CapitalStatementView } from './views/CapitalStatementView';
 import { CashFlowView } from './views/CashFlowView';
-import { SubsidiaryLedgerView } from './views/SubsidiaryLedgerView';
 import { FinancialRatiosView } from './views/FinancialRatiosView';
-import { ClosingJournalView } from './views/ClosingJournalView';
 import { SettingsView } from './views/SettingsView';
+import { AdminPanelView } from './views/AdminPanelView';
+import { AuthorityPanelView } from './views/AuthorityPanelView';
+import { ActivityLogsView } from './views/ActivityLogsView';
+
+// Modals
 import { TransactionModal } from './components/modals/TransactionModal';
-import { Transaction } from './types/accounting';
+import { Transaction, TransactionType, User } from './types/accounting';
 
 const MainContent: React.FC = () => {
+  const { currentUser } = useAccounting();
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalPresetType, setModalPresetType] = useState<TransactionType>('general');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  const handleOpenNewTransaction = () => {
+  // If no user is logged in, show AuthGate
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    // Check if user session exists in sessionStorage or localStorage
+    const session = sessionStorage.getItem('spectra_auth_session_v1') || localStorage.getItem('spectra_auth_session_v1');
+    return !!session;
+  });
+
+  const handleOpenNewTransaction = (preset: TransactionType = 'general') => {
     setEditingTransaction(null);
+    setModalPresetType(preset || 'general');
     setIsModalOpen(true);
   };
 
   const handleEditTransaction = (trx: Transaction) => {
     setEditingTransaction(trx);
+    setModalPresetType(trx.type || 'general');
     setIsModalOpen(true);
   };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <AuthGate 
+        onAuthenticated={(_user: User) => setIsAuthenticated(true)}
+      />
+    );
+  }
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -43,9 +76,27 @@ const MainContent: React.FC = () => {
             openNewTransactionModal={handleOpenNewTransaction} 
           />
         );
-      case 'accounts':
+      case 'cashbank':
+        return (
+          <CashBankView 
+            openNewTransactionModal={handleOpenNewTransaction} 
+          />
+        );
+      case 'sales':
+        return (
+          <SalesView 
+            openNewTransactionModal={handleOpenNewTransaction} 
+          />
+        );
+      case 'purchases':
+        return (
+          <PurchasesView 
+            openNewTransactionModal={handleOpenNewTransaction} 
+          />
+        );
+      case 'coa':
         return <AccountsView />;
-      case 'journal':
+      case 'journals':
         return (
           <GeneralJournalView 
             openNewTransactionModal={handleOpenNewTransaction} 
@@ -54,26 +105,28 @@ const MainContent: React.FC = () => {
         );
       case 'ledger':
         return <GeneralLedgerView />;
-      case 'subsidiary-ledger':
-        return <SubsidiaryLedgerView />;
       case 'trial-balance':
         return <TrialBalanceView />;
       case 'worksheet':
         return <WorksheetView />;
-      case 'income-statement':
+      case 'profit-loss':
         return <IncomeStatementView />;
       case 'balance-sheet':
         return <BalanceSheetView />;
-      case 'capital-statement':
+      case 'capital-changes':
         return <CapitalStatementView />;
       case 'cash-flow':
         return <CashFlowView />;
-      case 'financial-ratios':
+      case 'ratios':
         return <FinancialRatiosView />;
-      case 'closing-journal':
-        return <ClosingJournalView />;
       case 'settings':
         return <SettingsView />;
+      case 'admin-panel':
+        return <AdminPanelView />;
+      case 'authority-panel':
+        return <AuthorityPanelView />;
+      case 'activity-logs':
+        return <ActivityLogsView />;
       default:
         return (
           <DashboardView 
@@ -85,31 +138,34 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', width: '100%', minHeight: '100vh', backgroundColor: 'var(--bg-main)' }}>
-      {/* Sidebar Navigation */}
+    <div className="flex w-full min-h-screen bg-slate-100 text-slate-900">
+      {/* Accurate Dark Navigation Sidebar */}
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         openNewTransactionModal={handleOpenNewTransaction} 
       />
 
-      {/* Main Workspace */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+        {/* Accurate Top Bar Header */}
         <Header 
-          activeTab={activeTab} 
-          openNewTransactionModal={handleOpenNewTransaction} 
+          openNewTransactionModal={handleOpenNewTransaction}
+          onLogout={handleLogout}
         />
 
-        <main style={{ flex: 1, backgroundColor: 'var(--bg-main)' }}>
+        {/* Dynamic View Container */}
+        <main id="main-content" className="flex-1 overflow-y-auto bg-slate-100">
           {renderActiveView()}
         </main>
       </div>
 
-      {/* Global Transaction Modal */}
+      {/* Accurate Multi-row Transaction Voucher Modal */}
       <TransactionModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         transactionToEdit={editingTransaction}
+        presetType={modalPresetType}
       />
     </div>
   );

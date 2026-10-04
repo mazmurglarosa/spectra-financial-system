@@ -1,249 +1,255 @@
 import React from 'react';
 import { 
   LayoutDashboard, 
+  Wallet, 
+  ShoppingCart, 
+  Package, 
+  ListTree, 
   BookOpen, 
-  FileSpreadsheet, 
-  FileText, 
-  Layers, 
+  Bookmark, 
   Scale, 
+  Table, 
   TrendingUp, 
   PieChart, 
+  RefreshCw, 
   DollarSign, 
+  Gauge, 
   Settings, 
-  RefreshCw,
-  SlidersHorizontal,
-  Lock,
-  Users
+  ShieldAlert, 
+  AlertTriangle, 
+  AlertCircle, 
+  Activity 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
 export type ActiveTab = 
   | 'dashboard'
-  | 'accounts'
-  | 'journal'
+  | 'cashbank'
+  | 'sales'
+  | 'purchases'
+  | 'coa'
+  | 'journals'
   | 'ledger'
   | 'trial-balance'
   | 'worksheet'
-  | 'income-statement'
+  | 'profit-loss'
   | 'balance-sheet'
-  | 'capital-statement'
+  | 'capital-changes'
   | 'cash-flow'
-  | 'subsidiary-ledger'
-  | 'financial-ratios'
-  | 'closing-journal'
-  | 'settings';
+  | 'ratios'
+  | 'settings'
+  | 'admin-panel'
+  | 'authority-panel'
+  | 'activity-logs';
 
 interface SidebarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
-  openNewTransactionModal: () => void;
+  openNewTransactionModal: (preset?: any) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, openNewTransactionModal }) => {
-  const { settings, syncStatus, triggerManualSync } = useAccounting();
+export const Sidebar: React.FC<SidebarProps> = ({ 
+  activeTab, 
+  setActiveTab 
+}) => {
+  const { currentUser } = useAccounting();
 
-  const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; group?: string }[] = [
-    { id: 'dashboard', label: 'Dashboard & Ringkasan', icon: <LayoutDashboard size={18} />, group: 'UTAMA' },
-    
-    { id: 'accounts', label: 'Bagan Akun (COA)', icon: <BookOpen size={18} />, group: 'BUKU & JURNAL' },
-    { id: 'journal', label: 'Jurnal Umum (Trans)', icon: <FileText size={18} /> },
-    { id: 'ledger', label: 'Buku Besar (Ledger)', icon: <Layers size={18} /> },
-    { id: 'subsidiary-ledger', label: 'Buku Pembantu (PK)', icon: <Users size={18} /> },
-
-    { id: 'trial-balance', label: 'Neraca Saldo (TB)', icon: <Scale size={18} />, group: 'KERTAS KERJA' },
-    { id: 'worksheet', label: 'Neraca Lajur (10-Kolom)', icon: <FileSpreadsheet size={18} /> },
-
-    { id: 'income-statement', label: 'Laba Rugi (P&L)', icon: <TrendingUp size={18} />, group: 'LAPORAN KEUANGAN' },
-    { id: 'balance-sheet', label: 'Posisi Keuangan (Neraca)', icon: <PieChart size={18} /> },
-    { id: 'capital-statement', label: 'Perubahan Modal', icon: <SlidersHorizontal size={18} /> },
-    { id: 'cash-flow', label: 'Arus Kas (Cash Flow)', icon: <DollarSign size={18} /> },
-    { id: 'financial-ratios', label: 'Analisis Rasio Keuangan', icon: <Scale size={18} /> },
-
-    { id: 'closing-journal', label: 'Jurnal Penutup', icon: <Lock size={18} />, group: 'SISTEM & AKHIR' },
-    { id: 'settings', label: 'Pengaturan & Cloud Sync', icon: <Settings size={18} /> },
-  ];
+  const isAdmin = currentUser?.role === 'admin';
+  const isAuthority = currentUser?.isAuthority || isAdmin;
 
   return (
-    <aside style={{
-      width: '280px',
-      minWidth: '280px',
-      backgroundColor: 'var(--bg-sidebar)',
-      borderRight: '1px solid var(--border-subtle)',
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      position: 'sticky',
-      top: 0,
-      zIndex: 50,
-      boxShadow: 'var(--shadow-card)'
-    }} className="no-print">
-      {/* Brand Header */}
-      <div style={{
-        padding: '24px 20px',
-        borderBottom: '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            width: '38px',
-            height: '38px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 800,
-            fontSize: '1.15rem',
-            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)'
-          }}>
-            S
-          </div>
-          <div>
-            <h1 style={{ fontSize: '1.05rem', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-              SPECTRA
-            </h1>
-            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              Financial System
-            </span>
-          </div>
+    <aside 
+      id="sidebar" 
+      className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 h-screen sticky top-0 no-print select-none"
+    >
+      {/* Scrollable Navigation Area */}
+      <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
+        
+        {/* Modul Akuntansi */}
+        <div className="px-2 pt-1 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Modul Akuntansi
         </div>
 
-        {/* Company Badge */}
-        <div style={{
-          marginTop: '10px',
-          padding: '8px 12px',
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-sm)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-              {settings.companyName}
-            </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              {settings.fiscalPeriod} ({settings.fiscalYear})
-            </div>
-          </div>
-          <span className="badge badge-info" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
-            Accurate v2
-          </span>
-        </div>
-      </div>
-
-      {/* Quick Action Button */}
-      <div style={{ padding: '14px 16px 8px 16px' }}>
-        <button 
-          onClick={openNewTransactionModal}
-          className="btn btn-primary"
-          style={{ width: '100%', padding: '10px', fontSize: '0.825rem' }}
+        <div 
+          onClick={() => setActiveTab('dashboard')}
+          className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
         >
-          <FileText size={16} />
-          + Catat Jurnal Baru
-        </button>
-      </div>
+          <LayoutDashboard className="w-4 h-4 shrink-0" />
+          <span>Dashboard Utama</span>
+        </div>
 
-      {/* Navigation Links */}
-      <nav style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '8px 12px'
-      }}>
-        {navItems.map((item, idx) => {
-          const isActive = activeTab === item.id;
-          return (
-            <React.Fragment key={item.id}>
-              {item.group && (
-                <div style={{
-                  fontSize: '0.68rem',
-                  fontWeight: 700,
-                  color: 'var(--text-muted)',
-                  letterSpacing: '0.08em',
-                  padding: idx === 0 ? '6px 12px 4px' : '16px 12px 4px',
-                  textTransform: 'uppercase'
-                }}>
-                  {item.group}
-                </div>
-              )}
-              <button
-                onClick={() => setActiveTab(item.id)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '0.85rem',
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? '#fff' : 'var(--text-secondary)',
-                  backgroundColor: isActive ? 'var(--primary)' : 'transparent',
-                  boxShadow: isActive ? '0 4px 14px rgba(59, 130, 246, 0.35)' : 'none',
-                  textAlign: 'left',
-                  marginBottom: '2px',
-                  transition: 'all 0.15s ease'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-card)';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
-                }}
+        <div 
+          onClick={() => setActiveTab('cashbank')}
+          className={`nav-item ${activeTab === 'cashbank' ? 'active' : ''}`}
+        >
+          <Wallet className="w-4 h-4 shrink-0" />
+          <span>Kas & Bank</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('sales')}
+          className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`}
+        >
+          <ShoppingCart className="w-4 h-4 shrink-0" />
+          <span>Penjualan & Piutang</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('purchases')}
+          className={`nav-item ${activeTab === 'purchases' ? 'active' : ''}`}
+        >
+          <Package className="w-4 h-4 shrink-0" />
+          <span>Pembelian & Hutang</span>
+        </div>
+
+        {/* Buku Besar & Jurnal */}
+        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Buku Besar & Jurnal
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('coa')}
+          className={`nav-item ${activeTab === 'coa' ? 'active' : ''}`}
+        >
+          <ListTree className="w-4 h-4 shrink-0" />
+          <span>Daftar Akun (COA)</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('journals')}
+          className={`nav-item ${activeTab === 'journals' ? 'active' : ''}`}
+        >
+          <BookOpen className="w-4 h-4 shrink-0" />
+          <span>Jurnal Umum & AJP</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('ledger')}
+          className={`nav-item ${activeTab === 'ledger' ? 'active' : ''}`}
+        >
+          <Bookmark className="w-4 h-4 shrink-0" />
+          <span>Buku Besar (Ledger)</span>
+        </div>
+
+        {/* Laporan Keuangan */}
+        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Laporan Keuangan
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('trial-balance')}
+          className={`nav-item ${activeTab === 'trial-balance' ? 'active' : ''}`}
+        >
+          <Scale className="w-4 h-4 shrink-0" />
+          <span>Neraca Saldo</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('worksheet')}
+          className={`nav-item ${activeTab === 'worksheet' ? 'active' : ''}`}
+        >
+          <Table className="w-4 h-4 shrink-0" />
+          <span>Neraca Lajur 10 Kolom</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('profit-loss')}
+          className={`nav-item ${activeTab === 'profit-loss' ? 'active' : ''}`}
+        >
+          <TrendingUp className="w-4 h-4 shrink-0" />
+          <span>Laporan Laba Rugi</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('balance-sheet')}
+          className={`nav-item ${activeTab === 'balance-sheet' ? 'active' : ''}`}
+        >
+          <PieChart className="w-4 h-4 shrink-0" />
+          <span>Laporan Posisi Keuangan</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('capital-changes')}
+          className={`nav-item ${activeTab === 'capital-changes' ? 'active' : ''}`}
+        >
+          <RefreshCw className="w-4 h-4 shrink-0" />
+          <span>Perubahan Modal</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('cash-flow')}
+          className={`nav-item ${activeTab === 'cash-flow' ? 'active' : ''}`}
+        >
+          <DollarSign className="w-4 h-4 shrink-0" />
+          <span>Laporan Arus Kas</span>
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('ratios')}
+          className={`nav-item ${activeTab === 'ratios' ? 'active' : ''}`}
+        >
+          <Gauge className="w-4 h-4 shrink-0" />
+          <span>Analisis Rasio & Status</span>
+        </div>
+
+        {/* Pengaturan */}
+        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Pengaturan
+        </div>
+
+        <div 
+          onClick={() => setActiveTab('settings')}
+          className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+        >
+          <Settings className="w-4 h-4 shrink-0" />
+          <span>Perusahaan & Data</span>
+        </div>
+
+        {/* Akses Khusus Otoritas & Administrator */}
+        {isAuthority && (
+          <div className="pt-2">
+            <div className="px-2 pt-2 pb-1 text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center justify-between">
+              <span>Akses Khusus</span>
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+            </div>
+
+            {isAdmin && (
+              <div 
+                onClick={() => setActiveTab('admin-panel')}
+                className={`nav-item text-rose-300 hover:text-white hover:bg-rose-950/40 ${activeTab === 'admin-panel' ? '!bg-rose-700 !text-white' : ''}`}
               >
-                <span style={{ color: isActive ? '#fff' : 'var(--primary)' }}>
-                  {item.icon}
-                </span>
-                <span>{item.label}</span>
-              </button>
-            </React.Fragment>
-          );
-        })}
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span className="font-semibold">Administrator</span>
+              </div>
+            )}
+
+            <div 
+              onClick={() => setActiveTab('authority-panel')}
+              className={`nav-item text-amber-300 hover:text-white hover:bg-amber-950/40 ${activeTab === 'authority-panel' ? '!bg-amber-700 !text-white' : ''}`}
+            >
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Otoritas</span>
+            </div>
+
+            <div 
+              onClick={() => setActiveTab('activity-logs')}
+              className={`nav-item text-sky-300 hover:text-white hover:bg-sky-950/40 ${activeTab === 'activity-logs' ? '!bg-sky-700 !text-white' : ''}`}
+            >
+              <Activity className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>Log Aktivitas</span>
+            </div>
+          </div>
+        )}
+
       </nav>
 
-      {/* Real-time Sync Status Footer */}
-      <div style={{
-        padding: '14px 16px',
-        borderTop: '1px solid var(--border-subtle)',
-        backgroundColor: 'rgba(0, 0, 0, 0.2)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: '#10b981',
-              boxShadow: '0 0 10px #10b981',
-              display: 'inline-block'
-            }} />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#34d399' }}>
-              {syncStatus.statusText}
-            </span>
-          </div>
-          <button 
-            onClick={triggerManualSync}
-            title="Sinkronkan Sekarang"
-            style={{
-              background: 'none',
-              color: 'var(--text-muted)',
-              padding: '4px',
-              borderRadius: '4px'
-            }}
-          >
-            <RefreshCw size={13} />
-          </button>
+      {/* Footer Info */}
+      <div className="p-3 border-t border-slate-800 text-xs text-slate-400">
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span>Sistem Aktif - Offline Safe</span>
         </div>
-        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-          Terakhir: {syncStatus.lastSyncedAt.toLocaleTimeString('id-ID')} • Zero Data Loss
-        </div>
+        <div className="text-[10px] text-slate-500 mt-1">SPECTRA v2.0 (Accurate Edition)</div>
       </div>
     </aside>
   );
