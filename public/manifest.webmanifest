@@ -1,0 +1,31 @@
+{
+  "name": "SPECTRA - Financial System",
+  "short_name": "SPECTRA",
+  "description": "Sistem Pencatatan dan Evaluasi Keuangan Terpadu & Akurat (Accurate Standard)",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#031628",
+  "theme_color": "#031628",
+  "orientation": "any",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "./NBE.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./NBE.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./NBE.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

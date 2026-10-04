@@ -25,6 +25,7 @@ import {
   exportTableToExcel 
 } from '../utils/accountingCalculations';
 import { ResetModal } from '../components/modals/ResetModal';
+import { PwaInstallBanner } from '../components/common/PwaInstallBanner';
 import * as XLSX from 'xlsx';
 
 export const SettingsView: React.FC = () => {
@@ -360,6 +361,9 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* PWA Portal Installation Banner */}
+      <PwaInstallBanner />
 
       {/* Cloud & Full Online Status Card */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">

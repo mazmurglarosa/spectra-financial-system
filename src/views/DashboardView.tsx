@@ -24,6 +24,7 @@ import {
   calculateGeneralLedgers 
 } from '../utils/accountingCalculations';
 import { ActiveTab } from '../components/layout/Sidebar';
+import { PwaInstallBanner } from '../components/common/PwaInstallBanner';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -63,6 +64,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="p-5 space-y-5 animate-fadeIn">
       
+      {/* PWA Portal Banner */}
+      <PwaInstallBanner />
+
       {/* Top 4 Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Kas & Bank Card */}
