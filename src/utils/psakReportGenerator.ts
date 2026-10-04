@@ -108,12 +108,12 @@ export function generatePsakReportData(
   const revCurrent = accounts
     .filter(a => a.category === 'PENDAPATAN_OPERASIONAL' && !a.isHeader)
     .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
-  const revPrior = Math.round(revCurrent * 0.82) || 45000000;
+  const revPrior = revCurrent > 0 ? Math.round(revCurrent * 0.82) : 0;
 
   const cogsCurrent = accounts
     .filter(a => a.code.startsWith('50') && a.name.toLowerCase().includes('pokok'))
-    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0) || Math.round(revCurrent * 0.55);
-  const cogsPrior = Math.round(cogsCurrent * 0.85) || 24000000;
+    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
+  const cogsPrior = cogsCurrent > 0 ? Math.round(cogsCurrent * 0.85) : 0;
 
   const grossCurrent = revCurrent - cogsCurrent;
   const grossPrior = revPrior - cogsPrior;
@@ -121,31 +121,31 @@ export function generatePsakReportData(
   // Operating Expenses
   const sellingCurrent = accounts
     .filter(a => a.category === 'BEBAN_OPERASIONAL' && (a.name.toLowerCase().includes('iklan') || a.name.toLowerCase().includes('jual') || a.name.toLowerCase().includes('angkut')))
-    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0) || Math.round(revCurrent * 0.08);
-  const sellingPrior = Math.round(sellingCurrent * 0.9);
+    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
+  const sellingPrior = sellingCurrent > 0 ? Math.round(sellingCurrent * 0.9) : 0;
 
   const adminCurrent = accounts
     .filter(a => a.category === 'BEBAN_OPERASIONAL' && !a.name.toLowerCase().includes('iklan') && !a.name.toLowerCase().includes('jual') && !a.name.toLowerCase().includes('angkut'))
-    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0) || Math.round(revCurrent * 0.12);
-  const adminPrior = Math.round(adminCurrent * 0.92);
+    .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
+  const adminPrior = adminCurrent > 0 ? Math.round(adminCurrent * 0.92) : 0;
 
   const otherIncomeCurrent = accounts
     .filter(a => a.category === 'PENDAPATAN_NON_OPERASIONAL')
     .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
-  const otherIncomePrior = Math.round(otherIncomeCurrent * 0.8);
+  const otherIncomePrior = otherIncomeCurrent > 0 ? Math.round(otherIncomeCurrent * 0.8) : 0;
 
   const otherExpCurrent = accounts
     .filter(a => a.category === 'BEBAN_NON_OPERASIONAL')
     .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
-  const otherExpPrior = Math.round(otherExpCurrent * 0.85);
+  const otherExpPrior = otherExpCurrent > 0 ? Math.round(otherExpCurrent * 0.85) : 0;
 
   const opIncomeCurrent = grossCurrent - sellingCurrent - adminCurrent + otherIncomeCurrent - otherExpCurrent;
   const opIncomePrior = grossPrior - sellingPrior - adminPrior + otherIncomePrior - otherExpPrior;
 
-  const finIncomeCurrent = Math.round(revCurrent * 0.005);
-  const finIncomePrior = Math.round(finIncomeCurrent * 0.9);
-  const finExpCurrent = Math.round(revCurrent * 0.015);
-  const finExpPrior = Math.round(finExpCurrent * 0.95);
+  const finIncomeCurrent = revCurrent > 0 ? Math.round(revCurrent * 0.005) : 0;
+  const finIncomePrior = finIncomeCurrent > 0 ? Math.round(finIncomeCurrent * 0.9) : 0;
+  const finExpCurrent = revCurrent > 0 ? Math.round(revCurrent * 0.015) : 0;
+  const finExpPrior = finExpCurrent > 0 ? Math.round(finExpCurrent * 0.95) : 0;
 
   const incomeBeforeTaxCurrent = opIncomeCurrent + finIncomeCurrent - finExpCurrent;
   const incomeBeforeTaxPrior = opIncomePrior + finIncomePrior - finExpPrior;
@@ -159,32 +159,32 @@ export function generatePsakReportData(
   // --- BALANCE SHEET ITEMS ---
   // Aset Lancar
   const kasCurrent = getSum(['10001', '10002']);
-  const kasPrior = getSum(['10001', '10002'], true) || Math.round(kasCurrent * 0.75);
+  const kasPrior = getSum(['10001', '10002'], true) || (kasCurrent > 0 ? Math.round(kasCurrent * 0.75) : 0);
 
   const piutangCurrent = getSum(['10003', '10004']);
-  const piutangPrior = getSum(['10003', '10004'], true) || Math.round(piutangCurrent * 0.85);
+  const piutangPrior = getSum(['10003', '10004'], true) || (piutangCurrent > 0 ? Math.round(piutangCurrent * 0.85) : 0);
 
   const persediaanCurrent = getSum(['10005', '10006']);
-  const persediaanPrior = getSum(['10005', '10006'], true) || Math.round(persediaanCurrent * 0.9);
+  const persediaanPrior = getSum(['10005', '10006'], true) || (persediaanCurrent > 0 ? Math.round(persediaanCurrent * 0.9) : 0);
 
   const uangMukaCurrent = getSum(['10007', '10008', '10009', '10010']);
-  const uangMukaPrior = Math.round(uangMukaCurrent * 0.88);
+  const uangMukaPrior = uangMukaCurrent > 0 ? Math.round(uangMukaCurrent * 0.88) : 0;
 
   const totalAsetLancarCurrent = kasCurrent + piutangCurrent + persediaanCurrent + uangMukaCurrent;
   const totalAsetLancarPrior = kasPrior + piutangPrior + persediaanPrior + uangMukaPrior;
 
   // Aset Tidak Lancar
   const asetTetapGrossCurrent = getSum(['11001', '11003', '11005']);
-  const asetTetapGrossPrior = Math.round(asetTetapGrossCurrent * 0.95);
+  const asetTetapGrossPrior = asetTetapGrossCurrent > 0 ? Math.round(asetTetapGrossCurrent * 0.95) : 0;
 
   const akumPenyusutanCurrent = Math.abs(getSum(['11002', '11004', '11006']));
-  const akumPenyusutanPrior = Math.round(akumPenyusutanCurrent * 0.85);
+  const akumPenyusutanPrior = akumPenyusutanCurrent > 0 ? Math.round(akumPenyusutanCurrent * 0.85) : 0;
 
   const asetTetapNetCurrent = Math.max(0, asetTetapGrossCurrent - akumPenyusutanCurrent);
   const asetTetapNetPrior = Math.max(0, asetTetapGrossPrior - akumPenyusutanPrior);
 
-  const asetTakBerwujudCurrent = Math.round(totalAsetLancarCurrent * 0.05);
-  const asetTakBerwujudPrior = Math.round(asetTakBerwujudCurrent * 0.95);
+  const asetTakBerwujudCurrent = totalAsetLancarCurrent > 0 ? Math.round(totalAsetLancarCurrent * 0.05) : 0;
+  const asetTakBerwujudPrior = asetTakBerwujudCurrent > 0 ? Math.round(asetTakBerwujudCurrent * 0.95) : 0;
 
   const totalAsetTidakLancarCurrent = asetTetapNetCurrent + asetTakBerwujudCurrent;
   const totalAsetTidakLancarPrior = asetTetapNetPrior + asetTakBerwujudPrior;
@@ -194,13 +194,13 @@ export function generatePsakReportData(
 
   // Liabilitas Jangka Pendek
   const utangUsahaCurrent = getSum(['20001']);
-  const utangUsahaPrior = Math.round(utangUsahaCurrent * 0.88);
+  const utangUsahaPrior = utangUsahaCurrent > 0 ? Math.round(utangUsahaCurrent * 0.88) : 0;
 
   const utangBankJkPendekCurrent = getSum(['20002']);
-  const utangBankJkPendekPrior = Math.round(utangBankJkPendekCurrent * 0.9);
+  const utangBankJkPendekPrior = utangBankJkPendekCurrent > 0 ? Math.round(utangBankJkPendekCurrent * 0.9) : 0;
 
   const bebanAkrualCurrent = getSum(['20003', '20004']);
-  const bebanAkrualPrior = Math.round(bebanAkrualCurrent * 0.85);
+  const bebanAkrualPrior = bebanAkrualCurrent > 0 ? Math.round(bebanAkrualCurrent * 0.85) : 0;
 
   const utangPajakCurrent = taxCurrent;
   const utangPajakPrior = taxPrior;
@@ -210,10 +210,10 @@ export function generatePsakReportData(
 
   // Liabilitas Jangka Panjang
   const utangJkPanjangCurrent = getSum(['21001', '21002']);
-  const utangJkPanjangPrior = Math.round(utangJkPanjangCurrent * 0.95);
+  const utangJkPanjangPrior = utangJkPanjangCurrent > 0 ? Math.round(utangJkPanjangCurrent * 0.95) : 0;
 
-  const liabilitasImbalanKerjaCurrent = Math.round(totalAsetCurrent * 0.04);
-  const liabilitasImbalanKerjaPrior = Math.round(liabilitasImbalanKerjaCurrent * 0.92);
+  const liabilitasImbalanKerjaCurrent = totalAsetCurrent > 0 ? Math.round(totalAsetCurrent * 0.04) : 0;
+  const liabilitasImbalanKerjaPrior = liabilitasImbalanKerjaCurrent > 0 ? Math.round(liabilitasImbalanKerjaCurrent * 0.92) : 0;
 
   const totalLiabPanjangCurrent = utangJkPanjangCurrent + liabilitasImbalanKerjaCurrent;
   const totalLiabPanjangPrior = utangJkPanjangPrior + liabilitasImbalanKerjaPrior;
@@ -222,14 +222,14 @@ export function generatePsakReportData(
   const totalLiabilitasPrior = totalLiabPendekPrior + totalLiabPanjangPrior;
 
   // Ekuitas (Balance Sheet balancing)
-  const modalSahamCurrent = getSum(['30001']) || Math.round(totalAsetCurrent * 0.4);
+  const modalSahamCurrent = getSum(['30001']);
   const modalSahamPrior = modalSahamCurrent;
 
-  const tambahanModalCurrent = Math.round(modalSahamCurrent * 0.1);
+  const tambahanModalCurrent = modalSahamCurrent > 0 ? Math.round(modalSahamCurrent * 0.1) : 0;
   const tambahanModalPrior = tambahanModalCurrent;
 
-  const cadanganUmumCurrent = Math.round(modalSahamCurrent * 0.05);
-  const cadanganUmumPrior = Math.round(cadanganUmumCurrent * 0.9);
+  const cadanganUmumCurrent = modalSahamCurrent > 0 ? Math.round(modalSahamCurrent * 0.05) : 0;
+  const cadanganUmumPrior = cadanganUmumCurrent > 0 ? Math.round(cadanganUmumCurrent * 0.9) : 0;
 
   // Retained earnings plugs balance
   const saldoLabaCurrent = totalAsetCurrent - totalLiabilitasCurrent - modalSahamCurrent - tambahanModalCurrent - cadanganUmumCurrent;

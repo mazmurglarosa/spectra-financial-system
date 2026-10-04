@@ -371,6 +371,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } else if (type === 'COMPLAINTS' && Array.isArray(payload)) {
         setComplaints(payload);
         localStorage.setItem(STORAGE_KEYS.COMPLAINTS, JSON.stringify(payload));
+      } else if (type === 'CONTACTS' && Array.isArray(payload)) {
+        setContacts(payload);
+        localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(payload));
+      } else if (type === 'ALL' && payload) {
+        if (payload.accounts) {
+          setAccounts(payload.accounts);
+          localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(payload.accounts));
+        }
+        if (payload.transactions) {
+          setTransactions(payload.transactions);
+          localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(payload.transactions));
+        }
+        if (payload.contacts) {
+          setContacts(payload.contacts);
+          localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(payload.contacts));
+        }
+        if (payload.settings) {
+          setSettings(payload.settings);
+          localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(payload.settings));
+        }
       }
       setSyncStatus(prev => ({
         ...prev,
@@ -518,14 +538,44 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [broadcastChange, logActivity]);
 
   const resetToDefault = useCallback(() => {
-    setAccounts(defaultAccounts);
-    setTransactions(defaultTransactions);
+    const zeroedDefaultAccounts = defaultAccounts.map(a => ({
+      ...a,
+      debetAwal: 0,
+      kreditAwal: 0
+    }));
+    const zeroedContacts = DEFAULT_CONTACTS.map(c => ({
+      ...c,
+      balance: 0
+    }));
+
+    setAccounts(zeroedDefaultAccounts);
+    setTransactions([]);
+    setContacts(zeroedContacts);
     setSettings(initialCompanySettings);
-    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(defaultAccounts));
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(defaultTransactions));
+
+    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(zeroedDefaultAccounts));
+    localStorage.setItem('sikeu_coa_v3', JSON.stringify(zeroedDefaultAccounts));
+    localStorage.setItem('sikeu_accounts_v3', JSON.stringify(zeroedDefaultAccounts));
+
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions', JSON.stringify([]));
+
+    localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(zeroedContacts));
+    localStorage.setItem('sikeu_contacts_v3', JSON.stringify(zeroedContacts));
+
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(initialCompanySettings));
-    broadcastChange('ALL', { accounts: defaultAccounts, transactions: defaultTransactions, settings: initialCompanySettings });
-    logActivity('Reset Sistem', 'Mengembalikan data ke template bawaan SIKEU PT BARU');
+
+    broadcastChange('TRANSACTIONS', []);
+    broadcastChange('ACCOUNTS', zeroedDefaultAccounts);
+    broadcastChange('CONTACTS', zeroedContacts);
+    broadcastChange('ALL', { 
+      accounts: zeroedDefaultAccounts, 
+      transactions: [], 
+      contacts: zeroedContacts, 
+      settings: initialCompanySettings 
+    });
+    logActivity('Reset Sistem', 'Mengosongkan seluruh jurnal (0 transaksi) dan menolkan seluruh saldo perkiraan akun.');
   }, [broadcastChange, logActivity]);
 
   const resetWithPin = useCallback((pin: string): { success: boolean; message: string } => {
@@ -533,11 +583,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
     }
 
-    // Clear all transactions
+    // 1. Clear all transactions & delete all journals completely
     setTransactions([]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions', JSON.stringify([]));
 
-    // Zero out all accounts
+    // 2. Zero out all accounts (debetAwal: 0, kreditAwal: 0)
     const zeroed = accounts.map(a => ({
       ...a,
       debetAwal: 0,
@@ -545,16 +597,37 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
     setAccounts(zeroed);
     localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(zeroed));
+    localStorage.setItem('sikeu_coa_v3', JSON.stringify(zeroed));
+    localStorage.setItem('sikeu_accounts_v3', JSON.stringify(zeroed));
 
+    // 3. Zero out all contacts balances
+    const zeroedContacts = contacts.map(c => ({
+      ...c,
+      balance: 0
+    }));
+    setContacts(zeroedContacts);
+    localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(zeroedContacts));
+    localStorage.setItem('sikeu_contacts_v3', JSON.stringify(zeroedContacts));
+
+    // 4. Real-time broadcast to all tabs
     broadcastChange('TRANSACTIONS', []);
     broadcastChange('ACCOUNTS', zeroed);
-    logActivity('RESET PEMBUKUAN (KRITIS)', 'Seluruh transaksi jurnal dihapus dan saldo nominal dinol-kan (Rp 0) dengan otorisasi PIN.');
+    broadcastChange('CONTACTS', zeroedContacts);
+    broadcastChange('ALL', { 
+      accounts: zeroed, 
+      transactions: [], 
+      contacts: zeroedContacts, 
+      settings 
+    });
+
+    // 5. Activity log
+    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi) dan seluruh saldo nominal akun dinol-kan (Rp 0) dengan otorisasi PIN.');
 
     return { 
       success: true, 
-      message: 'SUKSES: Seluruh jurnal telah dihapus dan seluruh saldo nominal akun telah dinol-kan (Rp 0). Sistem SPECTRA siap untuk periode baru!' 
+      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dan jurnal telah dihapus (0 transaksi), dan seluruh saldo akun telah dinol-kan (Rp 0).' 
     };
-  }, [securityPin, accounts, broadcastChange, logActivity]);
+  }, [securityPin, accounts, contacts, settings, broadcastChange, logActivity]);
 
   const changePin = useCallback((oldPin: string, newPin: string): { success: boolean; message: string } => {
     if (oldPin.trim() !== securityPin.trim()) {
