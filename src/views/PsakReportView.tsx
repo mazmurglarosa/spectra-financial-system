@@ -27,6 +27,12 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
   const [activeSubTab, setActiveSubTab] = useState<PsakSubTab>(initialSubTab);
   const [bilingual, setBilingual] = useState<boolean>(true);
 
+  // Dynamic signing officials from company settings
+  const preparerName = settings.accountantName || settings.preparerName || 'Mazmur Gusti Agung L';
+  const preparerTitle = settings.accountantTitle || settings.preparerTitle || 'Direktur Keuangan';
+  const approverName = settings.directorName || settings.approverName || 'Sudono Salim';
+  const approverTitle = settings.directorTitle || settings.approverTitle || 'Direktur Utama';
+
   // Generate automated PSAK data
   const data = generatePsakReportData(accounts, transactions, settings);
 
@@ -390,16 +396,16 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disiapkan oleh / Prepared by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.preparerName || 'Mazmur Gusti Agung L'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.preparerTitle || 'Direktur Keuangan'}</div>
+                  <div className="font-bold text-slate-900 underline">{preparerName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{preparerTitle}</div>
                 </div>
               </div>
 
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disetujui oleh / Approved by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.approverName || 'Direktur Utama'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.approverTitle || 'Direktur Utama'}</div>
+                  <div className="font-bold text-slate-900 underline">{approverName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{approverTitle}</div>
                 </div>
               </div>
             </div>
@@ -506,16 +512,16 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disiapkan oleh / Prepared by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.preparerName || 'Mazmur Gusti Agung L'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.preparerTitle || 'Direktur Keuangan'}</div>
+                  <div className="font-bold text-slate-900 underline">{preparerName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{preparerTitle}</div>
                 </div>
               </div>
 
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disetujui oleh / Approved by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.approverName || 'Direktur Utama'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.approverTitle || 'Direktur Utama'}</div>
+                  <div className="font-bold text-slate-900 underline">{approverName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{approverTitle}</div>
                 </div>
               </div>
             </div>
@@ -601,16 +607,16 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disiapkan oleh / Prepared by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.preparerName || 'Mazmur Gusti Agung L'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.preparerTitle || 'Direktur Keuangan'}</div>
+                  <div className="font-bold text-slate-900 underline">{preparerName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{preparerTitle}</div>
                 </div>
               </div>
 
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disetujui oleh / Approved by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.approverName || 'Direktur Utama'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.approverTitle || 'Direktur Utama'}</div>
+                  <div className="font-bold text-slate-900 underline">{approverName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{approverTitle}</div>
                 </div>
               </div>
             </div>
@@ -768,16 +774,16 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disiapkan oleh / Prepared by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.preparerName || 'Mazmur Gusti Agung L'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.preparerTitle || 'Direktur Keuangan'}</div>
+                  <div className="font-bold text-slate-900 underline">{preparerName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{preparerTitle}</div>
                 </div>
               </div>
 
               <div className="space-y-12">
                 <div className="text-slate-600 font-medium">Disetujui oleh / Approved by:</div>
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-900 underline">{settings.approverName || 'Direktur Utama'}</div>
-                  <div className="text-[11px] text-slate-500 font-semibold">{settings.approverTitle || 'Direktur Utama'}</div>
+                  <div className="font-bold text-slate-900 underline">{approverName}</div>
+                  <div className="text-[11px] text-slate-500 font-semibold">{approverTitle}</div>
                 </div>
               </div>
             </div>

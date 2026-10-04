@@ -12,7 +12,8 @@ import {
   Globe,
   Database,
   ExternalLink,
-  Cloud
+  Cloud,
+  Award
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { CompanySettings, TrialBalanceItem } from '../types/accounting';
@@ -42,13 +43,19 @@ export const SettingsView: React.FC = () => {
 
   const [formData, setFormData] = useState<CompanySettings>(() => ({
     ...settings,
-    accountantName: settings.accountantName === 'Chief Financial Officer' ? 'Direktur Keuangan' : (settings.accountantName || 'Direktur Keuangan')
+    directorName: settings.directorName || settings.approverName || 'Sudono Salim',
+    directorTitle: settings.directorTitle || settings.approverTitle || 'Direktur Utama',
+    accountantName: settings.accountantName || settings.preparerName || 'Mazmur Gusti Agung L',
+    accountantTitle: settings.accountantTitle || settings.preparerTitle || 'Direktur Keuangan',
   }));
 
   useEffect(() => {
     setFormData({
       ...settings,
-      accountantName: settings.accountantName === 'Chief Financial Officer' ? 'Direktur Keuangan' : (settings.accountantName || 'Direktur Keuangan')
+      directorName: settings.directorName || settings.approverName || 'Sudono Salim',
+      directorTitle: settings.directorTitle || settings.approverTitle || 'Direktur Utama',
+      accountantName: settings.accountantName || settings.preparerName || 'Mazmur Gusti Agung L',
+      accountantTitle: settings.accountantTitle || settings.preparerTitle || 'Direktur Keuangan',
     });
   }, [settings]);
   const [successMsg, setSuccessMsg] = useState('');
@@ -69,9 +76,20 @@ export const SettingsView: React.FC = () => {
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings(formData);
-    setSuccessMsg('Profil entitas berhasil disimpan dan disinkronkan secara real-time.');
-    setTimeout(() => setSuccessMsg(''), 4000);
+    const payload: CompanySettings = {
+      ...formData,
+      directorName: formData.directorName || 'Sudono Salim',
+      directorTitle: formData.directorTitle || 'Direktur Utama',
+      approverName: formData.directorName || 'Sudono Salim',
+      approverTitle: formData.directorTitle || 'Direktur Utama',
+      accountantName: formData.accountantName || 'Mazmur Gusti Agung L',
+      accountantTitle: formData.accountantTitle || 'Direktur Keuangan',
+      preparerName: formData.accountantName || 'Mazmur Gusti Agung L',
+      preparerTitle: formData.accountantTitle || 'Direktur Keuangan',
+    };
+    updateSettings(payload);
+    setSuccessMsg('Profil entitas & nama/jabatan pejabat penandatangan berhasil disimpan dan disinkronkan ke seluruh laporan.');
+    setTimeout(() => setSuccessMsg(''), 4500);
   };
 
   const handleDownloadBackup = () => {
@@ -266,25 +284,134 @@ export const SettingsView: React.FC = () => {
             />
           </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">Nama Direktur / Pimpinan</label>
-            <input 
-              type="text" 
-              value={formData.directorName}
-              onChange={e => handleChange('directorName', e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
-            />
-          </div>
+          {/* Pejabat Penandatangan Laporan Keuangan */}
+          <div className="md:col-span-2 pt-3 border-t border-slate-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span className="font-bold text-xs uppercase tracking-wider text-slate-800">
+                  Pejabat Penandatangan Laporan Keuangan (Otorisasi & Tanda Tangan)
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500 italic">
+                Otomatis tampil pada seluruh lembar laporan (PSAK, Neraca, Laba Rugi, dll.)
+              </span>
+            </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">Nama Akuntan / Penyusun (Direktur Keuangan)</label>
-            <input 
-              type="text" 
-              value={formData.accountantName}
-              placeholder="Direktur Keuangan"
-              onChange={e => handleChange('accountantName', e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
+              
+              {/* Box 1: Pihak Penyiap (Prepared By) */}
+              <div className="space-y-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                  <span className="font-bold text-[11px] text-indigo-900 uppercase tracking-wide">
+                    1. Disiapkan oleh (Prepared by)
+                  </span>
+                  <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-semibold border border-indigo-100">
+                    Penyiap Lap.
+                  </span>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Nama Pejabat Penyiap
+                  </label>
+                  <input 
+                    type="text" 
+                    value={formData.accountantName || formData.preparerName || ''}
+                    placeholder="Contoh: Mazmur Gusti Agung L"
+                    onChange={e => {
+                      handleChange('accountantName', e.target.value);
+                      handleChange('preparerName', e.target.value);
+                    }}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Jabatan Pejabat Penyiap
+                  </label>
+                  <input 
+                    type="text" 
+                    value={formData.accountantTitle || formData.preparerTitle || ''}
+                    placeholder="Contoh: Direktur Keuangan / CFO"
+                    onChange={e => {
+                      handleChange('accountantTitle', e.target.value);
+                      handleChange('preparerTitle', e.target.value);
+                    }}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Box 2: Pihak Penyetuju (Approved By) */}
+              <div className="space-y-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                  <span className="font-bold text-[11px] text-emerald-900 uppercase tracking-wide">
+                    2. Disetujui oleh (Approved by)
+                  </span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold border border-emerald-100">
+                    Pimpinan / Direktur
+                  </span>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Nama Direktur / Penyetuju
+                  </label>
+                  <input 
+                    type="text" 
+                    value={formData.directorName || formData.approverName || ''}
+                    placeholder="Contoh: Budi Santoso / Sudono Salim"
+                    onChange={e => {
+                      handleChange('directorName', e.target.value);
+                      handleChange('approverName', e.target.value);
+                    }}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium text-slate-800 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Jabatan Direktur / Penyetuju
+                  </label>
+                  <input 
+                    type="text" 
+                    value={formData.directorTitle || formData.approverTitle || ''}
+                    placeholder="Contoh: Direktur Utama / President Director"
+                    onChange={e => {
+                      handleChange('directorTitle', e.target.value);
+                      handleChange('approverTitle', e.target.value);
+                    }}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium text-slate-800 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+            </div>
+
+            {/* Live Preview Box */}
+            <div className="mt-2 p-3 bg-slate-100/80 rounded-lg border border-slate-200">
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">
+                Preview Format Tanda Tangan pada Dokumen Laporan Keuangan
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="p-2.5 bg-white rounded border border-slate-200 shadow-2xs">
+                  <div className="text-[10px] text-slate-500 font-medium">Disiapkan oleh / Prepared by:</div>
+                  <div className="font-bold text-xs text-slate-900 underline mt-4">
+                    {formData.accountantName || formData.preparerName || 'Mazmur Gusti Agung L'}
+                  </div>
+                  <div className="text-[11px] text-slate-600 font-semibold">
+                    {formData.accountantTitle || formData.preparerTitle || 'Direktur Keuangan'}
+                  </div>
+                </div>
+                <div className="p-2.5 bg-white rounded border border-slate-200 shadow-2xs">
+                  <div className="text-[10px] text-slate-500 font-medium">Disetujui oleh / Approved by:</div>
+                  <div className="font-bold text-xs text-slate-900 underline mt-4">
+                    {formData.directorName || formData.approverName || 'Direktur Utama'}
+                  </div>
+                  <div className="text-[11px] text-slate-600 font-semibold">
+                    {formData.directorTitle || formData.approverTitle || 'Direktur Utama'}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="md:col-span-2 flex justify-end pt-2">

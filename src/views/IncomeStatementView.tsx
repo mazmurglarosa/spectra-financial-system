@@ -240,14 +240,14 @@ export const IncomeStatementView: React.FC = () => {
           <div style={{ textAlign: 'center', width: '200px' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Disiapkan Oleh:</div>
             <div style={{ height: '50px' }} />
-            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{settings.accountantName}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Direktur Keuangan</div>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{settings.accountantName || 'Mazmur Gusti Agung L'}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{settings.accountantTitle || settings.preparerTitle || 'Direktur Keuangan'}</div>
           </div>
           <div style={{ textAlign: 'center', width: '200px' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Disetujui Oleh:</div>
             <div style={{ height: '50px' }} />
-            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{settings.directorName}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Direktur Utama</div>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{settings.directorName || 'Sudono Salim'}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{settings.directorTitle || settings.approverTitle || 'Direktur Utama'}</div>
           </div>
         </div>
       </div>

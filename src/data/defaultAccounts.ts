@@ -10,8 +10,14 @@ export const initialCompanySettings: CompanySettings = {
   address: 'Jl. Pemuda No. 88, Jakarta Selatan',
   phone: '0812-3456-7890',
   email: 'finance@maxpicture.co.id',
-  directorName: 'Mazmur Gusti Agung L',
-  accountantName: 'Direktur Keuangan'
+  directorName: 'Sudono Salim',
+  directorTitle: 'Direktur Utama',
+  accountantName: 'Mazmur Gusti Agung L',
+  accountantTitle: 'Direktur Keuangan',
+  approverName: 'Sudono Salim',
+  approverTitle: 'Direktur Utama',
+  preparerName: 'Mazmur Gusti Agung L',
+  preparerTitle: 'Direktur Keuangan'
 };
 
 function getCategory(code: string): { category: AccountCategory; categoryName: string; isHeader: boolean } {

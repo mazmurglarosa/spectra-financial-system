@@ -53,7 +53,13 @@ export default defineSchema({
     phone: v.string(),
     email: v.string(),
     directorName: v.string(),
+    directorTitle: v.optional(v.string()),
     accountantName: v.string(),
+    accountantTitle: v.optional(v.string()),
+    preparerName: v.optional(v.string()),
+    preparerTitle: v.optional(v.string()),
+    approverName: v.optional(v.string()),
+    approverTitle: v.optional(v.string()),
     updatedAt: v.number(),
   }),
 

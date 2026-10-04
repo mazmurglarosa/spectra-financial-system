@@ -109,7 +109,9 @@ export interface CompanySettings {
   phone: string;
   email: string;
   directorName: string;
+  directorTitle?: string;
   accountantName: string;
+  accountantTitle?: string;
   preparerName?: string;
   preparerTitle?: string;
   approverName?: string;
