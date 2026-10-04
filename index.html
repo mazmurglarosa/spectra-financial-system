@@ -28,6 +28,22 @@
     </script>
     <link rel="icon" type="image/png" href="./assets/NBE.png" />
     <link rel="shortcut icon" href="./assets/NBE.ico" />
+    <!-- Progressive Web App (PWA) Support -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#031628" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SPECTRA" />
+    <link rel="apple-touch-icon" href="./NBE.png" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(err => {
+            console.log('SW registration skipped:', err);
+          });
+        });
+      }
+    </script>
     <script>
       window.addEventListener('error', function(e) {
         var root = document.getElementById('root');
@@ -44,7 +60,7 @@
         }
       });
     </script>
-    <script type="module" crossorigin src="./assets/index-DIm8eYTI.js"></script>
+    <script type="module" crossorigin src="./assets/index-B6VKSqUN.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-bHiplkWk.css">
   </head>
   <body class="bg-slate-50 text-slate-900 min-h-screen">
