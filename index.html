@@ -1,15 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="SPECTRA-Financial System - Sistem pencatatan akuntansi dan laporan keuangan otomatis berbasis Accurate dengan sinkronisasi real-time tanpa kehilangan data." />
-    <title>SPECTRA-Financial System | Sistem Akuntansi & Keuangan Otomatis</title>
-    <script type="module" crossorigin src="./assets/index-BRw8QJt-.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-D3tXssur.css">
+    <meta name="description" content="SPECTRA (Sistem Pencatatan dan Evaluasi Keuangan Terpadu & Akurat) - Accurate Edition" />
+    <title>SPECTRA (Sistem Pencatatan dan Evaluasi Keuangan Terpadu & Akurat)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              accurate: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                800: '#1e40af',
+                900: '#0f172a',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="icon" type="image/png" href="./assets/NBE.png" />
+    <link rel="shortcut icon" href="./assets/NBE.ico" />
+    <script type="module" crossorigin src="./assets/index-BPsnFuWz.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-bHiplkWk.css">
   </head>
-  <body>
+  <body class="bg-slate-50 text-slate-900 min-h-screen">
     <div id="root"></div>
   </body>
 </html>
