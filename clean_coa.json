@@ -1,0 +1,586 @@
+[
+  {
+    "code": "10000",
+    "name": "Harta Lancar",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10001",
+    "name": "Kas",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 100000,
+    "kredit": 0
+  },
+  {
+    "code": "10002",
+    "name": "Persediaan Barang Dagang",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10003",
+    "name": "Piutang Usaha",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 500000,
+    "kredit": 0
+  },
+  {
+    "code": "10004",
+    "name": "Piutang Pendapatan",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10005",
+    "name": "Wesel Tagih",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10006",
+    "name": "Perlengkapan Kantor",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10007",
+    "name": "Perlengkapan Toko",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10008",
+    "name": "Iklan Dibayar Dimuka",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10009",
+    "name": "Sewa Dibayar Dimuka",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "10010",
+    "name": "Asuransi Dibayar Dimuka",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11000",
+    "name": "Harta tetap",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11001",
+    "name": "Peralatan Kantor",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11002",
+    "name": "Akumulasi Penyusutan Peralatan Kantor",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11003",
+    "name": "Kendaraan",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11004",
+    "name": "Akumulasi Penyusutan Peralatanan Kendaraan",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11005",
+    "name": "Gedung",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11006",
+    "name": "Akumulasi Penyusutan Gedung",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11007",
+    "name": "Mesin",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11008",
+    "name": "Akumulasi Penyusutan Mesin",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11009",
+    "name": "Peralatan Toko",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11010",
+    "name": "Akumulasi Penyusutan Peralatan Toko",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "11011",
+    "name": "Tanah ",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20000",
+    "name": "Utang/liability",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20001",
+    "name": "Utang Usaha/Dagang",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20002",
+    "name": "Utang Wesel",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20003",
+    "name": "Utang Gaji",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20004",
+    "name": "Utang Pajak Penghasilan",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20005",
+    "name": "Utang Hipotek",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20006",
+    "name": "Utang Obligasi",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20007",
+    "name": "Pendapatan Diterima Dimuka",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "20008",
+    "name": "Utang Utilitas",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "21000",
+    "name": "Utang non operasional",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "21001",
+    "name": "Utang sewa",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "21002",
+    "name": "Utang Bank",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "21003",
+    "name": "Utang Bunga",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "30000",
+    "name": "Modal/Ekuitas",
+    "pos": "Nrc",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 100000
+  },
+  {
+    "code": "30001",
+    "name": "Prive",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "30002",
+    "name": "Ikhtisar Laba Rugi",
+    "pos": "Nrc",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40000",
+    "name": "Pendapatan oprasional",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40001",
+    "name": "Pendapatan Bunga",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40002",
+    "name": "Retur Penjualan",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40003",
+    "name": "Potongan Penjualan",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40004",
+    "name": "Pembelian",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40005",
+    "name": "Retur Pembelian ",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 1000000
+  },
+  {
+    "code": "40006",
+    "name": "Beban Angkut Pembelian",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40007",
+    "name": "IRL",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "40008",
+    "name": "Potongan Pembelian ",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "41000",
+    "name": "Pendapatan Non Oprasional",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "41001",
+    "name": "Pendapatan Bunga",
+    "pos": "Lr",
+    "sn": "Kr",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50000",
+    "name": "Beban Oprasional",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50001",
+    "name": "Beban Gaji Toko",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 500000,
+    "kredit": 0
+  },
+  {
+    "code": "50002",
+    "name": "Beban Gaji Kantor",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50003",
+    "name": "Beban Sewa Lahan",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50004",
+    "name": "Beban Asuransi",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50005",
+    "name": "Beban Penyesuaian Piutang",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50006",
+    "name": "Beban Perlengkapan Kantor",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50007",
+    "name": "Beban Perlengkapan Toko",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50008",
+    "name": "Beban Iklan",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50009",
+    "name": "Beban Penyusutan Peralatan kantor",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50010",
+    "name": "Beban Penyusutan Gedung",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50011",
+    "name": "Beban Bunga",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50012",
+    "name": "Beban Listrik Dan Telepon",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50013",
+    "name": "Beban Peyusutan Mesin",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50014",
+    "name": "Beban Lain-",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50015",
+    "name": "Beban Penyusutan Kendaraan ",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50016",
+    "name": "Potongan Pembelian",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50017",
+    "name": "Beban Penjualan",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50018",
+    "name": "Pajak Penghasilan ",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50019",
+    "name": "Beban Penyusutan Peralatan toko",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50020",
+    "name": "Beban service",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50021",
+    "name": "Beban Akibat Bencana Alam ",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  },
+  {
+    "code": "50022",
+    "name": "Beban Administrasi",
+    "pos": "Lr",
+    "sn": "Db",
+    "debet": 0,
+    "kredit": 0
+  }
+]
