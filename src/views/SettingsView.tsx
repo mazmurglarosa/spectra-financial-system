@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Save, 
@@ -40,7 +40,17 @@ export const SettingsView: React.FC = () => {
     changePin 
   } = useAccounting();
 
-  const [formData, setFormData] = useState<CompanySettings>({ ...settings });
+  const [formData, setFormData] = useState<CompanySettings>(() => ({
+    ...settings,
+    accountantName: settings.accountantName === 'Chief Financial Officer' ? 'Direktur Keuangan' : (settings.accountantName || 'Direktur Keuangan')
+  }));
+
+  useEffect(() => {
+    setFormData({
+      ...settings,
+      accountantName: settings.accountantName === 'Chief Financial Officer' ? 'Direktur Keuangan' : (settings.accountantName || 'Direktur Keuangan')
+    });
+  }, [settings]);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -267,10 +277,11 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Nama Akuntan / Penyusun</label>
+            <label className="block font-semibold text-slate-700 mb-1">Nama Akuntan / Penyusun (Direktur Keuangan)</label>
             <input 
               type="text" 
               value={formData.accountantName}
+              placeholder="Direktur Keuangan"
               onChange={e => handleChange('accountantName', e.target.value)}
               className="w-full border border-slate-300 rounded px-2.5 py-1.5"
             />

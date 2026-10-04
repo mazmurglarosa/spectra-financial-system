@@ -219,7 +219,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (saved && saved !== 'null' && saved !== 'undefined') {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          return { ...initialCompanySettings, ...parsed };
+          const loaded = { ...initialCompanySettings, ...parsed };
+          if (loaded.accountantName === 'Chief Financial Officer' || !loaded.accountantName) {
+            loaded.accountantName = 'Direktur Keuangan';
+          }
+          return loaded;
         }
       }
     } catch (e) {

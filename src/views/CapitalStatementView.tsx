@@ -145,7 +145,7 @@ export const CapitalStatementView: React.FC = () => {
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Disiapkan Oleh:</div>
             <div style={{ height: '50px' }} />
             <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{settings.accountantName}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Bagian Keuangan</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Direktur Keuangan</div>
           </div>
           <div style={{ textAlign: 'center', width: '200px' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Disetujui Oleh:</div>

@@ -33,7 +33,7 @@ export const seedDatabase = mutation({
       phone: "(022) 7890123",
       email: "finance@ptbaru.co.id",
       directorName: "Mazmur Gusti Agung L",
-      accountantName: "Chief Financial Officer",
+      accountantName: "Direktur Keuangan",
       updatedAt: Date.now(),
     });
 

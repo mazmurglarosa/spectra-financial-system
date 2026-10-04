@@ -11,7 +11,7 @@ export const initialCompanySettings: CompanySettings = {
   phone: '0812-3456-7890',
   email: 'finance@maxpicture.co.id',
   directorName: 'Mazmur Gusti Agung L',
-  accountantName: 'Chief Financial Officer'
+  accountantName: 'Direktur Keuangan'
 };
 
 function getCategory(code: string): { category: AccountCategory; categoryName: string; isHeader: boolean } {
