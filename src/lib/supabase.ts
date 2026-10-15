@@ -7,14 +7,17 @@ export interface SupabaseConfig {
   isConfigured: boolean;
 }
 
+const DEFAULT_SUPABASE_URL = 'https://drsqwxkkcfqvooqzoyvm.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyc3F3eGtrY2Zxdm9vcXpveXZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjUyMDMsImV4cCI6MjEwNzY0MTIwM30.5ayLSmloCqvJ1PJsRDGM9ZPbfud-bwOBh0NfyshCOlg';
+
 const STORAGE_KEYS = {
   URL: 'spectra_supabase_url',
   KEY: 'spectra_supabase_anon_key'
 };
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
   const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.URL) || '' : '';
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.KEY) || '' : '';
