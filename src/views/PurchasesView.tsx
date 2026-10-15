@@ -123,7 +123,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ openNewTransaction
               {/* Entries */}
               {utangLedger.entries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4 text-xs text-slate-400">
+                  <td colSpan={7} className="text-center py-4 text-xs text-slate-500">
                     Belum ada transaksi utang usaha periode ini.
                   </td>
                 </tr>

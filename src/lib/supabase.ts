@@ -108,10 +108,7 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
   }
 }
 
-// -------------------------------------------------------------
 // Synchronisation helpers
-// -------------------------------------------------------------
-
 export async function syncPushAllToSupabase(payload: {
   accounts: Account[];
   transactions: Transaction[];

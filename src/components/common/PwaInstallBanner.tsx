@@ -63,7 +63,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({ className = 
           <button 
             type="button"
             onClick={handleOpenGuide}
-            className="w-full md:w-auto bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] hover:from-[#0369a1] hover:to-[#0284c7] text-white font-bold text-xs md:text-sm px-6 py-3.5 rounded-xl shadow-[0_0_22px_rgba(14,165,233,0.55)] hover:shadow-[0_0_30px_rgba(14,165,233,0.8)] flex items-center justify-center space-x-2.5 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+            className="w-full md:w-auto bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] hover:from-[#0369a1] hover:to-[#0284c7] text-white font-bold text-xs md:text-sm px-6 py-3.5 rounded-xl shadow-md hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 flex items-center justify-center space-x-2.5 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
           >
             <Download className="w-4 h-4 text-white" />
             <span>Panduan &amp; Pasang Aplikasi</span>

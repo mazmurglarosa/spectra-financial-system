@@ -45,7 +45,7 @@ export const ApiIntegrationBanner: React.FC<ApiIntegrationBannerProps> = ({ clas
           <button 
             type="button"
             onClick={() => setIsDocsOpen(true)}
-            className="w-full md:w-auto bg-gradient-to-r from-[#059669] to-[#10b981] hover:from-[#047857] hover:to-[#059669] text-white font-bold text-xs md:text-sm px-6 py-3.5 rounded-xl shadow-[0_0_22px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.75)] flex items-center justify-center space-x-2.5 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+            className="w-full md:w-auto bg-gradient-to-r from-[#059669] to-[#10b981] hover:from-[#047857] hover:to-[#059669] text-white font-bold text-xs md:text-sm px-6 py-3.5 rounded-xl shadow-md hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 flex items-center justify-center space-x-2.5 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
           >
             <Terminal className="w-4 h-4 text-white" />
             <span>Dokumentasi &amp; Uji Coba API</span>

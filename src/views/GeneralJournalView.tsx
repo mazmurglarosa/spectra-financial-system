@@ -108,7 +108,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           <button 
             type="button"
             onClick={() => openNewTransactionModal('general')}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1.5 shadow transition cursor-pointer"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1.5 shadow-xs transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
           >
             <Plus className="w-4 h-4" />
             <span>+ Jurnal Baru</span>
@@ -117,7 +117,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           <button 
             type="button"
             onClick={handleExport}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1 border border-slate-300 transition cursor-pointer"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1 border border-slate-300 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
           >
             <Download className="w-4 h-4" />
             <span>Export Excel</span>
@@ -126,7 +126,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           <button 
             type="button"
             onClick={() => window.print()}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded flex items-center space-x-1 border border-slate-300 transition cursor-pointer"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1 border border-slate-300 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
           >
             <Printer className="w-4 h-4" />
             <span>Cetak</span>
@@ -138,7 +138,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
       <div className="bg-white p-3.5 rounded-xl shadow-xs border border-slate-200 space-y-3">
         {/* Type Filter Buttons */}
         <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-3 text-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-2">Tipe:</span>
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-2">Tipe:</span>
           {[
             { id: 'all', label: 'Semua Transaksi' },
             { id: 'general', label: 'Jurnal Umum (JU)' },
@@ -218,7 +218,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
             <tbody>
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-xs text-slate-400">
+                  <td colSpan={8} className="text-center py-8 text-xs text-slate-500">
                     Tidak ada transaksi jurnal yang ditemukan.
                   </td>
                 </tr>

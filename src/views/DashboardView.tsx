@@ -264,7 +264,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button 
               type="button"
               onClick={() => openNewTransactionModal('general')}
-              className="text-xs text-blue-600 hover:underline font-semibold flex items-center space-x-1 cursor-pointer"
+              className="text-xs text-blue-600 hover:text-blue-700 hover:underline font-semibold flex items-center space-x-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Tambah Transaksi</span>
@@ -273,9 +273,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button 
               type="button"
               onClick={() => setActiveTab('journals')}
-              className="text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
+              className="text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
             >
-              Lihat Semua &rarr;
+              Lihat Semua
             </button>
           </div>
         </div>
@@ -296,7 +296,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <tbody>
               {recentTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-6 text-slate-400 text-xs">
+                  <td colSpan={7} className="text-center py-6 text-slate-500 text-xs">
                     Belum ada transaksi. Klik "+ Tambah Transaksi" untuk mulai mencatat.
                   </td>
                 </tr>

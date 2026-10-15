@@ -109,7 +109,7 @@ export const ActivityLogsView: React.FC = () => {
             <tbody>
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-xs text-slate-400">
+                  <td colSpan={5} className="text-center py-8 text-xs text-slate-500">
                     Tidak ada aktivitas yang sesuai dengan kriteria pencarian.
                   </td>
                 </tr>

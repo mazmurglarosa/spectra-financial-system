@@ -674,13 +674,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
     }
 
-    // 1. Clear all transactions & delete all journals completely
+    // Atomically reset journals and zero accounts across local storage, broadcast channels, and cloud
     setTransactions([]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
     localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
     localStorage.setItem('sikeu_transactions', JSON.stringify([]));
 
-    // 2. Zero out all accounts (debetAwal: 0, kreditAwal: 0)
     const zeroed = accounts.map(a => ({
       ...a,
       debetAwal: 0,
@@ -691,7 +690,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem('sikeu_coa_v3', JSON.stringify(zeroed));
     localStorage.setItem('sikeu_accounts_v3', JSON.stringify(zeroed));
 
-    // 3. Zero out all contacts balances
     const zeroedContacts = contacts.map(c => ({
       ...c,
       balance: 0
@@ -700,7 +698,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(zeroedContacts));
     localStorage.setItem('sikeu_contacts_v3', JSON.stringify(zeroedContacts));
 
-    // 4. Real-time broadcast to all tabs
     broadcastChange('TRANSACTIONS', []);
     broadcastChange('ACCOUNTS', zeroed);
     broadcastChange('CONTACTS', zeroedContacts);
@@ -711,7 +708,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings 
     });
 
-    // 5. Auto-wipe Supabase cloud transactions and zero accounts
     syncPushAllToSupabase({ 
       accounts: zeroed, 
       transactions: [], 

@@ -104,7 +104,7 @@ export function generatePsakReportData(
     return sum;
   };
 
-  // --- REVENUE & COGS & EXPENSES ---
+  // Revenue, COGS, and operating expenses
   const revCurrent = accounts
     .filter(a => a.category === 'PENDAPATAN_OPERASIONAL' && !a.isHeader)
     .reduce((s, a) => s + (balanceMap.get(a.code)?.current || 0), 0);
@@ -156,7 +156,7 @@ export function generatePsakReportData(
   const netIncomeCurrent = incomeBeforeTaxCurrent - taxCurrent;
   const netIncomePrior = incomeBeforeTaxPrior - taxPrior;
 
-  // --- BALANCE SHEET ITEMS ---
+  // Balance sheet line items
   // Aset Lancar
   const kasCurrent = getSum(['10001', '10002']);
   const kasPrior = getSum(['10001', '10002'], true) || (kasCurrent > 0 ? Math.round(kasCurrent * 0.75) : 0);
@@ -241,7 +241,7 @@ export function generatePsakReportData(
   const totalLiabilitasDanEkuitasCurrent = totalLiabilitasCurrent + totalEkuitasCurrent;
   const totalLiabilitasDanEkuitasPrior = totalLiabilitasPrior + totalEkuitasPrior;
 
-  // --- STATEMENTS COMPOSITION ---
+  // Financial statement structures
   const assetsCurrentItems: PsakLineItem[] = [
     { id: 'ac-1', nameId: 'Kas dan setara kas', nameEn: 'Cash and cash equivalents', note: '2,4', amountCurrent: kasCurrent, amountPrior: kasPrior },
     { id: 'ac-2', nameId: 'Piutang usaha - neto', nameEn: 'Accounts receivable - net', note: '2,6', amountCurrent: piutangCurrent, amountPrior: piutangPrior },

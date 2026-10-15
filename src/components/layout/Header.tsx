@@ -6,7 +6,6 @@ import {
   Download, 
   Printer, 
   LogOut,
-  Radio,
   Menu
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
