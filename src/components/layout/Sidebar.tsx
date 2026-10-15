@@ -19,7 +19,8 @@ import {
   AlertTriangle, 
   AlertCircle, 
   Activity,
-  Award 
+  Award,
+  X
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -48,29 +49,59 @@ interface SidebarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   openNewTransactionModal: (preset?: any) => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   activeTab, 
-  setActiveTab 
+  setActiveTab: setParentActiveTab,
+  isMobileOpen = false,
+  onCloseMobile
 }) => {
   const { currentUser } = useAccounting();
 
   const isAdmin = currentUser?.role === 'admin';
   const isAuthority = currentUser?.isAuthority || isAdmin;
 
+  const setActiveTab = (tab: ActiveTab) => {
+    setParentActiveTab(tab);
+    if (onCloseMobile) onCloseMobile();
+  };
+
   return (
-    <aside 
-      id="sidebar" 
-      className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 h-screen sticky top-0 no-print select-none"
-    >
-      {/* Scrollable Navigation Area */}
-      <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
-        
-        {/* Modul Akuntansi */}
-        <div className="px-2 pt-1 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-          Modul Akuntansi
-        </div>
+    <>
+      {/* Mobile Drawer Backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40 md:hidden transition-opacity"
+          onClick={onCloseMobile}
+        />
+      )}
+
+      <aside 
+        id="sidebar" 
+        className={`fixed md:sticky top-0 left-0 z-50 h-screen w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 no-print select-none transition-transform duration-200 ease-in-out ${
+          isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        {/* Scrollable Navigation Area */}
+        <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
+          
+          {/* Modul Akuntansi with Mobile Close Button */}
+          <div className="px-2 pt-1 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <span>Modul Akuntansi</span>
+            {onCloseMobile && (
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                className="md:hidden p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                title="Tutup Menu"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
         <div 
           onClick={() => setActiveTab('dashboard')}
@@ -265,5 +296,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="text-[10px] text-slate-500 mt-1">SPECTRA v2.0 (Accurate Edition)</div>
       </div>
     </aside>
+    </>
   );
 };

@@ -19,7 +19,10 @@ import {
   saveSupabaseConfig, 
   testSupabaseConnection, 
   syncPushAllToSupabase, 
-  syncPullAllFromSupabase 
+  syncPullAllFromSupabase,
+  pushTransactionToSupabase,
+  deleteTransactionFromSupabase,
+  pushSettingsToSupabase
 } from '../lib/supabase';
 
 export interface SyncStatus {
@@ -429,6 +432,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [broadcastChannel]);
 
+  // 3. Automatic Initial Sync from Supabase Cloud on mount (Ensures Laptop, Phone, and other devices are always identical)
+  useEffect(() => {
+    let isCancelled = false;
+    const fetchCloudData = async () => {
+      const cfg = getSupabaseConfig();
+      if (!cfg.isConfigured) return;
+      try {
+        const res = await syncPullAllFromSupabase();
+        if (!isCancelled && res.success && res.data) {
+          if (res.data.accounts && res.data.accounts.length > 0) {
+            setAccounts(res.data.accounts);
+            localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(res.data.accounts));
+          }
+          if (Array.isArray(res.data.transactions)) {
+            setTransactions(res.data.transactions);
+            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(res.data.transactions));
+          }
+          if (res.data.contacts && res.data.contacts.length > 0) {
+            setContacts(res.data.contacts);
+            localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(res.data.contacts));
+          }
+          if (res.data.settings) {
+            setSettings(res.data.settings);
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(res.data.settings));
+          }
+          setSyncStatus(prev => ({
+            ...prev,
+            lastSyncedAt: new Date(),
+            statusText: 'Data tersinkron otomatis dari Supabase Cloud'
+          }));
+        }
+      } catch (e) {
+        console.warn('Initial cloud sync warning:', e);
+      }
+    };
+    fetchCloudData();
+    return () => { isCancelled = true; };
+  }, []);
+
   // Helper to log activities
   const logActivity = useCallback((action: string, detail: string) => {
     const newLog: ActivityLog = {
@@ -477,13 +519,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return updated;
     });
 
+    // Auto-sync to Supabase Cloud in background
+    pushTransactionToSupabase(newTx);
+
     logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
     return newTx;
   }, [broadcastChange, logActivity]);
 
   const updateTransaction = useCallback((id: string, trx: Partial<Transaction>) => {
     setTransactions(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, ...trx, updatedAt: Date.now() } : t);
+      const updated = prev.map(t => {
+        if (t.id === id) {
+          const merged = { ...t, ...trx, updatedAt: Date.now() };
+          pushTransactionToSupabase(merged);
+          return merged;
+        }
+        return t;
+      });
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
       broadcastChange('TRANSACTIONS', updated);
       return updated;
@@ -499,6 +551,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       broadcastChange('TRANSACTIONS', updated);
       return updated;
     });
+
+    // Auto-sync deletion to Supabase Cloud in background
+    deleteTransactionFromSupabase(id);
+
     logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
   }, [transactions, broadcastChange, logActivity]);
 
@@ -556,6 +612,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const updated = { ...prev, ...newSettings };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       broadcastChange('SETTINGS', updated);
+      // Auto-sync company settings to Supabase in background
+      pushSettingsToSupabase(updated);
       return updated;
     });
     logActivity('Pengaturan Perusahaan', 'Memperbarui profil atau konfigurasi entitas');
@@ -599,6 +657,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       contacts: zeroedContacts, 
       settings: initialCompanySettings 
     });
+
+    // Auto-wipe Supabase cloud transactions and zero accounts
+    syncPushAllToSupabase({ 
+      accounts: zeroedDefaultAccounts, 
+      transactions: [], 
+      contacts: zeroedContacts, 
+      settings: initialCompanySettings 
+    });
+
     logActivity('Reset Sistem', 'Mengosongkan seluruh jurnal (0 transaksi) dan menolkan seluruh saldo perkiraan akun.');
   }, [broadcastChange, logActivity]);
 
@@ -644,7 +711,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings 
     });
 
-    // 5. Activity log
+    // 5. Auto-wipe Supabase cloud transactions and zero accounts
+    syncPushAllToSupabase({ 
+      accounts: zeroed, 
+      transactions: [], 
+      contacts: zeroedContacts, 
+      settings 
+    });
+
+    // 6. Activity log
     logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi) dan seluruh saldo nominal akun dinol-kan (Rp 0) dengan otorisasi PIN.');
 
     return { 

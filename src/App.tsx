@@ -36,6 +36,7 @@ const MainContent: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalPresetType, setModalPresetType] = useState<TransactionType>('general');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // If no user is logged in, show AuthGate
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -154,6 +155,8 @@ const MainContent: React.FC = () => {
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         openNewTransactionModal={handleOpenNewTransaction} 
+        isMobileOpen={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main Content Area */}
@@ -162,6 +165,7 @@ const MainContent: React.FC = () => {
         <Header 
           openNewTransactionModal={handleOpenNewTransaction}
           onLogout={handleLogout}
+          onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
         />
 
         {/* Dynamic View Container */}

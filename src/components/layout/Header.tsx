@@ -6,7 +6,8 @@ import {
   Download, 
   Printer, 
   LogOut,
-  Radio
+  Radio,
+  Menu
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { calculateBalanceSheet, formatRupiah } from '../../utils/accountingCalculations';
@@ -15,11 +16,13 @@ import { SyncInfoModal } from '../modals/SyncInfoModal';
 interface HeaderProps {
   openNewTransactionModal: (preset?: any) => void;
   onLogout?: () => void;
+  onToggleMobileSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
   openNewTransactionModal, 
-  onLogout 
+  onLogout,
+  onToggleMobileSidebar
 }) => {
   const { 
     settings, 
@@ -68,8 +71,19 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="px-4 py-2 flex items-center justify-between flex-wrap gap-2">
           
           {/* Brand Info */}
-          <div className="flex items-center space-x-3.5">
-            <div className="bg-white p-1 rounded-md shadow-xs border border-slate-700/50 flex items-center justify-center">
+          <div className="flex items-center space-x-2.5">
+            {onToggleMobileSidebar && (
+              <button
+                type="button"
+                onClick={onToggleMobileSidebar}
+                className="md:hidden p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 focus:outline-none transition-colors border border-slate-700/60"
+                title="Buka Navigasi Menu"
+                aria-label="Toggle Navigation"
+              >
+                <Menu className="w-5 h-5 text-blue-400" />
+              </button>
+            )}
+            <div className="bg-white p-1 rounded-md shadow-xs border border-slate-700/50 flex items-center justify-center shrink-0">
               <img 
                 src="./assets/NBE.png" 
                 alt="Logo NBE" 

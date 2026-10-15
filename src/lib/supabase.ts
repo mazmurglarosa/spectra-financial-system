@@ -326,3 +326,66 @@ export async function syncPullAllFromSupabase(): Promise<{
     };
   }
 }
+
+export async function pushTransactionToSupabase(tx: Transaction): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('transactions').upsert({
+      id: tx.id,
+      date: tx.date,
+      ref_number: tx.refNumber,
+      type: tx.type || 'general',
+      description: tx.description,
+      lines: tx.lines,
+      total_debit: tx.totalDebit,
+      total_credit: tx.totalCredit,
+      partner: tx.partner || '-',
+      created_at: tx.createdAt,
+      updated_at: tx.updatedAt
+    }, { onConflict: 'id' });
+  } catch (e) {
+    console.warn('Auto push tx to Supabase failed:', e);
+  }
+}
+
+export async function deleteTransactionFromSupabase(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('transactions').delete().eq('id', id);
+  } catch (e) {
+    console.warn('Auto delete tx from Supabase failed:', e);
+  }
+}
+
+export async function pushSettingsToSupabase(s: CompanySettings): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('company_settings').upsert({
+      id: 'primary',
+      company_name: s.companyName,
+      business_type: s.businessType,
+      fiscal_period: s.fiscalPeriod,
+      fiscal_year: s.fiscalYear,
+      currency: s.currency || 'IDR',
+      tax_rate_percent: s.taxRatePercent || 11,
+      address: s.address || '',
+      phone: s.phone || '',
+      email: s.email || '',
+      director_name: s.directorName,
+      director_title: s.directorTitle || 'Direktur Utama',
+      accountant_name: s.accountantName,
+      accountant_title: s.accountantTitle || 'Direktur Keuangan',
+      preparer_name: s.preparerName || '',
+      preparer_title: s.preparerTitle || '',
+      approver_name: s.approverName || '',
+      approver_title: s.approverTitle || '',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' });
+  } catch (e) {
+    console.warn('Auto push settings to Supabase failed:', e);
+  }
+}
+
