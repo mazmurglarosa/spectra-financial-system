@@ -13,6 +13,7 @@
     "deploy:cf": "wrangler pages deploy dist --project-name spectra-financial-system"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "convex": "^1.46.0",
     "lucide-react": "^1.51.0",
     "react": "^19.2.8",

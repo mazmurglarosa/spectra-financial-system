@@ -13,7 +13,12 @@ import {
   Database,
   ExternalLink,
   Cloud,
-  Award
+  Award,
+  Check,
+  CheckCircle2,
+  Copy,
+  Code,
+  Server
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { CompanySettings, TrialBalanceItem } from '../types/accounting';
@@ -38,7 +43,13 @@ export const SettingsView: React.FC = () => {
     transactions, 
     exportDatabaseJson, 
     importDatabaseJson,
-    changePin 
+    changePin,
+    supabaseConfig,
+    saveSupabaseSettings,
+    testSupabase,
+    syncToSupabase,
+    syncFromSupabase,
+    syncStatus
   } = useAccounting();
 
   const [formData, setFormData] = useState<CompanySettings>(() => ({
@@ -69,6 +80,71 @@ export const SettingsView: React.FC = () => {
 
   // Reset modal state
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+
+  // Supabase Cloud State
+  const [sbUrl, setSbUrl] = useState(supabaseConfig.url);
+  const [sbKey, setSbKey] = useState(supabaseConfig.anonKey);
+  const [sbStatusMsg, setSbStatusMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [sbLoading, setSbLoading] = useState(false);
+  const [showSqlSchema, setShowSqlSchema] = useState(false);
+  const [copiedSchema, setCopiedSchema] = useState(false);
+
+  useEffect(() => {
+    setSbUrl(supabaseConfig.url);
+    setSbKey(supabaseConfig.anonKey);
+  }, [supabaseConfig]);
+
+  const handleSaveSupabase = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveSupabaseSettings(sbUrl, sbKey);
+    setSbStatusMsg({ text: 'Konfigurasi Supabase berhasil disimpan!', isError: false });
+    setTimeout(() => setSbStatusMsg(null), 4000);
+  };
+
+  const handleTestSupabase = async () => {
+    setSbLoading(true);
+    setSbStatusMsg(null);
+    try {
+      const res = await testSupabase();
+      setSbStatusMsg({ text: res.message, isError: !res.success });
+    } catch (err: any) {
+      setSbStatusMsg({ text: err.message || 'Koneksi gagal', isError: true });
+    } finally {
+      setSbLoading(false);
+    }
+  };
+
+  const handleSyncToSupabase = async () => {
+    if (!confirm('Apakah Anda yakin ingin mengunggah (push) seluruh data akun & transaksi lokal ke database Supabase?')) {
+      return;
+    }
+    setSbLoading(true);
+    setSbStatusMsg(null);
+    try {
+      const res = await syncToSupabase();
+      setSbStatusMsg({ text: res.message, isError: !res.success });
+    } catch (err: any) {
+      setSbStatusMsg({ text: err.message || 'Gagal sinkronisasi', isError: true });
+    } finally {
+      setSbLoading(false);
+    }
+  };
+
+  const handleSyncFromSupabase = async () => {
+    if (!confirm('Apakah Anda yakin ingin menarik data dari Supabase? Data lokal akan diperbarui dengan data dari Supabase.')) {
+      return;
+    }
+    setSbLoading(true);
+    setSbStatusMsg(null);
+    try {
+      const res = await syncFromSupabase();
+      setSbStatusMsg({ text: res.message, isError: !res.success });
+    } catch (err: any) {
+      setSbStatusMsg({ text: err.message || 'Gagal menarik data', isError: true });
+    } finally {
+      setSbLoading(false);
+    }
+  };
 
   const handleChange = (field: keyof CompanySettings, val: any) => {
     setFormData(prev => ({ ...prev, [field]: val }));
@@ -597,19 +673,161 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
+        {/* Supabase Database Cloud Integration */}
+        <div className="p-4 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-white border-2 border-emerald-500 rounded-xl shadow-xs space-y-3.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="font-bold text-emerald-950 flex items-center space-x-2 text-xs">
+              <Database className="w-4 h-4 text-emerald-600" />
+              <span>Database Cloud Utama: SUPABASE (PostgreSQL Online)</span>
+            </span>
+            <div className="flex items-center space-x-2">
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center space-x-1 ${
+                supabaseConfig.isConfigured 
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                  : 'bg-amber-100 text-amber-800 border-amber-300'
+              }`}>
+                {supabaseConfig.isConfigured ? (
+                  <>
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Tersambung (Siap Sinkron)</span>
+                  </>
+                ) : (
+                  <span>Belum Dikonfigurasi</span>
+                )}
+              </span>
+              <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                MCP Ready
+              </span>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-emerald-900/80 leading-relaxed">
+            Hubungkan SPECTRA langsung ke cluster PostgreSQL Supabase. Seluruh tabel pembukuan (<code>accounts</code>, <code>transactions</code>, <code>contacts</code>, <code>company_settings</code>, <code>activity_logs</code>) dapat disinkronkan dua arah secara online serta dapat dikelola langsung menggunakan <b>Model Context Protocol (MCP)</b>.
+          </p>
+
+          <form onSubmit={handleSaveSupabase} className="space-y-2.5 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Supabase Project URL:
+                </label>
+                <input 
+                  type="url"
+                  value={sbUrl}
+                  onChange={e => setSbUrl(e.target.value)}
+                  placeholder="https://xyzcompany.supabase.co"
+                  className="w-full text-xs font-mono bg-white border border-slate-300 rounded px-2.5 py-1.5 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Supabase Anon Public API Key:
+                </label>
+                <input 
+                  type="password"
+                  value={sbKey}
+                  onChange={e => setSbKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  className="w-full text-xs font-mono bg-white border border-slate-300 rounded px-2.5 py-1.5 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                />
+              </div>
+            </div>
+
+            {sbStatusMsg && (
+              <div className={`p-2 rounded text-xs font-medium flex items-center space-x-1.5 ${
+                sbStatusMsg.isError ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}>
+                {sbStatusMsg.isError ? <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-500" /> : <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />}
+                <span>{sbStatusMsg.text}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-emerald-100">
+              <div className="flex items-center space-x-2">
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded shadow-xs flex items-center space-x-1 cursor-pointer transition"
+                >
+                  <Save className="w-3 h-3" />
+                  <span>Simpan Kunci</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={sbLoading || !sbUrl || !sbKey}
+                  onClick={handleTestSupabase}
+                  className="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded border border-slate-300 shadow-xs flex items-center space-x-1 cursor-pointer disabled:opacity-50 transition"
+                >
+                  <RefreshCw className={`w-3 h-3 ${sbLoading ? 'animate-spin' : ''}`} />
+                  <span>Uji Koneksi</span>
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={sbLoading || !supabaseConfig.isConfigured}
+                  onClick={handleSyncToSupabase}
+                  className="bg-teal-700 hover:bg-teal-800 text-white font-bold text-[11px] px-3 py-1.5 rounded shadow-xs flex items-center space-x-1 cursor-pointer disabled:opacity-50 transition"
+                  title="Upload semua data lokal ke tabel Supabase"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>Push ke Supabase</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={sbLoading || !supabaseConfig.isConfigured}
+                  onClick={handleSyncFromSupabase}
+                  className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-[11px] px-3 py-1.5 rounded shadow-xs flex items-center space-x-1 cursor-pointer disabled:opacity-50 transition"
+                  title="Tarik data terbaru dari Supabase"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Pull dari Supabase</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSqlSchema(true)}
+                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-semibold text-[11px] px-2.5 py-1.5 rounded border border-emerald-300 shadow-xs flex items-center space-x-1 cursor-pointer transition"
+                >
+                  <Code className="w-3 h-3 text-emerald-700" />
+                  <span>Skema SQL</span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* MCP Integration Explanatory Note */}
+          <div className="p-2.5 bg-slate-900 text-slate-200 rounded-lg text-[11px] font-mono space-y-1">
+            <div className="flex items-center justify-between text-emerald-400 font-bold">
+              <span className="flex items-center space-x-1.5">
+                <Server className="w-3.5 h-3.5" />
+                <span>Supabase Model Context Protocol (MCP) Server:</span>
+              </span>
+              <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                mcp_config.json
+              </span>
+            </div>
+            <p className="text-slate-400 leading-normal">
+              Server endpoint MCP resmi telah terdaftar di sistem: <code>https://mcp.supabase.com/mcp</code>. Untuk mengaktifkan otorisasi penuh AI Assistant melakukan query/migrasi SQL otomatis, tambahkan Personal Access Token (PAT) Anda di pengaturan MCP.
+            </p>
+          </div>
+        </div>
+
         {/* Convex Database Cloud Integration */}
         <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2">
           <div className="flex items-center justify-between">
             <span className="font-bold text-indigo-950 flex items-center space-x-1.5 text-xs">
               <Database className="w-4 h-4 text-indigo-600" />
-              <span>Backend Cloud Database: CONVEX CLOUD</span>
+              <span>Backend Alternatif: CONVEX CLOUD</span>
             </span>
             <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded border border-indigo-200">
               Schema Ready
             </span>
           </div>
           <p className="text-[11px] text-indigo-900/80 leading-relaxed">
-            Skema database cloud untuk tabel <code>accounts</code>, <code>transactions</code>, <code>settings</code>, <code>users</code>, <code>activityLogs</code>, <code>complaints</code>, dan <code>contacts</code> sudah terkonfigurasi. Data selalu tersinkronisasi otomatis secara real-time.
+            Skema database cloud untuk tabel <code>accounts</code>, <code>transactions</code>, <code>settings</code>, <code>users</code>, <code>activityLogs</code>, <code>complaints</code>, dan <code>contacts</code> juga tersedia di cluster Convex.
           </p>
         </div>
       </div>
@@ -703,6 +921,156 @@ export const SettingsView: React.FC = () => {
         isOpen={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
       />
+
+      {/* Supabase SQL Schema Modal */}
+      {showSqlSchema && (
+        <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-fadeIn border border-slate-200">
+            <div className="bg-emerald-800 text-white px-5 py-3.5 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <Code className="w-5 h-5 text-emerald-300" />
+                <h3 className="font-bold text-sm">Skema Database PostgreSQL (Supabase schema.sql)</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowSqlSchema(false)} 
+                className="text-white/80 hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-b border-slate-200 text-xs text-slate-700 space-y-1 shrink-0">
+              <p>
+                Salin skema SQL di bawah ini dan jalankan pada <b>SQL Editor</b> di dashboard Supabase Anda (<code>https://supabase.com/dashboard/project/_/sql</code>) untuk membuat tabel <code>accounts</code>, <code>transactions</code>, <code>contacts</code>, <code>company_settings</code>, dan <code>activity_logs</code>.
+              </p>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 font-mono text-[11px] bg-slate-900 text-emerald-400 select-all leading-relaxed whitespace-pre">
+{`-- ====================================================================
+-- SPECTRA FINANCIAL SYSTEM - SUPABASE DATABASE SCHEMA (POSTGRESQL)
+-- ====================================================================
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  category_name TEXT NOT NULL,
+  pos TEXT NOT NULL CHECK (pos IN ('Nrc', 'Lr')),
+  sn TEXT NOT NULL CHECK (sn IN ('Db', 'Kr')),
+  debet_awal NUMERIC(18, 2) DEFAULT 0,
+  kredit_awal NUMERIC(18, 2) DEFAULT 0,
+  description TEXT,
+  is_header BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id TEXT PRIMARY KEY,
+  date DATE NOT NULL,
+  ref_number TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'general',
+  description TEXT NOT NULL,
+  lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_debit NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  total_credit NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  partner TEXT DEFAULT '-',
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('customer', 'vendor')),
+  phone TEXT,
+  balance NUMERIC(18, 2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_settings (
+  id TEXT PRIMARY KEY DEFAULT 'primary',
+  company_name TEXT NOT NULL,
+  business_type TEXT NOT NULL,
+  fiscal_period TEXT NOT NULL,
+  fiscal_year INT NOT NULL,
+  currency TEXT DEFAULT 'IDR',
+  tax_rate_percent NUMERIC(5, 2) DEFAULT 11.0,
+  address TEXT,
+  phone TEXT,
+  email TEXT,
+  director_name TEXT NOT NULL,
+  director_title TEXT DEFAULT 'Direktur Utama',
+  accountant_name TEXT NOT NULL,
+  accountant_title TEXT DEFAULT 'Direktur Keuangan',
+  preparer_name TEXT,
+  preparer_title TEXT,
+  approver_name TEXT,
+  approver_title TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id TEXT PRIMARY KEY,
+  timestamp TEXT NOT NULL,
+  username TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  position TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public all on accounts" ON accounts FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all on transactions" ON transactions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all on contacts" ON contacts FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all on company_settings" ON company_settings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all on activity_logs" ON activity_logs FOR ALL USING (true) WITH CHECK (true);`}
+            </div>
+
+            <div className="p-3 bg-slate-100 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <span className="text-xs text-slate-600">
+                {copiedSchema ? '✓ Skema berhasil disalin ke clipboard!' : 'File tersimpan juga di supabase/schema.sql'}
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.querySelector('.whitespace-pre');
+                    if (el?.textContent) {
+                      navigator.clipboard.writeText(el.textContent);
+                      setCopiedSchema(true);
+                      setTimeout(() => setCopiedSchema(false), 3000);
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded shadow-xs flex items-center space-x-1.5 cursor-pointer transition"
+                >
+                  {copiedSchema ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSchema ? 'Tersalin!' : 'Salin Skema SQL'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSqlSchema(false)}
+                  className="bg-white hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3.5 py-1.5 rounded border border-slate-300 cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

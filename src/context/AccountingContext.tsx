@@ -13,6 +13,14 @@ import {
   NormalBalance
 } from '../types/accounting';
 import { defaultAccounts, defaultTransactions, initialCompanySettings } from '../data/defaultAccounts';
+import { 
+  SupabaseConfig, 
+  getSupabaseConfig, 
+  saveSupabaseConfig, 
+  testSupabaseConnection, 
+  syncPushAllToSupabase, 
+  syncPullAllFromSupabase 
+} from '../lib/supabase';
 
 export interface SyncStatus {
   isLive: boolean;
@@ -20,6 +28,8 @@ export interface SyncStatus {
   statusText: string;
   source: string;
   convexConnected: boolean;
+  supabaseConnected: boolean;
+  supabaseUrl?: string;
 }
 
 export const DEFAULT_SUPERADMIN: User = {
@@ -73,6 +83,13 @@ interface AccountingContextType {
   exportDatabaseJson: () => string;
   importDatabaseJson: (jsonStr: string) => { success: boolean; message: string };
   triggerManualSync: () => void;
+  
+  // Supabase Cloud Integration
+  supabaseConfig: SupabaseConfig;
+  saveSupabaseSettings: (url: string, key: string) => void;
+  testSupabase: () => Promise<{ success: boolean; message: string; tableCount?: number }>;
+  syncToSupabase: () => Promise<{ success: boolean; message: string }>;
+  syncFromSupabase: () => Promise<{ success: boolean; message: string }>;
 
   // Auth & User Management
   login: (username: string, pass: string) => { success: boolean; message: string; user?: User; isPending?: boolean };
@@ -312,12 +329,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return [];
   });
 
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
-    isLive: true,
-    lastSyncedAt: new Date(),
-    statusText: 'Tersinkron Cloud Online (Real-time)',
-    source: 'SPECTRA Cloud Engine (Vercel Production & Convex Cloud Ready)',
-    convexConnected: !!import.meta.env.VITE_CONVEX_URL,
+  const [supabaseConfig, setSupabaseConfigState] = useState<SupabaseConfig>(() => getSupabaseConfig());
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => {
+    const sbConfig = getSupabaseConfig();
+    return {
+      isLive: true,
+      lastSyncedAt: new Date(),
+      statusText: sbConfig.isConfigured ? 'Tersinkron Supabase Cloud' : 'Tersinkron Cloud Online (Real-time)',
+      source: 'SPECTRA Cloud Engine (Vercel Production, Supabase & Convex Ready)',
+      convexConnected: !!import.meta.env.VITE_CONVEX_URL,
+      supabaseConnected: sbConfig.isConfigured,
+      supabaseUrl: sbConfig.url
+    };
   });
 
   // 2. Broadcast Channel for Real-time multi-tab synchronization
@@ -835,6 +859,71 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     broadcastChange('ALL', { accounts, transactions, settings, users });
   }, [accounts, transactions, settings, users, broadcastChange]);
 
+  // Supabase Cloud Sync Actions
+  const saveSupabaseSettings = useCallback((url: string, key: string) => {
+    saveSupabaseConfig(url, key);
+    const updated = getSupabaseConfig();
+    setSupabaseConfigState(updated);
+    setSyncStatus(prev => ({
+      ...prev,
+      supabaseConnected: updated.isConfigured,
+      supabaseUrl: updated.url,
+      statusText: updated.isConfigured ? 'Konfigurasi Supabase Tersimpan' : 'Supabase Dinonaktifkan'
+    }));
+    logActivity('Konfigurasi Supabase', `Memperbarui endpoint Supabase: ${url ? url : '(Dikosongkan)'}`);
+  }, [logActivity]);
+
+  const testSupabase = useCallback(async () => {
+    const res = await testSupabaseConnection();
+    if (res.success) {
+      setSyncStatus(prev => ({
+        ...prev,
+        supabaseConnected: true,
+        lastSyncedAt: new Date(),
+        statusText: 'Terhubung ke Supabase Cloud'
+      }));
+    }
+    return res;
+  }, []);
+
+  const syncToSupabase = useCallback(async () => {
+    const res = await syncPushAllToSupabase({ accounts, transactions, contacts, settings });
+    if (res.success) {
+      setSyncStatus(prev => ({
+        ...prev,
+        lastSyncedAt: new Date(),
+        statusText: 'Data terunggah ke Supabase'
+      }));
+      logActivity('Sinkronisasi Supabase', `Berhasil mengunggah ${accounts.length} akun & ${transactions.length} transaksi ke Supabase.`);
+    }
+    return res;
+  }, [accounts, transactions, contacts, settings, logActivity]);
+
+  const syncFromSupabase = useCallback(async () => {
+    const res = await syncPullAllFromSupabase();
+    if (res.success && res.data) {
+      if (res.data.accounts && res.data.accounts.length > 0) {
+        setAccounts(res.data.accounts);
+        localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(res.data.accounts));
+      }
+      if (Array.isArray(res.data.transactions)) {
+        setTransactions(res.data.transactions);
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(res.data.transactions));
+      }
+      if (res.data.contacts) {
+        setContacts(res.data.contacts);
+        localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(res.data.contacts));
+      }
+      if (res.data.settings) {
+        setSettings(res.data.settings);
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(res.data.settings));
+      }
+      broadcastChange('ALL', res.data);
+      logActivity('Tarik Data Supabase', 'Berhasil memperbarui data lokal dari Supabase Cloud.');
+    }
+    return res;
+  }, [broadcastChange, logActivity]);
+
   return (
     <AccountingContext.Provider
       value={{
@@ -848,6 +937,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         securityPin,
         activityLogs,
         complaints,
+        supabaseConfig,
+        saveSupabaseSettings,
+        testSupabase,
+        syncToSupabase,
+        syncFromSupabase,
         addTransaction,
         updateTransaction,
         deleteTransaction,

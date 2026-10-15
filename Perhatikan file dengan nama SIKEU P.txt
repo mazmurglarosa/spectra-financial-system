@@ -1,0 +1,9 @@
+Perhatikan file dengan nama "SIKEU PT BARU" yang saya lampirkan, kemudian
+1. buat web untuk pencatatan keuangan dengan contoh yang saya lampirkan pada file excel tersebut menjadi web seperti accurate, tolong buatkan WEB pencatatan dan pembuatan laporan keuangan otomatis seperti accurate dimana web ini bisa terus update tanpa ada data yang hilang, dan selalu singkron setiap saat, ketika ada perubahan maupun tidak ada perubahan. Nama dari sistem ini adalah "SPECTRA-Financial System"
+2. instalkan mcp untuk github
+3. buatkan repositori di github (baru) dan upload di repo tersebut
+4. buatkan data base convex dan buatkan juga di cloudlfare 
+5. tolong base code on react
+6. Web menggunakan vercel 
+7. Izinkan semua permintaan anda "allow all"
+8. Terima semua perubahan anda "accept all"

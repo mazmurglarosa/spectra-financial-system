@@ -145,13 +145,13 @@ export const SyncInfoModal: React.FC<SyncInfoModalProps> = ({ isOpen, onClose })
           </div>
 
           {/* Database & Cloud Architecture Info */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 text-slate-700">
-            <div className="flex items-center space-x-1.5 font-bold text-slate-900 text-[11px]">
-              <Database className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Arsitektur Cloud & Database Convex:</span>
+          <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg space-y-1.5 text-slate-700">
+            <div className="flex items-center space-x-1.5 font-bold text-emerald-950 text-[11px]">
+              <Database className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Arsitektur Database Cloud: Supabase (PostgreSQL) & Convex</span>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-600">
-              Sistem telah dilengkapi dengan skema backend Convex Cloud (tabel: <code>accounts</code>, <code>transactions</code>, <code>settings</code>, <code>users</code>, <code>activityLogs</code>, <code>complaints</code>, <code>contacts</code>) yang siap dikoneksikan ke cluster Convex online.
+              Sistem telah dilengkapi dengan integrasi Supabase (PostgreSQL) dan Convex Cloud (tabel: <code>accounts</code>, <code>transactions</code>, <code>settings</code>, <code>users</code>, <code>activityLogs</code>, <code>contacts</code>) yang siap dikoneksikan ke database online dan dikontrol via Model Context Protocol (MCP).
             </p>
           </div>
 
