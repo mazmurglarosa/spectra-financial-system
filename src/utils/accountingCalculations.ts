@@ -643,6 +643,7 @@ export function calculateBalanceSheet(accounts: Account[], transactions: Transac
     ...bs,
     totalAssets: bs.totalAset,
     totalLiabilities: bs.totalKewajiban,
+    totalEquity: bs.totalEkuitas,
     totalLiabilitiesAndEquity: bs.totalKewajibanDanEkuitas,
     diff: bs.discrepancy,
     difference: bs.discrepancy

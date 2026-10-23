@@ -65,91 +65,78 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <header 
         id="top-nav" 
-        className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md no-print"
+        className="bg-white text-slate-800 border-b border-slate-200/90 sticky top-0 z-30 shadow-xs no-print"
       >
-        <div className="px-4 py-2 flex items-center justify-between flex-wrap gap-2">
+        <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2.5">
           
-          {/* Brand Info */}
+          {/* Breadcrumb matching Reference Image */}
           <div className="flex items-center space-x-2.5">
             {onToggleMobileSidebar && (
               <button
                 type="button"
                 onClick={onToggleMobileSidebar}
-                className="md:hidden p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 focus:outline-none transition-colors border border-slate-700/60"
+                className="md:hidden p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus:outline-none transition-colors border border-slate-200"
                 title="Buka Navigasi Menu"
                 aria-label="Toggle Navigation"
               >
-                <Menu className="w-5 h-5 text-blue-400" />
+                <Menu className="w-5 h-5 text-sky-600" />
               </button>
             )}
-            <div className="bg-white p-1 rounded-md shadow-xs border border-slate-700/50 flex items-center justify-center shrink-0">
-              <img 
-                src="./assets/NBE.png" 
-                alt="Logo NBE" 
-                className="h-9 w-auto object-contain"
-                onError={(e) => {
-                  // Fallback if relative path fails
-                  (e.target as HTMLImageElement).src = './NBE.png';
-                }}
-              />
-            </div>
-            <div>
-              <h1 className="font-bold text-sm leading-tight text-white flex items-center space-x-2">
-                <span className="text-blue-400 font-black tracking-wider text-base">SPECTRA</span>
-                <span className="text-xs text-slate-400 font-medium">| {settings.companyName}</span>
-                <span className="text-[11px] bg-blue-950/80 text-blue-300 px-2 py-0.5 rounded font-mono border border-blue-800/60 shadow-xs">
-                  Accurate Edition
-                </span>
-              </h1>
-              <p className="text-[11px] text-slate-400">
-                Sistem Pencatatan dan Evaluasi Keuangan Terpadu & Akurat &bull; Periode: <span className="font-semibold text-slate-200">{settings.fiscalPeriod}</span>
-              </p>
+            
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm text-slate-900 tracking-tight">
+                {settings.companyName || 'PT Nirwana Bhumi Energi'}
+              </span>
+              <span className="text-slate-300 font-light text-sm">/</span>
+              <span className="text-xs font-medium text-slate-500">
+                Dashboard & Sistem Keuangan
+              </span>
             </div>
           </div>
 
-          {/* Action Bar & Indicators */}
-          <div className="flex items-center space-x-2.5 flex-wrap">
+          {/* Action Bar & Indicators Matching Reference Image */}
+          <div className="flex items-center space-x-2 flex-wrap">
             
+            {/* Cloud Real-Time Indicator (as in reference image) */}
+            <button 
+              type="button"
+              onClick={() => setIsSyncModalOpen(true)}
+              title="Informasi Sinkronisasi Cloud Supabase" 
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer shadow-xs"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Cloud Real-Time</span>
+            </button>
+
             {/* Balance Status Badge */}
             <div 
-              className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-xs transition-all duration-300 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-all ${
                 isBalanced 
-                  ? 'badge-balanced' 
-                  : 'badge-unbalanced'
+                  ? 'bg-sky-50 text-sky-800 border border-sky-200' 
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
               }`}
             >
               {isBalanced ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>STATUS: BALANCE ✓</span>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Neraca Seimbang ✓</span>
                 </>
               ) : (
                 <>
-                  <AlertTriangle className="w-4 h-4 text-rose-700" />
-                  <span>STATUS: UNBALANCED (Selisih: {formatRupiah(balanceDiff)})</span>
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Selisih: {formatRupiah(balanceDiff)}</span>
                 </>
               )}
             </div>
 
-            {/* Sync Badge Button */}
-            <button 
-              type="button"
-              onClick={() => setIsSyncModalOpen(true)}
-              title="Klik untuk Informasi Koneksi & Akses Web HP/Laptop" 
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 transition hover:bg-emerald-900/80 cursor-pointer shadow-xs"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>Tersinkron (Web & App)</span>
-            </button>
-
-            {/* + Jurnal Baru Button */}
+            {/* + Transaksi Baru Button (Dark Navy CTA like in reference image) */}
             <button 
               type="button"
               onClick={() => openNewTransactionModal('general')}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded flex items-center space-x-1.5 shadow transition cursor-pointer"
+              className="bg-[#0a192f] hover:bg-[#0f2342] text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg flex items-center space-x-1.5 shadow-sm transition active:scale-95 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Jurnal Baru</span>
+              <PlusCircle className="w-3.5 h-3.5 text-sky-400" />
+              <span>+ Catat Transaksi</span>
             </button>
 
             {/* Backup Button */}
@@ -157,10 +144,10 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={handleBackup}
               title="Cadangkan Seluruh Data ke File JSON" 
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-slate-700 transition cursor-pointer"
+              className="bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg flex items-center space-x-1 border border-slate-200 transition cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Backup</span>
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Backup</span>
             </button>
 
             {/* Print Button */}
@@ -168,21 +155,21 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={handlePrint}
               title="Cetak Halaman Ini" 
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-slate-700 transition cursor-pointer"
+              className="bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg flex items-center space-x-1 border border-slate-200 transition cursor-pointer"
             >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Cetak</span>
+              <Printer className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Cetak</span>
             </button>
 
-            <div className="h-5 w-px bg-slate-700 mx-1"></div>
+            <div className="h-5 w-px bg-slate-200 mx-1"></div>
 
             {/* User Profile Badge & Logout */}
             <div className="flex items-center space-x-2 pl-1">
-              <div className="text-right">
-                <div className="text-xs font-bold text-white leading-tight">
+              <div className="text-right hidden sm:block">
+                <div className="text-xs font-bold text-slate-900 leading-tight">
                   {currentUser ? currentUser.fullName : 'Admin'}
                 </div>
-                <div className="text-[10px] text-amber-400 font-semibold leading-tight">
+                <div className="text-[10px] text-sky-600 font-semibold leading-tight">
                   {currentUser?.role === 'admin' ? `👑 ${currentUser.position}` : currentUser?.position || 'Administrator'}
                 </div>
               </div>
@@ -190,10 +177,10 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={handleLogoutClick}
                 title="Keluar dari Akun" 
-                className="bg-rose-950/60 hover:bg-rose-800 text-rose-200 hover:text-white text-xs px-2.5 py-1.5 rounded flex items-center space-x-1 border border-rose-800/80 transition shadow-xs cursor-pointer"
+                className="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs px-2.5 py-1.5 rounded-lg flex items-center space-x-1 border border-rose-200 transition cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Logout</span>
+                <span>Keluar</span>
               </button>
             </div>
 

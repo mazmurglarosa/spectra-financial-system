@@ -1,28 +1,21 @@
 import React from 'react';
 import { 
   LayoutDashboard, 
-  Wallet, 
-  ShoppingCart, 
-  Package, 
   ListTree, 
   BookOpen, 
   Bookmark, 
-  Scale, 
-  Table, 
-  TrendingUp, 
-  PieChart, 
-  RefreshCw, 
-  DollarSign, 
   Gauge, 
   Settings, 
   ShieldAlert, 
   AlertTriangle, 
   AlertCircle, 
-  Activity,
-  Award,
-  X,
-  FileText,
-  Zap
+  Activity, 
+  Award, 
+  X, 
+  FileText, 
+  Zap, 
+  ChevronRight, 
+  LogOut 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -63,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile
 }) => {
-  const { currentUser } = useAccounting();
+  const { currentUser, logout } = useAccounting();
 
   const isAdmin = currentUser?.role === 'admin';
   const isAuthority = currentUser?.isAuthority || isAdmin;
@@ -73,33 +66,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (onCloseMobile) onCloseMobile();
   };
 
+  const isQuickReportActive = 
+    activeTab === 'quick-report' || 
+    activeTab === 'cashbank' || 
+    activeTab === 'sales' || 
+    activeTab === 'purchases';
+
+  const isSimpleReportsActive = 
+    activeTab === 'simple-reports' ||
+    ['trial-balance', 'worksheet', 'profit-loss', 'balance-sheet', 'capital-changes', 'cash-flow'].includes(activeTab);
+
   return (
     <>
       {/* Mobile Drawer Backdrop */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40 md:hidden transition-opacity"
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 md:hidden transition-opacity"
           onClick={onCloseMobile}
         />
       )}
 
       <aside 
         id="sidebar" 
-        className={`fixed md:sticky top-0 left-0 z-50 h-screen w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 no-print select-none transition-transform duration-200 ease-in-out ${
+        className={`fixed md:sticky top-0 left-0 z-50 h-screen w-64 bg-white text-slate-700 flex flex-col shrink-0 border-r border-slate-200/90 shadow-xs no-print select-none transition-transform duration-200 ease-in-out ${
           isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        {/* Scrollable Navigation Area */}
-        <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
-          
-          {/* Modul Akuntansi with Mobile Close Button */}
-          <div className="px-2 pt-1 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
-            <span>Modul Akuntansi</span>
+        {/* Brand Header Matching Reference Image */}
+        <div className="p-4 border-b border-slate-100 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center p-1 shrink-0">
+                <img 
+                  src="./assets/NBE.png" 
+                  alt="NBE" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = './NBE.png';
+                  }}
+                />
+              </div>
+              <div>
+                <div className="text-[11px] font-black tracking-tight text-slate-900 uppercase leading-none">
+                  PT NIRWANA BHUMI
+                </div>
+                <div className="text-[11px] font-black tracking-tight text-slate-900 uppercase leading-none mt-0.5">
+                  ENERGI
+                </div>
+                <div className="text-[9px] font-bold text-sky-600 tracking-wider uppercase mt-1">
+                  Financial Control System
+                </div>
+              </div>
+            </div>
+
             {onCloseMobile && (
               <button
                 type="button"
                 onClick={onCloseMobile}
-                className="md:hidden p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                className="md:hidden p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 title="Tutup Menu"
               >
                 <X className="w-4 h-4" />
@@ -107,160 +131,164 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-        <div 
-          onClick={() => setActiveTab('dashboard')}
-          className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-        >
-          <LayoutDashboard className="w-4 h-4 shrink-0" />
-          <span>Dashboard Utama</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('quick-report')}
-          className={`nav-item ${
-            activeTab === 'quick-report' ||
-            activeTab === 'cashbank' ||
-            activeTab === 'sales' ||
-            activeTab === 'purchases'
-              ? 'active'
-              : ''
-          }`}
-        >
-          <Zap className="w-4 h-4 shrink-0 text-amber-400" />
-          <span>Quick Report</span>
-        </div>
-
-        {/* Buku Besar & Jurnal */}
-        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-          Buku Besar & Jurnal
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('coa')}
-          className={`nav-item ${activeTab === 'coa' ? 'active' : ''}`}
-        >
-          <ListTree className="w-4 h-4 shrink-0" />
-          <span>Daftar Akun (COA)</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('journals')}
-          className={`nav-item ${activeTab === 'journals' ? 'active' : ''}`}
-        >
-          <BookOpen className="w-4 h-4 shrink-0" />
-          <span>Jurnal Umum & AJP</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('ledger')}
-          className={`nav-item ${activeTab === 'ledger' ? 'active' : ''}`}
-        >
-          <Bookmark className="w-4 h-4 shrink-0" />
-          <span>Buku Besar (Ledger)</span>
-        </div>
-
-        {/* Laporan Keuangan */}
-        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-          Laporan Keuangan
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('psak-report')}
-          className={`nav-item ${activeTab === 'psak-report' ? '!bg-indigo-600 !text-white shadow-md' : 'text-amber-300 hover:text-white hover:bg-slate-800'}`}
-        >
-          <Award className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="font-semibold text-xs">Laporan Resmi (PSAK)</span>
-          <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            PUBLIK
-          </span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('simple-reports')}
-          className={`nav-item ${
-            activeTab === 'simple-reports' ||
-            activeTab === 'trial-balance' ||
-            activeTab === 'worksheet' ||
-            activeTab === 'profit-loss' ||
-            activeTab === 'balance-sheet' ||
-            activeTab === 'capital-changes' ||
-            activeTab === 'cash-flow'
-              ? 'active'
-              : ''
-          }`}
-        >
-          <FileText className="w-4 h-4 shrink-0" />
-          <span>Laporan Sederhana</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('ratios')}
-          className={`nav-item ${activeTab === 'ratios' ? 'active' : ''}`}
-        >
-          <Gauge className="w-4 h-4 shrink-0" />
-          <span>Analisis Rasio & Status</span>
-        </div>
-
-        {/* Pengaturan */}
-        <div className="px-2 pt-3 pb-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-          Pengaturan
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('settings')}
-          className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-        >
-          <Settings className="w-4 h-4 shrink-0" />
-          <span>Perusahaan & Data</span>
-        </div>
-
-        {/* Akses Khusus Otoritas & Administrator */}
-        {isAuthority && (
-          <div className="pt-2">
-            <div className="px-2 pt-2 pb-1 text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center justify-between">
-              <span>Akses Khusus</span>
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-            </div>
-
-            {isAdmin && (
-              <div 
-                onClick={() => setActiveTab('admin-panel')}
-                className={`nav-item text-rose-300 hover:text-white hover:bg-rose-950/40 ${activeTab === 'admin-panel' ? '!bg-rose-700 !text-white' : ''}`}
-              >
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                <span className="font-semibold">Administrator</span>
-              </div>
-            )}
-
-            <div 
-              onClick={() => setActiveTab('authority-panel')}
-              className={`nav-item text-amber-300 hover:text-white hover:bg-amber-950/40 ${activeTab === 'authority-panel' ? '!bg-amber-700 !text-white' : ''}`}
-            >
-              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Otoritas</span>
-            </div>
-
-            <div 
-              onClick={() => setActiveTab('activity-logs')}
-              className={`nav-item text-sky-300 hover:text-white hover:bg-sky-950/40 ${activeTab === 'activity-logs' ? '!bg-sky-700 !text-white' : ''}`}
-            >
-              <Activity className="w-4 h-4 text-sky-400 shrink-0" />
-              <span>Log Aktivitas</span>
-            </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold w-fit mt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Enterprise Cloud Active</span>
           </div>
-        )}
-
-      </nav>
-
-      {/* Footer Info */}
-      <div className="p-3 border-t border-slate-800 text-xs text-slate-400">
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span>Sistem Aktif - Offline Safe</span>
         </div>
-        <div className="text-[10px] text-slate-500 mt-1">SPECTRA v2.0 (Accurate Edition)</div>
-      </div>
-    </aside>
+
+        {/* Scrollable Navigation Area */}
+        <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+          
+          <div 
+            onClick={() => setActiveTab('dashboard')}
+            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+          >
+            <LayoutDashboard className={`w-4 h-4 shrink-0 ${activeTab === 'dashboard' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Dashboard</span>
+            {activeTab === 'dashboard' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('quick-report')}
+            className={`nav-item ${isQuickReportActive ? 'active' : ''}`}
+          >
+            <Zap className={`w-4 h-4 shrink-0 ${isQuickReportActive ? 'text-white' : 'text-amber-500'}`} />
+            <span className="font-medium text-xs">Quick Report</span>
+            {isQuickReportActive && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          {/* Buku Besar & Jurnal */}
+          <div className="px-3 pt-3 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Buku Besar & Jurnal
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('coa')}
+            className={`nav-item ${activeTab === 'coa' ? 'active' : ''}`}
+          >
+            <ListTree className={`w-4 h-4 shrink-0 ${activeTab === 'coa' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Daftar Akun (COA)</span>
+            {activeTab === 'coa' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('journals')}
+            className={`nav-item ${activeTab === 'journals' ? 'active' : ''}`}
+          >
+            <BookOpen className={`w-4 h-4 shrink-0 ${activeTab === 'journals' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Jurnal Umum & AJP</span>
+            {activeTab === 'journals' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('ledger')}
+            className={`nav-item ${activeTab === 'ledger' ? 'active' : ''}`}
+          >
+            <Bookmark className={`w-4 h-4 shrink-0 ${activeTab === 'ledger' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Buku Besar (Ledger)</span>
+            {activeTab === 'ledger' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          {/* Laporan Keuangan */}
+          <div className="px-3 pt-3 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Laporan Keuangan
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('simple-reports')}
+            className={`nav-item ${isSimpleReportsActive ? 'active' : ''}`}
+          >
+            <FileText className={`w-4 h-4 shrink-0 ${isSimpleReportsActive ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Laporan Sederhana</span>
+            {isSimpleReportsActive && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('psak-report')}
+            className={`nav-item ${activeTab === 'psak-report' ? 'active' : ''}`}
+          >
+            <Award className={`w-4 h-4 shrink-0 ${activeTab === 'psak-report' ? 'text-white' : 'text-amber-500'}`} />
+            <span className="font-medium text-xs">Laporan Resmi (PSAK)</span>
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'psak-report' ? 'bg-white/20 text-white' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+              PUBLIK
+            </span>
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('ratios')}
+            className={`nav-item ${activeTab === 'ratios' ? 'active' : ''}`}
+          >
+            <Gauge className={`w-4 h-4 shrink-0 ${activeTab === 'ratios' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Analisis Rasio & Status</span>
+            {activeTab === 'ratios' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          {/* Akses Khusus Otoritas & Administrator */}
+          {isAuthority && (
+            <div className="pt-2">
+              <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-amber-600 uppercase tracking-wider flex items-center justify-between">
+                <span>Akses Khusus</span>
+                <ShieldAlert className="w-3 h-3 text-amber-500" />
+              </div>
+
+              {isAdmin && (
+                <div 
+                  onClick={() => setActiveTab('admin-panel')}
+                  className={`nav-item ${activeTab === 'admin-panel' ? '!bg-rose-600 !text-white' : 'text-rose-600 hover:bg-rose-50'}`}
+                >
+                  <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'admin-panel' ? 'text-white' : 'text-rose-500'}`} />
+                  <span className="font-medium text-xs">Administrator</span>
+                  {activeTab === 'admin-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+                </div>
+              )}
+
+              <div 
+                onClick={() => setActiveTab('authority-panel')}
+                className={`nav-item ${activeTab === 'authority-panel' ? '!bg-amber-600 !text-white' : 'text-amber-700 hover:bg-amber-50'}`}
+              >
+                <AlertCircle className={`w-4 h-4 shrink-0 ${activeTab === 'authority-panel' ? 'text-white' : 'text-amber-500'}`} />
+                <span className="font-medium text-xs">Otoritas</span>
+                {activeTab === 'authority-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+              </div>
+            </div>
+          )}
+
+        </nav>
+
+        {/* Footer Area with Activity, Settings, Logout */}
+        <div className="p-3 border-t border-slate-100 bg-slate-50/60 space-y-1">
+          <div 
+            onClick={() => setActiveTab('activity-logs')}
+            className={`nav-item ${activeTab === 'activity-logs' ? 'active' : ''}`}
+          >
+            <Activity className={`w-4 h-4 shrink-0 ${activeTab === 'activity-logs' ? 'text-white' : 'text-slate-500'}`} />
+            <span className="text-xs">Log Aktivitas</span>
+            {activeTab === 'activity-logs' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('settings')}
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+          >
+            <Settings className={`w-4 h-4 shrink-0 ${activeTab === 'settings' ? 'text-white' : 'text-slate-500'}`} />
+            <span className="text-xs">Pengaturan Akun</span>
+            {activeTab === 'settings' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => {
+              if (confirm("Apakah Anda yakin ingin keluar (logout) dari SPECTRA?")) {
+                logout();
+              }
+            }}
+            className="nav-item text-rose-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4 shrink-0 text-rose-500" />
+            <span className="font-semibold text-xs">Keluar</span>
+          </div>
+        </div>
+      </aside>
     </>
   );
 };
