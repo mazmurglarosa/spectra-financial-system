@@ -43,6 +43,19 @@ export function getTransactionLines(trx: any): any[] {
   return [];
 }
 
+export function getEffectiveNormalBalance(account: Account): 'Db' | 'Kr' {
+  if (!account) return 'Db';
+  // Liabilities (Utang) always have normal balance Kredit ('Kr')
+  if (
+    account.category === 'UTANG_LANCAR' || 
+    account.category === 'UTANG_JANGKA_PANJANG' || 
+    (account.code && account.code.startsWith('2'))
+  ) {
+    return 'Kr';
+  }
+  return account.sn || 'Db';
+}
+
 export function calculateAccountBalance(account: Account, transactions: Transaction[] = []): {
   debitMutation: number;
   creditMutation: number;
@@ -64,8 +77,9 @@ export function calculateAccountBalance(account: Account, transactions: Transact
 
   const debetAwal = Number(account?.debetAwal) || 0;
   const kreditAwal = Number(account?.kreditAwal) || 0;
+  const sn = getEffectiveNormalBalance(account);
   let endingBalance = 0;
-  if (account?.sn === 'Db') {
+  if (sn === 'Db') {
     endingBalance = (debetAwal - kreditAwal) + debitMutation - creditMutation;
   } else {
     endingBalance = (kreditAwal - debetAwal) + creditMutation - debitMutation;
@@ -80,7 +94,8 @@ export function generateAccountLedger(account: Account, transactions: Transactio
   
   const debetAwal = Number(account?.debetAwal) || 0;
   const kreditAwal = Number(account?.kreditAwal) || 0;
-  const startingBalance = account?.sn === 'Db' 
+  const sn = getEffectiveNormalBalance(account);
+  const startingBalance = sn === 'Db' 
     ? (debetAwal - kreditAwal) 
     : (kreditAwal - debetAwal);
 
@@ -101,7 +116,7 @@ export function generateAccountLedger(account: Account, transactions: Transactio
         totalDebit += d;
         totalCredit += c;
 
-        if (account.sn === 'Db') {
+        if (sn === 'Db') {
           currentBalance += (d - c);
         } else {
           currentBalance += (c - d);
@@ -122,7 +137,7 @@ export function generateAccountLedger(account: Account, transactions: Transactio
   }
 
   return {
-    account,
+    account: { ...account, sn },
     startingBalance,
     entries,
     totalDebit,
@@ -387,8 +402,9 @@ export function generateBalanceSheet(accounts: Account[], transactions: Transact
     if (endingBalance === 0) continue;
 
     if (acc.category === 'HARTA_LANCAR') {
-      asetLancar.push({ code: acc.code, name: acc.name, amount: endingBalance });
-      totalAsetLancar += endingBalance;
+      const adjustedAmount = acc.sn === 'Kr' ? -Math.abs(endingBalance) : endingBalance;
+      asetLancar.push({ code: acc.code, name: acc.name, amount: adjustedAmount });
+      totalAsetLancar += adjustedAmount;
     } else if (acc.category === 'HARTA_TETAP') {
       // Akumulasi penyusutan is contra-asset (credit normal)
       const adjustedAmount = acc.sn === 'Kr' ? -Math.abs(endingBalance) : endingBalance;

@@ -187,7 +187,7 @@
     "code": "20000",
     "name": "Utang/liability",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -195,7 +195,7 @@
     "code": "20001",
     "name": "Utang Usaha/Dagang",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -203,7 +203,7 @@
     "code": "20002",
     "name": "Utang Wesel",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -211,7 +211,7 @@
     "code": "20003",
     "name": "Utang Gaji",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -219,7 +219,7 @@
     "code": "20004",
     "name": "Utang Pajak Penghasilan",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -227,7 +227,7 @@
     "code": "20005",
     "name": "Utang Hipotek",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -235,7 +235,7 @@
     "code": "20006",
     "name": "Utang Obligasi",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -243,7 +243,7 @@
     "code": "20007",
     "name": "Pendapatan Diterima Dimuka",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -251,7 +251,7 @@
     "code": "20008",
     "name": "Utang Utilitas",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -259,7 +259,7 @@
     "code": "21000",
     "name": "Utang non operasional",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -267,7 +267,7 @@
     "code": "21001",
     "name": "Utang sewa",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -275,7 +275,7 @@
     "code": "21002",
     "name": "Utang Bank",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },
@@ -283,7 +283,7 @@
     "code": "21003",
     "name": "Utang Bunga",
     "pos": "Nrc",
-    "sn": "Db",
+    "sn": "Kr",
     "debet": 0,
     "kredit": 0
   },

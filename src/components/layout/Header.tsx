@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { 
   CheckCircle2, 
   AlertTriangle, 
-  PlusCircle, 
-  Download, 
   Printer, 
   LogOut,
   Menu
@@ -18,7 +16,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
-  openNewTransactionModal, 
+  openNewTransactionModal: _openNewTransactionModal, 
   onLogout,
   onToggleMobileSidebar
 }) => {
@@ -27,7 +25,6 @@ export const Header: React.FC<HeaderProps> = ({
     accounts, 
     transactions, 
     currentUser, 
-    exportDatabaseJson, 
     logout 
   } = useAccounting();
 
@@ -35,17 +32,6 @@ export const Header: React.FC<HeaderProps> = ({
   const balanceSheet = calculateBalanceSheet(accounts, transactions);
   const isBalanced = balanceSheet.isBalanced;
   const balanceDiff = balanceSheet.difference;
-
-  const handleBackup = () => {
-    const jsonStr = exportDatabaseJson();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SPECTRA_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleLogoutClick = () => {
     if (confirm("Apakah Anda yakin ingin keluar (logout) dari SPECTRA?")) {
@@ -114,26 +100,6 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            {/* + Transaksi Baru Button (Dark Navy CTA like in reference image) */}
-            <button 
-              type="button"
-              onClick={() => openNewTransactionModal('general')}
-              className="bg-[#0a192f] hover:bg-[#0f2342] text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg flex items-center space-x-1.5 shadow-sm transition active:scale-95 cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-sky-400" />
-              <span>+ Catat Transaksi</span>
-            </button>
-
-            {/* Backup Button */}
-            <button 
-              type="button"
-              onClick={handleBackup}
-              title="Cadangkan Seluruh Data ke File JSON" 
-              className="bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg flex items-center space-x-1 border border-slate-200 transition cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden sm:inline">Backup</span>
-            </button>
 
             {/* Print Button */}
             <button 

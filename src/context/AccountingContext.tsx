@@ -153,6 +153,11 @@ function normalizeAccount(raw: any, index: number): Account {
     else { category = 'BEBAN_NON_OPERASIONAL'; categoryName = 'Beban Lain-lain'; }
   }
 
+  let effectiveSn: NormalBalance = raw.sn === 'Kr' ? 'Kr' : 'Db';
+  if (category === 'UTANG_LANCAR' || category === 'UTANG_JANGKA_PANJANG' || (num >= 20000 && num < 30000)) {
+    effectiveSn = 'Kr';
+  }
+
   return {
     id: raw.id || code,
     code,
@@ -160,7 +165,7 @@ function normalizeAccount(raw: any, index: number): Account {
     category,
     categoryName: categoryName || 'Akun',
     pos,
-    sn,
+    sn: effectiveSn,
     debetAwal,
     kreditAwal,
     description: raw.description || '',
