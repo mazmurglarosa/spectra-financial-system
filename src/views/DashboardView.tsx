@@ -11,7 +11,8 @@ import {
   Plus, 
   Trash2,
   Zap,
-  Award
+  Award,
+  ArrowUpRight
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { 
@@ -21,6 +22,7 @@ import {
   calculateGeneralLedgers 
 } from '../utils/accountingCalculations';
 import { ActiveTab } from '../components/layout/Sidebar';
+import { FinancialTrendsChart } from '../components/dashboard/FinancialTrendsChart';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -125,31 +127,47 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 rounded-full w-full"></div>
           </div>
-          <div className="flex justify-between items-center text-[10px] text-slate-400">
+          <div className="flex justify-between items-center text-[10px] text-slate-500">
             <span>Integritas Pencatatan: 100% Valid</span>
             <button
               type="button"
               onClick={() => setActiveTab('journals')}
-              className="text-sky-600 hover:text-sky-700 font-semibold hover:underline cursor-pointer"
+              className="text-sky-600 hover:text-sky-700 font-semibold hover:underline cursor-pointer flex items-center gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
             >
-              Lihat Jurnal →
+              <span>Lihat Jurnal</span>
+              <ArrowUpRight className="w-3 h-3" />
             </button>
           </div>
         </div>
       </div>
+
+      {/* Visual Multi-Line Financial Trends Chart (5 Pilar Dasar Keuangan) */}
+      <FinancialTrendsChart 
+        accounts={accounts} 
+        transactions={transactions} 
+        currentPeriodName={settings.fiscalPeriod || 'Oktober 2026'} 
+      />
 
       {/* 2. Responsive 5-Column Grid Horizontally Aligned Underneath */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3.5">
         
         {/* Kolom 1: Saldo Kas Utama */}
         <div 
+          role="button"
+          tabIndex={0}
           onClick={() => setActiveTab('cashbank')}
-          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-emerald-300 hover:shadow-sm transition-all cursor-pointer group"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('cashbank');
+            }
+          }}
+          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-emerald-300 hover:shadow-sm transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           title="Klik untuk membuka Modul Kas & Bank (Buku Kas)"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[10px] font-bold text-slate-400 group-hover:text-emerald-700 tracking-wider uppercase truncate transition-colors">
+              <div className="text-[10px] font-bold text-slate-500 group-hover:text-emerald-700 tracking-wider uppercase truncate transition-colors">
                 SALDO KAS UTAMA
               </div>
               <div className="text-lg xl:text-xl font-black text-emerald-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(kasLedger.endingBalance)}>
@@ -162,7 +180,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-            <span className="text-slate-400 font-medium">Likuiditas</span>
+            <span className="text-slate-500 font-medium">Likuiditas</span>
             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-bold">
               100% Aktif
             </span>
@@ -171,13 +189,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Kolom 2: Total Aset (Harta) */}
         <div 
+          role="button"
+          tabIndex={0}
           onClick={() => setActiveTab('balance-sheet')}
-          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-amber-300 hover:shadow-sm transition-all cursor-pointer group"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('balance-sheet');
+            }
+          }}
+          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-amber-300 hover:shadow-sm transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           title="Klik untuk melihat rincian di Laporan Neraca (Posisi Keuangan)"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[10px] font-bold text-slate-400 group-hover:text-amber-700 tracking-wider uppercase truncate transition-colors">
+              <div className="text-[10px] font-bold text-slate-500 group-hover:text-amber-700 tracking-wider uppercase truncate transition-colors">
                 TOTAL ASET (HARTA)
               </div>
               <div className="text-lg xl:text-xl font-black text-amber-500 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(bs.totalAssets)}>
@@ -190,7 +216,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-            <span className="text-slate-400 font-medium">Struktur Aset</span>
+            <span className="text-slate-500 font-medium">Struktur Aset</span>
             <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 rounded-md font-semibold">
               Lancar + Tetap
             </span>
@@ -199,13 +225,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Kolom 3: Kewajiban & Ekuitas */}
         <div 
+          role="button"
+          tabIndex={0}
           onClick={() => setActiveTab('balance-sheet')}
-          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer group"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('balance-sheet');
+            }
+          }}
+          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
           title="Klik untuk memeriksa neraca seimbang di Laporan Neraca"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[10px] font-bold text-slate-400 group-hover:text-sky-700 tracking-wider uppercase truncate transition-colors">
+              <div className="text-[10px] font-bold text-slate-500 group-hover:text-sky-700 tracking-wider uppercase truncate transition-colors">
                 KEWAJIBAN & EKUITAS
               </div>
               <div className="text-lg xl:text-xl font-black text-sky-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(bs.totalLiabilitiesAndEquity)}>
@@ -218,7 +252,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-            <span className="text-slate-400 font-medium">Integritas Neraca</span>
+            <span className="text-slate-500 font-medium">Integritas Neraca</span>
             <span className={`px-2 py-0.5 rounded-md font-bold ${
               bs.isBalanced 
                 ? 'bg-sky-50 text-sky-700 border border-sky-200' 
@@ -231,13 +265,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Kolom 4: Total Pendapatan */}
         <div 
+          role="button"
+          tabIndex={0}
           onClick={() => setActiveTab('profit-loss')}
-          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-cyan-300 hover:shadow-sm transition-all cursor-pointer group"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('profit-loss');
+            }
+          }}
+          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-cyan-300 hover:shadow-sm transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
           title="Klik untuk melihat rincian di Laporan Laba Rugi"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[10px] font-bold text-slate-400 group-hover:text-cyan-700 tracking-wider uppercase truncate transition-colors">
+              <div className="text-[10px] font-bold text-slate-500 group-hover:text-cyan-700 tracking-wider uppercase truncate transition-colors">
                 TOTAL PENDAPATAN
               </div>
               <div className="text-lg xl:text-xl font-black text-cyan-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(totalRevenue)}>
@@ -250,7 +292,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-            <span className="text-slate-400 font-medium">Akumulasi L/R</span>
+            <span className="text-slate-500 font-medium">Akumulasi L/R</span>
             <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-md font-bold">
               Operasional & Non
             </span>
@@ -259,13 +301,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Kolom 5: Total Beban */}
         <div 
+          role="button"
+          tabIndex={0}
           onClick={() => setActiveTab('profit-loss')}
-          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-rose-300 hover:shadow-sm transition-all cursor-pointer group"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('profit-loss');
+            }
+          }}
+          className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-rose-300 hover:shadow-sm transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           title="Klik untuk melihat rincian beban di Laporan Laba Rugi"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[10px] font-bold text-slate-400 group-hover:text-rose-700 tracking-wider uppercase truncate transition-colors">
+              <div className="text-[10px] font-bold text-slate-500 group-hover:text-rose-700 tracking-wider uppercase truncate transition-colors">
                 TOTAL BEBAN
               </div>
               <div className="text-lg xl:text-xl font-black text-rose-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(totalExpense)}>
@@ -278,7 +328,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-            <span className="text-slate-400 font-medium">Beban Berjalan</span>
+            <span className="text-slate-500 font-medium">Beban Berjalan</span>
             <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-bold">
               Operasional & Pokok
             </span>
@@ -298,7 +348,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button 
               type="button"
               onClick={() => openNewTransactionModal('general')}
-              className="text-xs text-sky-600 hover:text-sky-700 font-semibold flex items-center space-x-1 cursor-pointer focus-visible:outline-none rounded px-1"
+              className="text-xs text-sky-600 hover:text-sky-700 font-semibold flex items-center space-x-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Tambah Transaksi</span>
@@ -307,7 +357,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button 
               type="button"
               onClick={() => setActiveTab('journals')}
-              className="text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer focus-visible:outline-none rounded px-1"
+              className="text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
             >
               Lihat Semua
             </button>
@@ -331,7 +381,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {recentTransactions.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-8 text-slate-500 text-xs">
-                    Belum ada transaksi tersimpan. Klik "+ Catat Transaksi Baru" untuk mulai mencatat.
+                    Belum ada transaksi tersimpan. Klik "Tambah Transaksi" atau buka Jurnal Umum untuk mulai mencatat.
                   </td>
                 </tr>
               ) : (
@@ -355,7 +405,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <td>
                         <div className="font-medium text-slate-900">{tx.description}</div>
                         {tx.partner && (
-                          <div className="text-[11px] text-slate-400">Kontak: {tx.partner}</div>
+                          <div className="text-[11px] text-slate-500">Kontak: {tx.partner}</div>
                         )}
                       </td>
                       <td className="text-xs text-slate-600">
