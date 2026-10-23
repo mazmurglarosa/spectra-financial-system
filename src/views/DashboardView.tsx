@@ -10,10 +10,7 @@ import {
   History, 
   Plus, 
   Trash2,
-  CheckCircle2,
-  Layers,
-  Zap,
-  ArrowUpRight
+  Zap
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { 
@@ -40,19 +37,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const ledgers = calculateGeneralLedgers(accounts, transactions);
 
   const kasLedger = ledgers['10001'] || { endingBalance: 0 };
-  const piutangLedger = ledgers['10003'] || { endingBalance: 0 };
-  const utangLedger = ledgers['20001'] || { endingBalance: 0 };
+  const totalRevenue = pl.totalOperasionalRevenue + pl.totalNonOperasionalRevenue;
+  const totalExpense = pl.totalOperasionalExpense + pl.totalNonOperasionalExpense;
 
   const recentTransactions = [...transactions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 10);
-
-  // Group accounts breakdown
-  const assetAccounts = accounts.filter(a => a.category === 'HARTA_LANCAR' || a.category === 'HARTA_TETAP');
-  const liabilityAccounts = accounts.filter(a => a.category === 'UTANG_LANCAR' || a.category === 'UTANG_JANGKA_PANJANG');
-  const equityAccounts = accounts.filter(a => a.category === 'EKUITAS');
-  const revenueAccounts = accounts.filter(a => a.category === 'PENDAPATAN_OPERASIONAL' || a.category === 'PENDAPATAN_NON_OPERASIONAL');
-  const expenseAccounts = accounts.filter(a => a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL');
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full animate-fadeIn">
@@ -99,52 +89,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Top 4 Summary Cards matching Reference Image */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Card 1: Big Hero Summary Card */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-1 flex-wrap">
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">
-                Akuntansi Resmi NBE
-              </span>
-              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                Cloud Active
-              </span>
-              <span className="text-[10px] text-slate-400 font-medium">Real-time</span>
-            </div>
-
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight font-mono">
-                {transactions.length}
-              </span>
-              <span className="text-xs font-medium text-slate-500">
-                Total Transaksi Terdaftar
-              </span>
-            </div>
+      {/* 1. Full-Width "Total Transaksi Terdaftar" Card at the Top */}
+      <div className="bg-white p-5 md:p-6 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">
+              Akuntansi Resmi {settings.companyName || 'NBE'}
+            </span>
+            <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Cloud Active
+            </span>
+            <span className="text-[10px] text-slate-400 font-medium">Real-time Terintegrasi</span>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100">
-            <div className="flex justify-between items-center text-[10px] text-slate-500 font-medium">
-              <span>Distribusi Status:</span>
-              <span className="font-semibold text-slate-700">{transactions.length} Terverifikasi • 0 Pending</span>
-            </div>
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1.5">
-              <div className="h-full bg-emerald-500 rounded-full w-full"></div>
-            </div>
+          <div className="flex items-baseline gap-3">
+            <span className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight font-mono">
+              {transactions.length}
+            </span>
+            <span className="text-sm md:text-base font-semibold text-slate-600">
+              Total Transaksi Terdaftar
+            </span>
           </div>
         </div>
 
-        {/* Card 2: Saldo Kas Utama */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
+        {/* Right Section: Progress & Distribution */}
+        <div className="md:w-80 shrink-0 bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex flex-col justify-center gap-1.5">
+          <div className="flex justify-between items-center text-[11px] text-slate-600 font-medium">
+            <span>Distribusi Status:</span>
+            <span className="font-bold text-slate-800">{transactions.length} Terverifikasi • 0 Pending</span>
+          </div>
+          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full w-full"></div>
+          </div>
+          <div className="flex justify-between items-center text-[10px] text-slate-400">
+            <span>Integritas Pencatatan: 100% Valid</span>
+            <button
+              type="button"
+              onClick={() => setActiveTab('journals')}
+              className="text-sky-600 hover:text-sky-700 font-semibold hover:underline cursor-pointer"
+            >
+              Lihat Jurnal →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Responsive 5-Column Grid Horizontally Aligned Underneath */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3.5">
+        
+        {/* Kolom 1: Saldo Kas Utama */}
+        <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-emerald-200 transition-colors">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">
                 SALDO KAS UTAMA
               </div>
-              <div className="text-xl md:text-2xl font-black text-emerald-600 mt-2 font-mono tracking-tight num">
+              <div className="text-lg xl:text-xl font-black text-emerald-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(kasLedger.endingBalance)}>
                 {formatRupiah(kasLedger.endingBalance)}
               </div>
             </div>
@@ -153,22 +154,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Likuiditas</span>
-            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="text-slate-400 font-medium">Likuiditas</span>
+            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-bold">
               100% Aktif
             </span>
           </div>
         </div>
 
-        {/* Card 3: Total Aset */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
+        {/* Kolom 2: Total Aset (Harta) */}
+        <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-amber-200 transition-colors">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">
                 TOTAL ASET (HARTA)
               </div>
-              <div className="text-xl md:text-2xl font-black text-amber-500 mt-2 font-mono tracking-tight num">
+              <div className="text-lg xl:text-xl font-black text-amber-500 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(bs.totalAssets)}>
                 {formatRupiah(bs.totalAssets)}
               </div>
             </div>
@@ -177,22 +178,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Struktur Aset</span>
-            <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 rounded-md text-[10px] font-semibold">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="text-slate-400 font-medium">Struktur Aset</span>
+            <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 rounded-md font-semibold">
               Lancar + Tetap
             </span>
           </div>
         </div>
 
-        {/* Card 4: Total Kewajiban & Ekuitas */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
+        {/* Kolom 3: Kewajiban & Ekuitas */}
+        <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-sky-200 transition-colors">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">
                 KEWAJIBAN & EKUITAS
               </div>
-              <div className="text-xl md:text-2xl font-black text-sky-600 mt-2 font-mono tracking-tight num">
+              <div className="text-lg xl:text-xl font-black text-sky-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(bs.totalLiabilitiesAndEquity)}>
                 {formatRupiah(bs.totalLiabilitiesAndEquity)}
               </div>
             </div>
@@ -201,9 +202,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Integritas Neraca</span>
-            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="text-slate-400 font-medium">Integritas Neraca</span>
+            <span className={`px-2 py-0.5 rounded-md font-bold ${
               bs.isBalanced 
                 ? 'bg-sky-50 text-sky-700 border border-sky-200' 
                 : 'bg-rose-50 text-rose-700 border border-rose-200'
@@ -213,121 +214,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-      </div>
-
-      {/* Middle Section: 2 Breakdown Cards matching Bottom Panels in Reference Image */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        
-        {/* Left Panel: Statistik Kelompok Akun */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-sky-600" />
-                <span>Statistik Bagan Akun (Chart of Accounts)</span>
-              </h3>
-              <span className="text-[11px] text-slate-400 font-medium">{accounts.length} Total Akun</span>
+        {/* Kolom 4: Total Pendapatan */}
+        <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-cyan-200 transition-colors">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">
+                TOTAL PENDAPATAN
+              </div>
+              <div className="text-lg xl:text-xl font-black text-cyan-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(totalRevenue)}>
+                {formatRupiah(totalRevenue)}
+              </div>
             </div>
-
-            <div className="space-y-4">
-              {[
-                { code: 'AST', label: 'Aset (Aktiva Lancar & Tetap)', count: assetAccounts.length, total: bs.totalAssets },
-                { code: 'UTG', label: 'Kewajiban (Utang Lancar & Jk. Panjang)', count: liabilityAccounts.length, total: bs.totalLiabilities },
-                { code: 'MOD', label: 'Ekuitas (Modal Pemilik & Saldo Laba)', count: equityAccounts.length, total: bs.totalEquity },
-                { code: 'REV', label: 'Pendapatan Usaha & Luar Usaha', count: revenueAccounts.length, total: pl.totalRevenues },
-                { code: 'BBN', label: 'Beban Operasional & Pokok Usaha', count: expenseAccounts.length, total: pl.totalOperatingExpenses }
-              ].map((cat, i) => {
-                const pct = accounts.length > 0 ? Math.round((cat.count / accounts.length) * 100) : 0;
-                return (
-                  <div key={i} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 font-mono text-[10px] font-bold rounded">
-                          {cat.code}
-                        </span>
-                        <span className="font-semibold text-slate-700">{cat.label}</span>
-                      </div>
-                      <span className="font-mono text-xs font-semibold text-slate-900">
-                        {cat.count} akun ({pct}%)
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-[#0284c7] rounded-full transition-all duration-500" 
-                        style={{ width: `${Math.max(pct, 4)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 border border-cyan-100 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
 
-          <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Daftar bagan akun terstandarisasi PSAK</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('coa')}
-              className="text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <span>Kelola Akun</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="text-slate-400 font-medium">Akumulasi L/R</span>
+            <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-md font-bold">
+              Operasional & Non
+            </span>
           </div>
         </div>
 
-        {/* Right Panel: Statistik Posisi Keuangan & Siklus */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-sky-600" />
-                <span>Statistik Ringkasan Siklus Akuntansi</span>
-              </h3>
-              <span className="text-[11px] text-slate-400 font-medium">Periode {settings.fiscalPeriod}</span>
+        {/* Kolom 5: Total Beban */}
+        <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-rose-200 transition-colors">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">
+                TOTAL BEBAN
+              </div>
+              <div className="text-lg xl:text-xl font-black text-rose-600 mt-2 font-mono tracking-tight whitespace-nowrap truncate num" title={formatRupiah(totalExpense)}>
+                {formatRupiah(totalExpense)}
+              </div>
             </div>
-
-            <div className="space-y-4">
-              {[
-                { code: 'KAS', label: 'Kas Riil & Setara Kas', nominal: kasLedger.endingBalance, pct: 100 },
-                { code: 'PIU', label: 'Buku Pembantu Piutang Usaha (AR)', nominal: piutangLedger.endingBalance, pct: 85 },
-                { code: 'HUT', label: 'Buku Pembantu Hutang Vendor (AP)', nominal: utangLedger.endingBalance, pct: 60 },
-                { code: 'L/R', label: 'Laba (Rugi) Bersih Periode Berjalan', nominal: pl.netIncome, pct: pl.isProfit ? 90 : 30 },
-                { code: 'NRC', label: 'Total Neraca Keseimbangan Akhir', nominal: bs.totalAssets, pct: 100 }
-              ].map((row, i) => (
-                <div key={i} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-100 font-mono text-[10px] font-bold rounded">
-                        {row.code}
-                      </span>
-                      <span className="font-semibold text-slate-700">{row.label}</span>
-                    </div>
-                    <span className="font-mono text-xs font-semibold text-slate-900">
-                      {formatRupiah(row.nominal)}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-[#0284c7] rounded-full transition-all duration-500" 
-                      style={{ width: `${row.pct}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+            <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0">
+              <TrendingDown className="w-4 h-4" />
             </div>
           </div>
 
-          <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Sistem pembukuan otomatis terintegrasi</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('simple-reports')}
-              className="text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <span>Buka Seluruh Laporan</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="text-slate-400 font-medium">Beban Berjalan</span>
+            <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-bold">
+              Operasional & Pokok
+            </span>
           </div>
         </div>
 
