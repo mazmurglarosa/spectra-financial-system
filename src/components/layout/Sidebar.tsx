@@ -21,12 +21,14 @@ import {
   Activity,
   Award,
   X,
-  FileText
+  FileText,
+  Zap
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
 export type ActiveTab = 
   | 'dashboard'
+  | 'quick-report'
   | 'cashbank'
   | 'sales'
   | 'purchases'
@@ -114,27 +116,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div 
-          onClick={() => setActiveTab('cashbank')}
-          className={`nav-item ${activeTab === 'cashbank' ? 'active' : ''}`}
+          onClick={() => setActiveTab('quick-report')}
+          className={`nav-item ${
+            activeTab === 'quick-report' ||
+            activeTab === 'cashbank' ||
+            activeTab === 'sales' ||
+            activeTab === 'purchases'
+              ? 'active'
+              : ''
+          }`}
         >
-          <Wallet className="w-4 h-4 shrink-0" />
-          <span>Kas & Bank</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('sales')}
-          className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`}
-        >
-          <ShoppingCart className="w-4 h-4 shrink-0" />
-          <span>Penjualan & Piutang</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('purchases')}
-          className={`nav-item ${activeTab === 'purchases' ? 'active' : ''}`}
-        >
-          <Package className="w-4 h-4 shrink-0" />
-          <span>Pembelian & Hutang</span>
+          <Zap className="w-4 h-4 shrink-0 text-amber-400" />
+          <span>Quick Report</span>
         </div>
 
         {/* Buku Besar & Jurnal */}

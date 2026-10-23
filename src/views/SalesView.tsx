@@ -6,9 +6,10 @@ import { LedgerEntry } from '../types/accounting';
 
 interface SalesViewProps {
   openNewTransactionModal: (preset?: 'sales') => void;
+  embedded?: boolean;
 }
 
-export const SalesView: React.FC<SalesViewProps> = ({ openNewTransactionModal }) => {
+export const SalesView: React.FC<SalesViewProps> = ({ openNewTransactionModal, embedded = false }) => {
   const { accounts, transactions, contacts } = useAccounting();
 
   const ledgers = calculateGeneralLedgers(accounts, transactions);
@@ -25,7 +26,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ openNewTransactionModal })
   };
 
   return (
-    <div className="p-5 space-y-4 animate-fadeIn">
+    <div className={embedded ? "space-y-4 animate-fadeIn" : "p-5 space-y-4 animate-fadeIn"}>
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-lg shadow-xs border border-slate-200">
         <div>

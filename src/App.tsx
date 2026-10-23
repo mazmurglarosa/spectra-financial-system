@@ -6,9 +6,7 @@ import { AuthGate } from './components/layout/AuthGate';
 
 // Views
 import { DashboardView } from './views/DashboardView';
-import { CashBankView } from './views/CashBankView';
-import { SalesView } from './views/SalesView';
-import { PurchasesView } from './views/PurchasesView';
+import { QuickReportView } from './views/QuickReportView';
 import { AccountsView } from './views/AccountsView';
 import { GeneralJournalView } from './views/GeneralJournalView';
 import { GeneralLedgerView } from './views/GeneralLedgerView';
@@ -80,22 +78,15 @@ const MainContent: React.FC = () => {
             openNewTransactionModal={handleOpenNewTransaction} 
           />
         );
+      case 'quick-report':
       case 'cashbank':
-        return (
-          <CashBankView 
-            openNewTransactionModal={handleOpenNewTransaction} 
-          />
-        );
       case 'sales':
-        return (
-          <SalesView 
-            openNewTransactionModal={handleOpenNewTransaction} 
-          />
-        );
       case 'purchases':
         return (
-          <PurchasesView 
-            openNewTransactionModal={handleOpenNewTransaction} 
+          <QuickReportView 
+            initialTab={activeTab === 'quick-report' ? 'cashbank' : (activeTab as any)}
+            onTabChange={(tab) => setActiveTab(tab)}
+            openNewTransactionModal={handleOpenNewTransaction}
           />
         );
       case 'coa':

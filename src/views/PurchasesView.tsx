@@ -6,9 +6,10 @@ import { LedgerEntry } from '../types/accounting';
 
 interface PurchasesViewProps {
   openNewTransactionModal: (preset?: 'purchase') => void;
+  embedded?: boolean;
 }
 
-export const PurchasesView: React.FC<PurchasesViewProps> = ({ openNewTransactionModal }) => {
+export const PurchasesView: React.FC<PurchasesViewProps> = ({ openNewTransactionModal, embedded = false }) => {
   const { accounts, transactions } = useAccounting();
 
   const ledgers = calculateGeneralLedgers(accounts, transactions);
@@ -26,7 +27,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ openNewTransaction
   };
 
   return (
-    <div className="p-5 space-y-4 animate-fadeIn">
+    <div className={embedded ? "space-y-4 animate-fadeIn" : "p-5 space-y-4 animate-fadeIn"}>
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-lg shadow-xs border border-slate-200">
         <div>
