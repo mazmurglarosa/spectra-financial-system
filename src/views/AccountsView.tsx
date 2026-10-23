@@ -170,24 +170,55 @@ export const AccountsView: React.FC = () => {
 
                   return (
                     <tr key={acc.id} style={{
-                      backgroundColor: isHeader ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
-                      fontWeight: isHeader ? 700 : 400
+                      backgroundColor: isHeader ? '#f1f5f9' : 'transparent',
+                      fontWeight: isHeader ? 700 : 400,
+                      borderBottom: isHeader ? '2px solid #cbd5e1' : '1px solid #f1f5f9'
                     }}>
-                      <td className="mono" style={{ fontWeight: 700, color: isHeader ? '#38bdf8' : 'var(--text-main)' }}>
+                      <td className="mono" style={{ 
+                        fontWeight: 700, 
+                        color: isHeader ? '#0369a1' : 'var(--text-main)',
+                        fontSize: isHeader ? '0.875rem' : '0.8125rem'
+                      }}>
                         {acc.code}
                       </td>
                       <td>
-                        <span style={{ color: isHeader ? '#fff' : 'var(--text-main)' }}>
-                          {acc.name}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ 
+                            color: isHeader ? '#0f172a' : 'var(--text-main)',
+                            fontWeight: isHeader ? 800 : 500,
+                            fontSize: isHeader ? '0.875rem' : '0.8125rem',
+                            letterSpacing: isHeader ? '0.01em' : 'normal'
+                          }}>
+                            {acc.name}
+                          </span>
+                          {isHeader && (
+                            <span style={{
+                              fontSize: '0.65rem',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              backgroundColor: '#e0f2fe',
+                              color: '#0369a1',
+                              letterSpacing: '0.05em'
+                            }}>
+                              Header Akun
+                            </span>
+                          )}
+                        </div>
                         {acc.description && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '0.72rem', color: isHeader ? '#475569' : 'var(--text-muted)' }}>
                             {acc.description}
                           </div>
                         )}
                       </td>
                       <td>
-                        <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
+                        <span className="badge badge-neutral" style={{ 
+                          fontSize: '0.7rem',
+                          fontWeight: isHeader ? 700 : 500,
+                          backgroundColor: isHeader ? '#e2e8f0' : undefined,
+                          color: isHeader ? '#0f172a' : undefined
+                        }}>
                           {acc.categoryName}
                         </span>
                       </td>

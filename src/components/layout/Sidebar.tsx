@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
   ListTree, 
@@ -18,6 +18,7 @@ import {
   LogOut 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
+import { SyncInfoModal } from '../modals/SyncInfoModal';
 
 export type ActiveTab = 
   | 'dashboard'
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile
 }) => {
   const { currentUser, logout } = useAccounting();
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const isAuthority = currentUser?.isAuthority || isAdmin;
@@ -95,7 +97,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand Header Matching Reference Image */}
         <div className="p-4 border-b border-slate-100 flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
+            {/* Seamless Logo & Company Button - Returns to Dashboard */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('dashboard')}
+              className="flex items-center gap-2.5 text-left bg-transparent border-0 p-0 m-0 cursor-pointer select-none focus:outline-hidden"
+              title="Kembali ke Dashboard"
+            >
               <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center p-1 shrink-0">
                 <img 
                   src="./assets/NBE.png" 
@@ -117,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Financial Control System
                 </div>
               </div>
-            </div>
+            </button>
 
             {onCloseMobile && (
               <button
@@ -131,10 +139,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold w-fit mt-1">
+          {/* Enterprise Cloud Active Button - Opens Sync / Cloud Info Modal */}
+          <button
+            type="button"
+            onClick={() => setIsSyncModalOpen(true)}
+            title="Klik untuk membuka Akses Web Online & Sinkronisasi Cloud SPECTRA"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold w-fit mt-1 transition cursor-pointer shadow-xs active:scale-95"
+          >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>Enterprise Cloud Active</span>
-          </div>
+          </button>
         </div>
 
         {/* Scrollable Navigation Area */}
@@ -288,6 +302,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {/* Sync / Cloud Info Modal triggered by Enterprise Cloud Active */}
+      <SyncInfoModal 
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+      />
     </>
   );
 };

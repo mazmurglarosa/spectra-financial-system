@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { calculateBalanceSheet, formatRupiah } from '../../utils/accountingCalculations';
-import { SyncInfoModal } from '../modals/SyncInfoModal';
 
 interface HeaderProps {
   openNewTransactionModal: (preset?: any) => void;
@@ -31,8 +30,6 @@ export const Header: React.FC<HeaderProps> = ({
     exportDatabaseJson, 
     logout 
   } = useAccounting();
-
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   // Global balance verification matching SIKEU
   const balanceSheet = calculateBalanceSheet(accounts, transactions);
@@ -96,18 +93,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Action Bar & Indicators Matching Reference Image */}
           <div className="flex items-center space-x-2 flex-wrap">
-            
-            {/* Cloud Real-Time Indicator (as in reference image) */}
-            <button 
-              type="button"
-              onClick={() => setIsSyncModalOpen(true)}
-              title="Informasi Sinkronisasi Cloud Supabase" 
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer shadow-xs"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Cloud Real-Time</span>
-            </button>
-
             {/* Balance Status Badge */}
             <div 
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-all ${
@@ -187,12 +172,6 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </header>
-
-      {/* Sync Modal */}
-      <SyncInfoModal 
-        isOpen={isSyncModalOpen}
-        onClose={() => setIsSyncModalOpen(false)}
-      />
     </>
   );
 };
