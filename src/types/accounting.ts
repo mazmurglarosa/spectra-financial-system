@@ -118,6 +118,10 @@ export interface CompanySettings {
   approverTitle?: string;
   lastSyncedAt?: number;
   convexUrl?: string;
+  loginBgImage?: string;
+  loginQuote?: string;
+  loginSubtitle?: string;
+  loginOverlayDarkness?: 'dark' | 'medium' | 'light';
 }
 
 export interface LedgerEntry {

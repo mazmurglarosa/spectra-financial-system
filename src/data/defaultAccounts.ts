@@ -17,7 +17,11 @@ export const initialCompanySettings: CompanySettings = {
   approverName: 'Sudono Salim',
   approverTitle: 'Direktur Utama',
   preparerName: 'Mazmur Gusti Agung L',
-  preparerTitle: 'Direktur Keuangan'
+  preparerTitle: 'Direktur Keuangan',
+  loginBgImage: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop',
+  loginQuote: 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.',
+  loginSubtitle: 'Please enter your corporate credentials to access the executive portal.',
+  loginOverlayDarkness: 'dark'
 };
 
 function getCategory(code: string): { category: AccountCategory; categoryName: string; isHeader: boolean } {

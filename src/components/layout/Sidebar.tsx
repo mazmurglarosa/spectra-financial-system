@@ -15,7 +15,8 @@ import {
   FileText, 
   Zap, 
   ChevronRight, 
-  LogOut 
+  LogOut,
+  Palette 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { SyncInfoModal } from '../modals/SyncInfoModal';
@@ -41,6 +42,7 @@ export type ActiveTab =
   | 'settings'
   | 'admin-panel'
   | 'authority-panel'
+  | 'web-appearance'
   | 'activity-logs';
 
 interface SidebarProps {
@@ -264,6 +266,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <AlertCircle className={`w-4 h-4 shrink-0 ${activeTab === 'authority-panel' ? 'text-white' : 'text-amber-500'}`} />
               <span className="font-medium text-xs">Otoritas</span>
               {activeTab === 'authority-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+            </div>
+
+            <div 
+              onClick={() => setActiveTab('web-appearance')}
+              className={`nav-item ${activeTab === 'web-appearance' ? 'active' : ''}`}
+            >
+              <Palette className={`w-4 h-4 shrink-0 ${activeTab === 'web-appearance' ? 'text-white' : 'text-purple-600'}`} />
+              <span className="font-medium text-xs">Tampilan Web</span>
+              <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'web-appearance' ? 'bg-white/20 text-white' : 'bg-purple-50 text-purple-600 border border-purple-200'}`}>
+                LOGIN & UI
+              </span>
+              {activeTab === 'web-appearance' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
             </div>
           </div>
 

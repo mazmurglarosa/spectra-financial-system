@@ -12,7 +12,8 @@ import {
   Trash2,
   Zap,
   Award,
-  ArrowUpRight
+  ArrowUpRight,
+  FileText
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { 
@@ -68,9 +69,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('simple-reports')}
-            className="bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-xl border border-slate-200/90 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+            className="bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-xl border border-slate-200/90 shadow-xs flex items-center gap-1.5 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            title="Buka Laporan Sederhana"
           >
-            <TableIcon className="w-4 h-4 text-emerald-600" />
+            <FileText className="w-4 h-4 text-sky-600" />
             <span>Laporan Sederhana</span>
           </button>
 
