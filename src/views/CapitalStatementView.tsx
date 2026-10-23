@@ -129,7 +129,7 @@ export const CapitalStatementView: React.FC<{ embedded?: boolean }> = ({ embedde
             marginTop: '12px'
           }}>
             <div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff' }}>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
                 MODAL AKHIR PER {settings.fiscalPeriod.toUpperCase()}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>

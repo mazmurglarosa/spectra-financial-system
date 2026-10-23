@@ -226,7 +226,7 @@ export const CashFlowView: React.FC<{ embedded?: boolean }> = ({ embedded = fals
               marginTop: '6px'
             }}>
               <div>
-                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#fff' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
                   SALDO KAS PADA AKHIR PERIODE
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>

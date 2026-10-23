@@ -225,34 +225,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Akses Khusus Otoritas & Administrator */}
-          {isAuthority && (
-            <div className="pt-2">
-              <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-amber-600 uppercase tracking-wider flex items-center justify-between">
-                <span>Akses Khusus</span>
-                <ShieldAlert className="w-3 h-3 text-amber-500" />
-              </div>
-
-              {isAdmin && (
-                <div 
-                  onClick={() => setActiveTab('admin-panel')}
-                  className={`nav-item ${activeTab === 'admin-panel' ? '!bg-rose-600 !text-white' : 'text-rose-600 hover:bg-rose-50'}`}
-                >
-                  <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'admin-panel' ? 'text-white' : 'text-rose-500'}`} />
-                  <span className="font-medium text-xs">Administrator</span>
-                  {activeTab === 'admin-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
-                </div>
-              )}
-
-              <div 
-                onClick={() => setActiveTab('authority-panel')}
-                className={`nav-item ${activeTab === 'authority-panel' ? '!bg-amber-600 !text-white' : 'text-amber-700 hover:bg-amber-50'}`}
-              >
-                <AlertCircle className={`w-4 h-4 shrink-0 ${activeTab === 'authority-panel' ? 'text-white' : 'text-amber-500'}`} />
-                <span className="font-medium text-xs">Otoritas</span>
-                {activeTab === 'authority-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
-              </div>
+          <div className="pt-2">
+            <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Akses Khusus</span>
+              <ShieldAlert className="w-3.5 h-3.5 text-sky-600" />
             </div>
-          )}
+
+            <div 
+              onClick={() => setActiveTab('admin-panel')}
+              className={`nav-item ${activeTab === 'admin-panel' ? 'active' : ''}`}
+            >
+              <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'admin-panel' ? 'text-white' : 'text-rose-500'}`} />
+              <span className="font-medium text-xs">Administrator</span>
+              <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'admin-panel' ? 'bg-white/20 text-white' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
+                SUPER
+              </span>
+              {activeTab === 'admin-panel' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
+            </div>
+
+            <div 
+              onClick={() => setActiveTab('authority-panel')}
+              className={`nav-item ${activeTab === 'authority-panel' ? 'active' : ''}`}
+            >
+              <AlertCircle className={`w-4 h-4 shrink-0 ${activeTab === 'authority-panel' ? 'text-white' : 'text-amber-500'}`} />
+              <span className="font-medium text-xs">Otoritas</span>
+              {activeTab === 'authority-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+            </div>
+          </div>
 
         </nav>
 

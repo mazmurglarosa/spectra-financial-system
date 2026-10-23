@@ -241,7 +241,7 @@ export const WorksheetView: React.FC<{ embedded?: boolean }> = ({ embedded = fal
 
               {/* Row 3: Balanced Final Totals */}
               <tr style={{ backgroundColor: 'var(--bg-main)', fontWeight: 800, fontSize: '0.9rem' }}>
-                <td colSpan={2} style={{ textAlign: 'right', padding: '14px', color: '#fff' }}>
+                <td colSpan={2} style={{ textAlign: 'right', padding: '14px', color: '#0f172a' }}>
                   TOTAL KESEIMBANGAN AKHIR:
                 </td>
                 <td className="mono" style={{ textAlign: 'right', borderLeft: '1px solid var(--border-medium)' }}>

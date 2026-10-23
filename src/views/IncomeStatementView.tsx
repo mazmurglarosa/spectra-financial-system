@@ -212,7 +212,7 @@ export const IncomeStatementView: React.FC<{ embedded?: boolean }> = ({ embedded
             marginTop: '8px'
           }}>
             <div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
                 {is.labaBersih >= 0 ? 'LABA BERSIH PERIODE BERJALAN' : 'RUGI BERSIH PERIODE BERJALAN'}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
