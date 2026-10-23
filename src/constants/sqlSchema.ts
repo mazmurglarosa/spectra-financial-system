@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS company_settings (
   preparer_title TEXT,
   approver_name TEXT,
   approver_title TEXT,
+  login_bg_image TEXT,
+  login_quote TEXT,
+  login_subtitle TEXT,
+  booting_bg_image TEXT,
+  login_logo_url TEXT,
+  login_logo_height INT DEFAULT 48,
+  login_overlay_darkness TEXT DEFAULT 'dark',
+  login_bg_pos_x NUMERIC DEFAULT 50,
+  login_bg_pos_y NUMERIC DEFAULT 50,
+  login_bg_zoom NUMERIC DEFAULT 100,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

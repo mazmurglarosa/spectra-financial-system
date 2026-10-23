@@ -20,8 +20,13 @@ export const initialCompanySettings: CompanySettings = {
   preparerTitle: 'Direktur Keuangan',
   loginBgImage: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop',
   loginQuote: 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.',
-  loginSubtitle: 'Please enter your corporate credentials to access the executive portal.',
-  loginOverlayDarkness: 'dark'
+  loginOverlayDarkness: 'dark',
+  bootingBgImage: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=1920&auto=format&fit=crop',
+  loginLogoUrl: './assets/NBE_white.png',
+  loginLogoHeight: 48,
+  loginBgPosX: 50,
+  loginBgPosY: 50,
+  loginBgZoom: 100
 };
 
 function getCategory(code: string): { category: AccountCategory; categoryName: string; isHeader: boolean } {

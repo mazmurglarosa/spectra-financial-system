@@ -35,16 +35,22 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   // Alerts
   const [alertInfo, setAlertInfo] = useState<{ message: string; type: 'error' | 'warning' | 'success' } | null>(null);
 
-  // Transition screen state (4 seconds)
+  // Transition screen state (5 seconds)
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionUser, setTransitionUser] = useState<User | null>(null);
-  const [countdown, setCountdown] = useState(4);
+  const [countdown, setCountdown] = useState(5);
   const [progressWidth, setProgressWidth] = useState(0);
 
-  // Background and quote from settings
+  // Background, quote, logo, and positioning from settings
   const bgImage = settings.loginBgImage || PRESET_BACKGROUNDS[0].url;
+  const bootingBg = settings.bootingBgImage || 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=1920&auto=format&fit=crop';
   const loginQuote = settings.loginQuote || 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.';
   const loginSubtitle = settings.loginSubtitle || 'Please enter your corporate credentials to access the executive portal.';
+  const loginLogo = settings.loginLogoUrl || './assets/NBE_white.png';
+  const logoHeight = settings.loginLogoHeight || 48;
+  const bgPosX = settings.loginBgPosX ?? 50;
+  const bgPosY = settings.loginBgPosY ?? 50;
+  const bgZoom = settings.loginBgZoom ?? 100;
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,13 +104,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const startTransition = (user: User) => {
     setTransitionUser(user);
     setIsTransitioning(true);
-    setCountdown(4);
+    setCountdown(5);
     setProgressWidth(0);
 
-    let timeLeft = 40; // 40 x 100ms = 4.0 seconds
+    let timeLeft = 50; // 50 x 100ms = 5.0 seconds
     const interval = setInterval(() => {
       timeLeft--;
-      const progress = ((40 - timeLeft) / 40) * 100;
+      const progress = ((50 - timeLeft) / 50) * 100;
       setProgressWidth(progress);
       setCountdown(Math.ceil(timeLeft / 10));
 
@@ -116,13 +122,29 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     }, 100);
   };
 
-  // 4-SECOND TRANSITION SCREEN
+  // 5-SECOND TRANSITION / BOOTING SCREEN
   if (isTransitioning && transitionUser) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 select-none">
-        <div className="max-w-md w-full text-center space-y-6 animate-fadeIn">
-          <div className="inline-flex p-3.5 bg-white rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
-            <img src="./assets/NBE.png" alt="Logo NBE" className="h-16 w-auto object-contain" />
+      <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 select-none overflow-hidden">
+        {/* Booting Background Image (Different from login screen) */}
+        {bootingBg && (
+          <img 
+            src={bootingBg} 
+            alt="Booting Background" 
+            className="absolute inset-0 w-full h-full object-cover object-center scale-105 filter blur-xs brightness-[0.35] transition-all duration-700" 
+          />
+        )}
+        {/* Atmospheric Dark Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/80 to-slate-950/90" />
+
+        <div className="relative z-10 max-w-md w-full text-center space-y-6 animate-fadeIn">
+          <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
+            <img 
+              src={loginLogo && !loginLogo.includes('_white') ? loginLogo : './assets/NBE.png'} 
+              alt="Logo" 
+              style={{ height: `${Math.max(48, Math.min(84, logoHeight + 16))}px`, width: 'auto' }}
+              className="max-w-[200px] object-contain" 
+            />
           </div>
 
           <div className="space-y-2">
@@ -133,20 +155,20 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
             <p className="text-lg font-bold text-emerald-400">
               Selamat Datang Kembali "{transitionUser.position}"
             </p>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-300">
               Menyiapkan buku besar, neraca, dan lembar kerja akuntansi...
             </p>
           </div>
 
-          {/* Progress bar 4 seconds */}
-          <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-700">
+          {/* Progress bar 5 seconds */}
+          <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-slate-700/80 backdrop-blur-xs">
             <div 
-              className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 rounded-full transition-all duration-100 ease-linear"
+              className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-100 ease-linear"
               style={{ width: `${progressWidth}%` }}
             />
           </div>
 
-          <div className="text-[11px] text-slate-500 font-mono">
+          <div className="text-[11px] text-slate-400 font-mono">
             Membuka SPECTRA dalam <span className="text-blue-400 font-bold">{countdown}</span> detik...
           </div>
         </div>
@@ -161,19 +183,26 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     ? 'bg-gradient-to-t from-slate-950/85 via-slate-900/60 to-slate-950/75'
     : 'bg-gradient-to-t from-[#020b18]/95 via-[#06203d]/70 to-[#04162a]/90';
 
-  // AUTHENTICATION SCREEN: SPLIT SCREEN MATCHING REFERENCE (Gambar 1)
+  // AUTHENTICATION SCREEN: 65% BACKGROUND & 35% LOGIN PANEL RATIO
   return (
     <div className="fixed inset-0 z-50 flex flex-col lg:flex-row bg-white overflow-y-auto">
       
-      {/* 1. Left Side: Corporate Hero Banner with Dynamic Background */}
-      <div className="relative w-full lg:w-1/2 min-h-[340px] lg:min-h-screen bg-slate-950 flex flex-col justify-between p-8 sm:p-12 lg:p-16 overflow-hidden">
+      {/* 1. Left Side: Corporate Hero Banner (65% width) */}
+      <div className="relative w-full lg:w-[65%] min-h-[360px] lg:min-h-screen bg-slate-950 flex flex-col justify-between p-8 sm:p-12 lg:p-16 overflow-hidden">
         
-        {/* Dynamic Background Photo */}
-        <img 
-          src={bgImage} 
-          alt="Corporate Facility" 
-          className="absolute inset-0 w-full h-full object-cover object-center transition-all duration-500"
-        />
+        {/* Dynamic Background Photo with interactive framing & crop */}
+        <div className="absolute inset-0 overflow-hidden">
+          <img 
+            src={bgImage} 
+            alt="Corporate Facility" 
+            style={{
+              objectPosition: `${bgPosX}% ${bgPosY}%`,
+              transform: `scale(${bgZoom / 100})`,
+              transformOrigin: `${bgPosX}% ${bgPosY}%`
+            }}
+            className="w-full h-full object-cover transition-all duration-300"
+          />
+        </div>
         
         {/* Deep Industrial Navy Overlay */}
         <div className={`absolute inset-0 ${overlayClass}`} />
@@ -181,9 +210,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         {/* Top Left: Logo & Company Name */}
         <div className="relative z-10 flex items-center gap-3">
           <img 
-            src="./assets/NBE_white.png" 
-            alt="Nirwana Bhumi Energy" 
-            className="h-10 sm:h-12 w-auto object-contain drop-shadow" 
+            src={loginLogo} 
+            alt="Logo Perusahaan" 
+            style={{ height: `${logoHeight}px`, width: 'auto' }}
+            className="max-w-[220px] object-contain drop-shadow" 
           />
           <div className="text-white text-base sm:text-lg font-black tracking-wide leading-tight">
             <div>Nirwana Bhumi</div>
@@ -192,7 +222,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         </div>
 
         {/* Bottom Left: Corporate Quote / Slogan */}
-        <div className="relative z-10 max-w-lg space-y-3 pt-12">
+        <div className="relative z-10 max-w-xl space-y-3 pt-12">
           <p className="text-white text-sm sm:text-base lg:text-lg font-medium leading-relaxed opacity-95">
             “{loginQuote}”
           </p>
@@ -200,9 +230,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
       </div>
 
-      {/* 2. Right Side: Clean White Login Form Screen */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 lg:p-16 bg-white min-h-[500px]">
-        <div className="max-w-md w-full space-y-6 animate-fadeIn">
+      {/* 2. Right Side: Clean White Login Form Screen (35% width) */}
+      <div className="w-full lg:w-[35%] flex items-center justify-center p-6 sm:p-10 lg:p-12 bg-white min-h-[500px]">
+        <div className="max-w-sm w-full space-y-6 animate-fadeIn">
           
           {/* Header Title */}
           <div className="space-y-1.5">

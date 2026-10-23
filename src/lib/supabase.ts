@@ -198,9 +198,18 @@ export async function syncPushAllToSupabase(payload: {
         accountant_name: s.accountantName,
         accountant_title: s.accountantTitle || 'Direktur Keuangan',
         preparer_name: s.preparerName || '',
-        preparer_title: s.preparerTitle || '',
         approver_name: s.approverName || '',
         approver_title: s.approverTitle || '',
+        login_bg_image: s.loginBgImage || '',
+        login_quote: s.loginQuote || '',
+        login_subtitle: s.loginSubtitle || '',
+        login_overlay_darkness: s.loginOverlayDarkness || 'dark',
+        booting_bg_image: s.bootingBgImage || '',
+        login_logo_url: s.loginLogoUrl || '',
+        login_logo_height: s.loginLogoHeight || 48,
+        login_bg_pos_x: s.loginBgPosX ?? 50,
+        login_bg_pos_y: s.loginBgPosY ?? 50,
+        login_bg_zoom: s.loginBgZoom ?? 100,
         updated_at: new Date().toISOString()
       }, { onConflict: 'id' });
       if (error) throw new Error(`Settings error: ${error.message}`);
@@ -302,7 +311,17 @@ export async function syncPullAllFromSupabase(): Promise<{
         preparerName: rawSettings.preparer_name,
         preparerTitle: rawSettings.preparer_title,
         approverName: rawSettings.approver_name,
-        approverTitle: rawSettings.approver_title
+        approverTitle: rawSettings.approver_title,
+        loginBgImage: rawSettings.login_bg_image,
+        loginQuote: rawSettings.login_quote,
+        loginSubtitle: rawSettings.login_subtitle,
+        loginOverlayDarkness: rawSettings.login_overlay_darkness,
+        bootingBgImage: rawSettings.booting_bg_image,
+        loginLogoUrl: rawSettings.login_logo_url,
+        loginLogoHeight: rawSettings.login_logo_height ? Number(rawSettings.login_logo_height) : undefined,
+        loginBgPosX: rawSettings.login_bg_pos_x !== undefined && rawSettings.login_bg_pos_x !== null ? Number(rawSettings.login_bg_pos_x) : undefined,
+        loginBgPosY: rawSettings.login_bg_pos_y !== undefined && rawSettings.login_bg_pos_y !== null ? Number(rawSettings.login_bg_pos_y) : undefined,
+        loginBgZoom: rawSettings.login_bg_zoom !== undefined && rawSettings.login_bg_zoom !== null ? Number(rawSettings.login_bg_zoom) : undefined
       };
     }
 
@@ -379,6 +398,16 @@ export async function pushSettingsToSupabase(s: CompanySettings): Promise<void> 
       preparer_title: s.preparerTitle || '',
       approver_name: s.approverName || '',
       approver_title: s.approverTitle || '',
+      login_bg_image: s.loginBgImage || '',
+      login_quote: s.loginQuote || '',
+      login_subtitle: s.loginSubtitle || '',
+      login_overlay_darkness: s.loginOverlayDarkness || 'dark',
+      booting_bg_image: s.bootingBgImage || '',
+      login_logo_url: s.loginLogoUrl || '',
+      login_logo_height: s.loginLogoHeight || 48,
+      login_bg_pos_x: s.loginBgPosX ?? 50,
+      login_bg_pos_y: s.loginBgPosY ?? 50,
+      login_bg_zoom: s.loginBgZoom ?? 100,
       updated_at: new Date().toISOString()
     }, { onConflict: 'id' });
   } catch (e) {

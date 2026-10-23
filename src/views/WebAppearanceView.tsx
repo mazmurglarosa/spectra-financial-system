@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Palette, 
   Upload, 
@@ -11,7 +11,12 @@ import {
   Sliders, 
   Quote, 
   ShieldCheck,
-  ExternalLink
+  ExternalLink,
+  Move,
+  ZoomIn,
+  Play,
+  Monitor,
+  Maximize2
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 
@@ -61,6 +66,37 @@ export const PRESET_BACKGROUNDS: ImagePreset[] = [
   }
 ];
 
+export const PRESET_BOOTING_BACKGROUNDS: ImagePreset[] = [
+  {
+    id: 'booting-night-flare',
+    title: 'Kilang Malam Flare Atmosferik (Default Booting)',
+    category: 'Night Operation',
+    url: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=1920&auto=format&fit=crop',
+    thumb: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=300&auto=format&fit=crop'
+  },
+  {
+    id: 'booting-control-room',
+    title: 'Ruang Kendali Otomasi SCADA (Operations Center)',
+    category: 'Mission Control',
+    url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=1920&auto=format&fit=crop',
+    thumb: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=300&auto=format&fit=crop'
+  },
+  {
+    id: 'booting-deep-sea',
+    title: 'Platform Lepas Pantai Laut Dalam (Offshore Platform)',
+    category: 'Offshore Exploration',
+    url: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?q=80&w=1920&auto=format&fit=crop',
+    thumb: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?q=80&w=300&auto=format&fit=crop'
+  },
+  {
+    id: 'booting-refinery-structure',
+    title: 'Struktur Rangka Baja Kilang Energi (Industrial Steel Grid)',
+    category: 'Structural Power',
+    url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop',
+    thumb: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=300&auto=format&fit=crop'
+  }
+];
+
 export interface WebAppearanceViewProps {
   embedded?: boolean;
 }
@@ -68,9 +104,28 @@ export interface WebAppearanceViewProps {
 export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded = false }) => {
   const { settings, updateSettings, logActivity } = useAccounting();
 
+  // 1. Background login states
   const [bgImageUrl, setBgImageUrl] = useState<string>(
     settings.loginBgImage || PRESET_BACKGROUNDS[0].url
   );
+  const [bgPosX, setBgPosX] = useState<number>(settings.loginBgPosX ?? 50);
+  const [bgPosY, setBgPosY] = useState<number>(settings.loginBgPosY ?? 50);
+  const [bgZoom, setBgZoom] = useState<number>(settings.loginBgZoom ?? 100);
+
+  // 2. Background booting states
+  const [bootingBgUrl, setBootingBgUrl] = useState<string>(
+    settings.bootingBgImage || PRESET_BOOTING_BACKGROUNDS[0].url
+  );
+
+  // 3. Logo states
+  const [logoUrl, setLogoUrl] = useState<string>(
+    settings.loginLogoUrl || './assets/NBE_white.png'
+  );
+  const [logoHeight, setLogoHeight] = useState<number>(
+    settings.loginLogoHeight || 48
+  );
+
+  // 4. Texts and overlay
   const [quote, setQuote] = useState<string>(
     settings.loginQuote || 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.'
   );
@@ -81,23 +136,59 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     settings.loginOverlayDarkness || 'dark'
   );
 
+  // Modals & Feedback
   const [isSaved, setIsSaved] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewBootingModalOpen, setPreviewBootingModalOpen] = useState(false);
+  const [bootingSimTime, setBootingSimTime] = useState(5);
+  const [bootingSimProgress, setBootingSimProgress] = useState(0);
 
-  // File upload handler
+  // Upload handler for login background
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB. Silakan pilih gambar lain yang lebih optimal.');
+      if (file.size > 8 * 1024 * 1024) {
+        alert('Ukuran file maksimal 8MB. Silakan pilih gambar lain yang lebih optimal.');
         return;
       }
       const reader = new FileReader();
       reader.onload = (uploadEvent) => {
         const result = uploadEvent.target?.result as string;
-        if (result) {
-          setBgImageUrl(result);
-        }
+        if (result) setBgImageUrl(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Upload handler for booting background
+  const handleBootingFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 8 * 1024 * 1024) {
+        alert('Ukuran file maksimal 8MB. Silakan pilih gambar lain.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (uploadEvent) => {
+        const result = uploadEvent.target?.result as string;
+        if (result) setBootingBgUrl(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Upload handler for Logo (PNG with transparency)
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 4 * 1024 * 1024) {
+        alert('Ukuran file logo maksimal 4MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (uploadEvent) => {
+        const result = uploadEvent.target?.result as string;
+        if (result) setLogoUrl(result);
       };
       reader.readAsDataURL(file);
     }
@@ -107,6 +198,12 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
   const handleSave = () => {
     updateSettings({
       loginBgImage: bgImageUrl,
+      loginBgPosX: bgPosX,
+      loginBgPosY: bgPosY,
+      loginBgZoom: bgZoom,
+      bootingBgImage: bootingBgUrl,
+      loginLogoUrl: logoUrl,
+      loginLogoHeight: logoHeight,
       loginQuote: quote,
       loginSubtitle: subtitle,
       loginOverlayDarkness: darkness
@@ -114,7 +211,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
     logActivity(
       'Pengaturan Tampilan',
-      'Administrator memperbarui konfigurasi background dan estetika halaman login'
+      'Administrator memperbarui konfigurasi background login, background booting 5 detik, logo, serta posisi crop gambar.'
     );
 
     setIsSaved(true);
@@ -123,18 +220,32 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
   // Reset to default
   const handleReset = () => {
-    if (confirm('Kembalikan background dan teks halaman login ke pengaturan standar pabrik?')) {
+    if (confirm('Kembalikan background, posisi gambar, logo, dan teks ke pengaturan standar pabrik?')) {
       const defaultBg = PRESET_BACKGROUNDS[0].url;
+      const defaultBootingBg = PRESET_BOOTING_BACKGROUNDS[0].url;
+      const defaultLogo = './assets/NBE_white.png';
       const defaultQuote = 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.';
       const defaultSubtitle = 'Please enter your corporate credentials to access the executive portal.';
       
       setBgImageUrl(defaultBg);
+      setBgPosX(50);
+      setBgPosY(50);
+      setBgZoom(100);
+      setBootingBgUrl(defaultBootingBg);
+      setLogoUrl(defaultLogo);
+      setLogoHeight(48);
       setQuote(defaultQuote);
       setSubtitle(defaultSubtitle);
       setDarkness('dark');
 
       updateSettings({
         loginBgImage: defaultBg,
+        loginBgPosX: 50,
+        loginBgPosY: 50,
+        loginBgZoom: 100,
+        bootingBgImage: defaultBootingBg,
+        loginLogoUrl: defaultLogo,
+        loginLogoHeight: 48,
         loginQuote: defaultQuote,
         loginSubtitle: defaultSubtitle,
         loginOverlayDarkness: 'dark'
@@ -159,10 +270,29 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     }
   };
 
+  // Run 5-second booting simulation
+  const startBootingSimulation = () => {
+    setPreviewBootingModalOpen(true);
+    setBootingSimTime(5);
+    setBootingSimProgress(0);
+
+    let timeLeft = 50; // 50 x 100ms = 5.0s
+    const interval = setInterval(() => {
+      timeLeft--;
+      const prog = ((50 - timeLeft) / 50) * 100;
+      setBootingSimProgress(prog);
+      setBootingSimTime(Math.ceil(timeLeft / 10));
+
+      if (timeLeft <= 0) {
+        clearInterval(interval);
+      }
+    }, 100);
+  };
+
   return (
-    <div className={embedded ? "space-y-6 w-full animate-fadeIn" : "p-4 md:p-8 space-y-6 max-w-6xl mx-auto w-full animate-fadeIn"}>
+    <div className={embedded ? "space-y-6 w-full animate-fadeIn" : "p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full animate-fadeIn"}>
       
-      {/* 1. Header */}
+      {/* 1. Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
           <div className="flex items-center gap-2.5">
@@ -170,28 +300,37 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               <Palette className="w-5 h-5" />
             </span>
             <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
-              Kontrol Tampilan Web & Background Login
+              Kontrol Tampilan Web & Gerbang Otorisasi
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-            Kustomisasi foto latar belakang, quote korporat, dan estetika gerbang otorisasi login {settings.companyName || 'PT Nirwana Bhumi Energy'}.
+            Kustomisasi foto latar belakang login (rasio 65:35), crop &amp; pergeseran posisi gambar, background layar booting 5 detik, serta logo korporat {settings.companyName || 'PT Nirwana Bhumi Energy'}.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={startBootingSimulation}
+            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Play className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Simulasi Booting (5s)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setPreviewModalOpen(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-xl border border-slate-200/90 shadow-xs flex items-center gap-1.5 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
           >
             <Eye className="w-3.5 h-3.5 text-purple-600" />
-            <span>Pratinjau Login</span>
+            <span>Pratinjau Login (65:35)</span>
           </button>
           
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
           >
             {isSaved ? (
               <>
@@ -212,49 +351,51 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
       {isSaved && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800 text-xs font-semibold animate-fadeIn">
           <Check className="w-4 h-4 text-emerald-600" />
-          <span>Pengaturan tampilan berhasil diperbarui. Background login akan otomatis diterapkan ke seluruh sesi pengguna.</span>
+          <span>Pengaturan tampilan berhasil diperbarui. Background login 65:35, booting 5 detik, dan logo baru langsung aktif!</span>
         </div>
       )}
 
-      {/* 3. Main Grid: Left is Form Controls, Right is Live Preview */}
+      {/* 3. Main Grid: Left Form Controls (7 cols), Right Live Scaled Preview (5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* Left Column: Background Selector & Settings (7 cols) */}
+        {/* Left Column: Form Controls */}
         <div className="lg:col-span-7 space-y-6">
           
-          {/* Card: Upload & Custom URL */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+          {/* ======================================================== */}
+          {/* CARD 1: FOTO LATAR LOGIN & KONTROL POSISI / CROP */}
+          {/* ======================================================== */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-purple-600" />
-                <span>Foto Latar Belakang Login</span>
+                <span>1. Foto Background Halaman Login (Porsi 65%)</span>
               </h2>
-              <span className="text-[10px] font-semibold text-slate-400">Rasio 16:9 disarankan</span>
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                Porsi Lebar: 65%
+              </span>
             </div>
 
             {/* Upload Button */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                1. Unggah Foto dari Komputer
+                Unggah Foto dari Komputer
               </label>
-              <div className="flex items-center gap-3">
-                <label className="flex-1 border-2 border-dashed border-slate-200 hover:border-purple-400 hover:bg-purple-50/30 rounded-xl p-3 text-center cursor-pointer transition flex items-center justify-center gap-2">
-                  <Upload className="w-4 h-4 text-purple-600" />
-                  <span className="text-xs font-semibold text-slate-700">Pilih Berkas Foto (JPG, PNG, WebP)</span>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleFileUpload} 
-                    className="hidden" 
-                  />
-                </label>
-              </div>
+              <label className="flex border-2 border-dashed border-slate-200 hover:border-purple-400 hover:bg-purple-50/30 rounded-xl p-3 text-center cursor-pointer transition items-center justify-center gap-2">
+                <Upload className="w-4 h-4 text-purple-600" />
+                <span className="text-xs font-semibold text-slate-700">Pilih Berkas Foto Login (JPG, PNG, WebP)</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleFileUpload} 
+                  className="hidden" 
+                />
+              </label>
             </div>
 
             {/* Custom URL Input */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                2. Atau Masukkan Tautan (URL) Foto
+                Atau Masukkan Tautan (URL) Foto
               </label>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
@@ -263,7 +404,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                     type="url"
                     value={bgImageUrl}
                     onChange={(e) => setBgImageUrl(e.target.value)}
-                    placeholder="https://example.com/foto-kilang.jpg"
+                    placeholder="https://images.unsplash.com/photo-..."
                     className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition"
                   />
                 </div>
@@ -280,11 +421,130 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               </div>
             </div>
 
+            {/* ======================================================== */}
+            {/* SUB-FEATURE: CROP & POSITION CONTROLS (User Request) */}
+            {/* ======================================================== */}
+            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Move className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Penyelarasan Posisi &amp; Crop Gambar Background</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBgPosX(50);
+                    setBgPosY(50);
+                    setBgZoom(100);
+                  }}
+                  className="text-[10px] text-slate-500 hover:text-purple-600 flex items-center gap-1 font-medium cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Posisi</span>
+                </button>
+              </div>
+
+              {/* Slider 1: Horizontal Position (X) */}
+              <div>
+                <div className="flex justify-between items-center text-[11px] mb-1">
+                  <span className="font-semibold text-slate-600">Geser Kiri / Kanan (Horizontal X)</span>
+                  <span className="font-mono text-purple-700 font-bold">{bgPosX}%</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400">Kiri (0%)</span>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="100" 
+                    value={bgPosX} 
+                    onChange={e => setBgPosX(Number(e.target.value))}
+                    className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
+                  />
+                  <span className="text-[10px] text-slate-400">Kanan (100%)</span>
+                </div>
+              </div>
+
+              {/* Slider 2: Vertical Position (Y) */}
+              <div>
+                <div className="flex justify-between items-center text-[11px] mb-1">
+                  <span className="font-semibold text-slate-600">Geser Atas / Bawah (Vertikal Y)</span>
+                  <span className="font-mono text-purple-700 font-bold">{bgPosY}%</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400">Atas (0%)</span>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="100" 
+                    value={bgPosY} 
+                    onChange={e => setBgPosY(Number(e.target.value))}
+                    className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
+                  />
+                  <span className="text-[10px] text-slate-400">Bawah (100%)</span>
+                </div>
+              </div>
+
+              {/* Slider 3: Zoom / Scale (Crop) */}
+              <div>
+                <div className="flex justify-between items-center text-[11px] mb-1">
+                  <span className="font-semibold text-slate-600 flex items-center gap-1">
+                    <ZoomIn className="w-3 h-3 text-purple-600" />
+                    <span>Zoom / Crop Skala Gambar</span>
+                  </span>
+                  <span className="font-mono text-purple-700 font-bold">{bgZoom}%</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400">100% (Normal)</span>
+                  <input 
+                    type="range" 
+                    min="100" 
+                    max="200" 
+                    step="5"
+                    value={bgZoom} 
+                    onChange={e => setBgZoom(Number(e.target.value))}
+                    className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
+                  />
+                  <span className="text-[10px] text-slate-400">200% (Dekat)</span>
+                </div>
+              </div>
+
+              {/* 9-Point Alignment Quick Presets */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-500 mb-1.5">Preset Fokus Cepat (9 Titik):</div>
+                <div className="grid grid-cols-3 gap-1.5 max-w-[260px]">
+                  {[
+                    { label: '↖ Kiri Atas', x: 0, y: 0 },
+                    { label: '↑ Tengah Atas', x: 50, y: 0 },
+                    { label: '↗ Kanan Atas', x: 100, y: 0 },
+                    { label: '← Kiri Tengah', x: 0, y: 50 },
+                    { label: '• Titik Pusat', x: 50, y: 50 },
+                    { label: '→ Kanan Tengah', x: 100, y: 50 },
+                    { label: '↙ Kiri Bawah', x: 0, y: 100 },
+                    { label: '↓ Tengah Bawah', x: 50, y: 100 },
+                    { label: '↘ Kanan Bawah', x: 100, y: 100 },
+                  ].map((pt, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => { setBgPosX(pt.x); setBgPosY(pt.y); }}
+                      className={`text-[9px] font-semibold py-1 px-1.5 rounded-md border text-center transition cursor-pointer ${
+                        bgPosX === pt.x && bgPosY === pt.y
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {pt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* Preset Gallery */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-xs font-semibold text-slate-700">
-                  3. Pilihan Galeri Preset Industri & Energi
+                  Pilihan Galeri Preset Industri &amp; Kilang Minyak
                 </label>
                 <span className="text-[10px] text-purple-600 font-bold flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
@@ -328,12 +588,216 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
           </div>
 
-          {/* Card: Text & Overlay Customization */}
+          {/* ======================================================== */}
+          {/* CARD 2: FOTO BACKGROUND LAYAR BOOTING SISTEM (User Request) */}
+          {/* ======================================================== */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Monitor className="w-4 h-4 text-emerald-600" />
+                <span>2. Foto Background Layar Booting Sistem (Durasi 5 Detik)</span>
+              </h2>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                <span>⏱ 5 Detik Loading</span>
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Foto ini akan ditampilkan di latar belakang saat transisi booting setelah tombol "Sign In" ditekan. Background ini dapat berbeda dari foto login utama.
+            </p>
+
+            {/* Upload Button Booting */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Unggah Foto Khusus Layar Booting
+              </label>
+              <label className="flex border-2 border-dashed border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/30 rounded-xl p-3 text-center cursor-pointer transition items-center justify-center gap-2">
+                <Upload className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-semibold text-slate-700">Pilih Berkas Foto Booting (JPG, PNG)</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleBootingFileUpload} 
+                  className="hidden" 
+                />
+              </label>
+            </div>
+
+            {/* URL Input Booting */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Atau Tautan (URL) Foto Booting
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <LinkIcon className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="url"
+                    value={bootingBgUrl}
+                    onChange={(e) => setBootingBgUrl(e.target.value)}
+                    placeholder="https://images.unsplash.com/..."
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 focus:outline-none transition"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Preset Gallery Booting */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-2">
+                Pilihan Preset Foto Atmosfer Booting:
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {PRESET_BOOTING_BACKGROUNDS.map((preset) => {
+                  const isSelected = bootingBgUrl === preset.url;
+                  return (
+                    <div
+                      key={preset.id}
+                      onClick={() => setBootingBgUrl(preset.url)}
+                      className={`relative group rounded-xl overflow-hidden border-2 cursor-pointer transition-all aspect-video ${
+                        isSelected 
+                          ? 'border-emerald-600 ring-2 ring-emerald-100 shadow-sm' 
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <img 
+                        src={preset.thumb} 
+                        alt={preset.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex flex-col justify-end p-1.5">
+                        <span className="text-[8px] font-bold text-white truncate leading-tight">
+                          {preset.category}
+                        </span>
+                      </div>
+                      {isSelected && (
+                        <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Test Simulation Button */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={startBootingSimulation}
+                className="w-full py-2 px-3 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Uji Simulasi Layar Booting (5 Detik Countdown)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
+          {/* CARD 3: GANTI LOGO & SESUAIKAN UKURAN (User Request) */}
+          {/* ======================================================== */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-sky-600" />
+                <span>3. Logo Perusahaan di Halaman Login &amp; Booting</span>
+              </h2>
+              <span className="text-[10px] font-semibold text-slate-400">Mendukung format PNG</span>
+            </div>
+
+            {/* Upload Logo File */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Unggah Logo PNG (Disarankan Berlatar Transparan)
+              </label>
+              <label className="flex border-2 border-dashed border-slate-200 hover:border-sky-400 hover:bg-sky-50/30 rounded-xl p-3 text-center cursor-pointer transition items-center justify-center gap-2">
+                <Upload className="w-4 h-4 text-sky-600" />
+                <span className="text-xs font-semibold text-slate-700">Pilih Berkas Logo PNG</span>
+                <input 
+                  type="file" 
+                  accept="image/png,image/*" 
+                  onChange={handleLogoUpload} 
+                  className="hidden" 
+                />
+              </label>
+            </div>
+
+            {/* URL Input Logo */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Atau Tautan (URL) Logo PNG
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <LinkIcon className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="./assets/NBE_white.png atau https://..."
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 focus:outline-none transition font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLogoUrl('./assets/NBE_white.png')}
+                  className="px-2.5 py-2 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-200 transition font-medium cursor-pointer"
+                  title="Kembalikan ke logo default NBE"
+                >
+                  Reset NBE
+                </button>
+              </div>
+            </div>
+
+            {/* Slider: Logo Height / Size */}
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="font-semibold text-slate-700">Penyesuaian Ukuran Tinggi Logo</span>
+                <span className="font-mono text-sky-700 font-bold">{logoHeight} px</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-slate-400">28px (Kecil)</span>
+                <input 
+                  type="range" 
+                  min="28" 
+                  max="96" 
+                  step="2"
+                  value={logoHeight} 
+                  onChange={e => setLogoHeight(Number(e.target.value))}
+                  className="flex-1 accent-sky-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
+                />
+                <span className="text-[10px] text-slate-400">96px (Besar)</span>
+              </div>
+
+              {/* Logo Preview Badge */}
+              <div className="pt-2 flex items-center justify-between">
+                <span className="text-[10px] text-slate-500">Pratinjau Logo Saat Ini:</span>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 flex items-center gap-2">
+                  <img 
+                    src={logoUrl} 
+                    alt="Logo Preview" 
+                    style={{ height: `${logoHeight}px`, width: 'auto' }}
+                    className="max-w-[140px] object-contain drop-shadow" 
+                  />
+                  <div className="text-white text-xs font-bold leading-tight">
+                    <div>Nirwana Bhumi</div>
+                    <div className="text-sky-400 font-semibold">Energy</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* ======================================================== */}
+          {/* CARD 4: TEKS SLOGAN & TINGKAT KEGELAPAN OVERLAY */}
+          {/* ======================================================== */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Quote className="w-4 h-4 text-purple-600" />
-                <span>Pesan Korporat & Teks Halaman Login</span>
+                <span>4. Pesan Korporat &amp; Intensitas Kegelapan Filter</span>
               </h2>
             </div>
 
@@ -368,7 +832,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
             {/* Overlay Darkness Selector */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Tingkat Kegelapan Filter Foto (Agar Teks Mudah Terbaca)
+                Tingkat Kegelapan Filter Foto (Agar Teks &amp; Logo Mudah Terbaca)
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {[
@@ -413,87 +877,123 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <Sliders className="w-3.5 h-3.5 text-purple-600" />
-              Pratinjau Hasil Desain
+              Pratinjau Hasil Desain (Rasio 65% : 35%)
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">Live Interactive</span>
+            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              Live Real-time
+            </span>
           </div>
 
-          {/* Miniature Split Login View Representation */}
-          <div className="w-full bg-white rounded-2xl border border-slate-300/80 shadow-md overflow-hidden flex flex-col sm:flex-row aspect-[16/10]">
+          {/* Miniature Split Login View Representation: EXACT 65% : 35% */}
+          <div className="w-full bg-white rounded-2xl border border-slate-300/80 shadow-md overflow-hidden flex flex-row aspect-[16/10]">
             
-            {/* Left Hero Side with Dynamic Background */}
-            <div className="relative w-1/2 p-4 flex flex-col justify-between overflow-hidden bg-slate-950">
-              <img 
-                src={bgImageUrl} 
-                alt="Background Preview" 
-                className="absolute inset-0 w-full h-full object-cover"
-              />
+            {/* Left Hero Side with Dynamic Background & Exact Crop/Position (65%) */}
+            <div className="relative w-[65%] p-3.5 flex flex-col justify-between overflow-hidden bg-slate-950">
+              <div className="absolute inset-0 overflow-hidden">
+                <img 
+                  src={bgImageUrl} 
+                  alt="Background Preview" 
+                  style={{
+                    objectPosition: `${bgPosX}% ${bgPosY}%`,
+                    transform: `scale(${bgZoom / 100})`,
+                    transformOrigin: `${bgPosX}% ${bgPosY}%`
+                  }}
+                  className="w-full h-full object-cover transition-all duration-300"
+                />
+              </div>
               <div className={`absolute inset-0 ${getOverlayClass(darkness)}`} />
 
               {/* Logo Top Left */}
-              <div className="relative z-10 flex items-center gap-2">
-                <img src="./assets/NBE_white.png" alt="Logo NBE" className="h-6 w-auto object-contain" />
-                <div className="text-white text-[10px] font-black leading-tight">
+              <div className="relative z-10 flex items-center gap-1.5">
+                <img 
+                  src={logoUrl} 
+                  alt="Logo NBE" 
+                  style={{ height: `${Math.max(18, Math.min(36, logoHeight * 0.55))}px`, width: 'auto' }}
+                  className="object-contain drop-shadow" 
+                />
+                <div className="text-white text-[9px] font-black leading-tight">
                   <div>Nirwana Bhumi</div>
                   <div className="text-sky-400">Energy</div>
                 </div>
               </div>
 
               {/* Slogan Quote Bottom Left */}
-              <div className="relative z-10 text-white text-[9px] font-medium leading-relaxed opacity-95 pr-2">
+              <div className="relative z-10 text-white text-[8px] font-medium leading-relaxed opacity-95 pr-2">
                 “{quote}”
               </div>
             </div>
 
-            {/* Right Form Side Representation */}
-            <div className="w-1/2 p-4 bg-white flex flex-col justify-center space-y-2.5">
+            {/* Right Form Side Representation (35%) */}
+            <div className="w-[35%] p-3 bg-white flex flex-col justify-center space-y-2 border-l border-slate-100">
               <div>
-                <div className="text-xs font-black text-slate-900 leading-tight">Welcome back</div>
-                <div className="text-[8px] text-slate-500 truncate leading-normal">{subtitle}</div>
+                <div className="text-[11px] font-black text-slate-900 leading-tight">Welcome back</div>
+                <div className="text-[7px] text-slate-500 truncate leading-normal">{subtitle}</div>
               </div>
 
               <div className="space-y-1.5">
                 <div>
-                  <div className="text-[8px] font-semibold text-slate-700">Corporate ID or Email</div>
-                  <div className="h-5 px-2 bg-blue-50/70 border border-blue-200/80 rounded-md text-[8px] text-slate-800 flex items-center font-mono">
+                  <div className="text-[7px] font-semibold text-slate-700">Corporate ID or Email</div>
+                  <div className="h-4 px-1.5 bg-blue-50/70 border border-blue-200/80 rounded text-[7px] text-slate-800 flex items-center font-mono">
                     mazmur.larosa
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex justify-between items-center text-[8px]">
+                  <div className="flex justify-between items-center text-[7px]">
                     <span className="font-semibold text-slate-700">Password</span>
-                    <span className="text-blue-600 font-medium">Forgot password?</span>
+                    <span className="text-blue-600 font-medium">Forgot?</span>
                   </div>
-                  <div className="h-5 px-2 bg-blue-50/70 border border-blue-200/80 rounded-md text-[8px] text-slate-500 flex items-center tracking-widest font-mono">
+                  <div className="h-4 px-1.5 bg-blue-50/70 border border-blue-200/80 rounded text-[7px] text-slate-500 flex items-center tracking-widest font-mono">
                     ••••••••
                   </div>
                 </div>
 
-                <div className="h-6 bg-blue-600 rounded-md flex items-center justify-center text-white text-[9px] font-bold gap-1 shadow-xs">
+                <div className="h-5 bg-blue-600 rounded flex items-center justify-center text-white text-[8px] font-bold gap-1 shadow-xs">
                   <span>Sign In</span>
                   <span>↗</span>
                 </div>
               </div>
 
-              <div className="p-1.5 bg-slate-50 border border-slate-100 rounded-md text-[7px] text-slate-500 leading-tight">
-                ℹ️ First-time login? You can update your password in Account Settings.
+              <div className="p-1 bg-slate-50 border border-slate-100 rounded text-[6px] text-slate-500 leading-tight">
+                ℹ️ First-time login? Update password in Account Settings.
               </div>
             </div>
 
           </div>
 
+          {/* Quick Buttons below Preview */}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setPreviewModalOpen(true)}
+              className="flex-1 py-2 px-3 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs rounded-xl border border-purple-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Buka Pratinjau Penuh (65:35)</span>
+            </button>
+            <button
+              type="button"
+              onClick={startBootingSimulation}
+              className="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>Uji Booting (5s)</span>
+            </button>
+          </div>
+
           <div className="p-3 bg-purple-50/80 border border-purple-200/70 rounded-xl text-[11px] text-purple-900 leading-relaxed">
-            💡 <strong>Info Sistem:</strong> Foto yang Anda pilih akan langsung tersimpan ke sistem SPECTRA. Kapan pun pengguna atau pengawas log in ke portal eksekutif, mereka akan disambut dengan foto latar belakang dan quote di atas.
+            💡 <strong>Rasio Desain:</strong> Halaman login menggunakan rasio <strong>65% latar belakang</strong> dan <strong>35% panel login</strong>. Posisi gambar, crop, dan ukuran logo yang Anda atur di atas otomatis disinkronkan ke seluruh sesi pengguna dan database Supabase Cloud.
           </div>
         </div>
 
       </div>
 
-      {/* 4. Full Preview Modal */}
+      {/* ======================================================== */}
+      {/* MODAL 1: FULL PREVIEW LOGIN (65% : 35% EXACT RATIO) */}
+      {/* ======================================================== */}
       {previewModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="relative w-full max-w-5xl bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[500px]">
+          <div className="relative w-full max-w-5xl bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[520px]">
             {/* Close Button */}
             <button
               type="button"
@@ -503,17 +1003,29 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               ✕
             </button>
 
-            {/* Left Hero */}
-            <div className="relative w-full lg:w-1/2 p-8 lg:p-12 flex flex-col justify-between bg-slate-950 overflow-hidden">
-              <img 
-                src={bgImageUrl} 
-                alt="Background" 
-                className="absolute inset-0 w-full h-full object-cover"
-              />
+            {/* Left Hero (65% Width) */}
+            <div className="relative w-full lg:w-[65%] p-8 lg:p-12 flex flex-col justify-between bg-slate-950 overflow-hidden min-h-[300px]">
+              <div className="absolute inset-0 overflow-hidden">
+                <img 
+                  src={bgImageUrl} 
+                  alt="Background" 
+                  style={{
+                    objectPosition: `${bgPosX}% ${bgPosY}%`,
+                    transform: `scale(${bgZoom / 100})`,
+                    transformOrigin: `${bgPosX}% ${bgPosY}%`
+                  }}
+                  className="w-full h-full object-cover"
+                />
+              </div>
               <div className={`absolute inset-0 ${getOverlayClass(darkness)}`} />
 
               <div className="relative z-10 flex items-center gap-3">
-                <img src="./assets/NBE_white.png" alt="Logo NBE" className="h-10 w-auto object-contain" />
+                <img 
+                  src={logoUrl} 
+                  alt="Logo Perusahaan" 
+                  style={{ height: `${logoHeight}px`, width: 'auto' }}
+                  className="max-w-[180px] object-contain drop-shadow" 
+                />
                 <div className="text-white text-base font-black tracking-wide leading-tight">
                   <div>Nirwana Bhumi</div>
                   <div className="text-sky-400">Energy</div>
@@ -525,8 +1037,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               </div>
             </div>
 
-            {/* Right Form */}
-            <div className="w-full lg:w-1/2 p-8 lg:p-12 flex flex-col justify-center space-y-5 bg-white">
+            {/* Right Form (35% Width) */}
+            <div className="w-full lg:w-[35%] p-8 flex flex-col justify-center space-y-5 bg-white border-l border-slate-100">
               <div>
                 <h2 className="text-2xl font-black text-slate-900">Welcome back</h2>
                 <p className="text-xs text-slate-500 mt-1">{subtitle}</p>
@@ -561,7 +1073,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                 <button
                   type="button"
                   disabled
-                  className="w-full bg-[#2563eb] text-white font-bold text-xs py-3 rounded-xl shadow-md flex items-center justify-center gap-1.5"
+                  className="w-full bg-[#2563eb] text-white font-bold text-xs py-3 rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-not-allowed"
                 >
                   <span>Sign In</span>
                   <span>↗</span>
@@ -575,6 +1087,81 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               <div className="text-center text-[10px] text-slate-400">
                 © 2026 PT Nirwana Bhumi Energy. All rights reserved.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 2: INTERACTIVE 5-SECOND BOOTING SIMULATION MODAL */}
+      {/* ======================================================== */}
+      {previewBootingModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 select-none overflow-hidden animate-fadeIn">
+          {/* Close button for simulation */}
+          <button
+            type="button"
+            onClick={() => setPreviewBootingModalOpen(false)}
+            className="absolute top-6 right-6 z-30 px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-semibold backdrop-blur-xs transition cursor-pointer"
+          >
+            ✕ Tutup Simulasi
+          </button>
+
+          {/* Booting Background Photo */}
+          {bootingBgUrl && (
+            <img 
+              src={bootingBgUrl} 
+              alt="Booting Background Simulation" 
+              className="absolute inset-0 w-full h-full object-cover object-center scale-105 filter blur-xs brightness-[0.35] transition-all duration-700" 
+            />
+          )}
+
+          {/* Atmospheric Dark Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/80 to-slate-950/90" />
+
+          <div className="relative z-10 max-w-md w-full text-center space-y-6 animate-fadeIn">
+            {/* Logo with configured size */}
+            <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
+              <img 
+                src={logoUrl && !logoUrl.includes('_white') ? logoUrl : './assets/NBE.png'} 
+                alt="Logo NBE" 
+                style={{ height: `${Math.max(48, Math.min(84, logoHeight + 16))}px`, width: 'auto' }}
+                className="max-w-[200px] object-contain" 
+              />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-white tracking-wide">
+                Administrator Sistem
+              </h2>
+              <div className="h-1 w-16 bg-blue-500 mx-auto rounded-full"></div>
+              <p className="text-lg font-bold text-emerald-400">
+                Selamat Datang Kembali "Super Admin"
+              </p>
+              <p className="text-xs text-slate-300">
+                Menyiapkan buku besar, neraca, dan lembar kerja akuntansi...
+              </p>
+            </div>
+
+            {/* Progress bar 5 seconds */}
+            <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-slate-700/80 backdrop-blur-xs">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-100 ease-linear"
+                style={{ width: `${bootingSimProgress}%` }}
+              />
+            </div>
+
+            <div className="text-[11px] text-slate-400 font-mono">
+              Membuka SPECTRA dalam <span className="text-blue-400 font-bold">{bootingSimTime}</span> detik...
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={startBootingSimulation}
+                className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                Ulangi Simulasi (5 Detik)
+              </button>
             </div>
           </div>
         </div>

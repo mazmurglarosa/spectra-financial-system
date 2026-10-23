@@ -122,6 +122,12 @@ export interface CompanySettings {
   loginQuote?: string;
   loginSubtitle?: string;
   loginOverlayDarkness?: 'dark' | 'medium' | 'light';
+  bootingBgImage?: string;
+  loginLogoUrl?: string;
+  loginLogoHeight?: number;
+  loginBgPosX?: number;
+  loginBgPosY?: number;
+  loginBgZoom?: number;
 }
 
 export interface LedgerEntry {
