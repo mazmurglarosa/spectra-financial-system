@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, CheckCircle, AlertTriangle, Scale } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateTrialBalance, exportTableToExcel } from '../utils/accountingCalculations';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const TrialBalanceView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -11,7 +12,7 @@ export const TrialBalanceView: React.FC<{ embedded?: boolean }> = ({ embedded = 
   const handleExport = () => {
     const data: any[][] = [
       [`NERACA SALDO (TRIAL BALANCE) - ${settings.companyName}`],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KODE AKUN', 'NAMA AKUN', 'KELOMPOK AKUN', 'DEBIT (RP)', 'KREDIT (RP)']
     ];

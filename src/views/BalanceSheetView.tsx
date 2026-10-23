@@ -3,6 +3,7 @@ import { Download, Building, Printer, CheckCircle, AlertCircle, FileSpreadsheet 
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateBalanceSheet, exportTableToExcel } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const BalanceSheetView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -13,7 +14,7 @@ export const BalanceSheetView: React.FC<{ embedded?: boolean }> = ({ embedded = 
     const data: any[][] = [
       [settings.companyName.toUpperCase()],
       ['LAPORAN POSISI KEUANGAN (NERACA / BALANCE SHEET)'],
-      [`Per ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Per ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KODE', 'ASET (AKTIVA)', 'NOMINAL (RP)', 'KODE', 'KEWAJIBAN & EKUITAS (PASIVA)', 'NOMINAL (RP)']
     ];
@@ -109,7 +110,7 @@ export const BalanceSheetView: React.FC<{ embedded?: boolean }> = ({ embedded = 
             LAPORAN POSISI KEUANGAN (NERACA)
           </h1>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Per Tanggal {settings.fiscalPeriod} ({settings.fiscalYear})
+            Per Tanggal {formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}
           </div>
         </div>
 

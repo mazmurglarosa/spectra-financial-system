@@ -1,15 +1,15 @@
 import { Account, AccountCategory, CompanySettings, Transaction, ReportType, NormalBalance } from '../types/accounting';
 
 export const initialCompanySettings: CompanySettings = {
-  companyName: 'CV Max Picture',
-  businessType: 'Jasa & Perdagangan',
-  fiscalPeriod: 'Desember 2021',
-  fiscalYear: 2021,
+  companyName: 'PT Nirwana Bhumi Energi',
+  businessType: 'Jasa Kontraktor & Energi',
+  fiscalPeriod: 'Oktober 2026',
+  fiscalYear: 2026,
   currency: 'IDR',
   taxRatePercent: 11,
-  address: 'Jl. Pemuda No. 88, Jakarta Selatan',
+  address: 'Jalan Kebenaran dan Hidup',
   phone: '0812-3456-7890',
-  email: 'finance@maxpicture.co.id',
+  email: 'finance@nirwanabhumi.co.id',
   directorName: 'Sudono Salim',
   directorTitle: 'Direktur Utama',
   accountantName: 'Mazmur Gusti Agung L',
@@ -144,7 +144,7 @@ export const defaultAccounts: Account[] = rawAccounts.map(item => {
 export const defaultTransactions: Transaction[] = [
   {
     id: 'trx_001',
-    date: '2021-12-01',
+    date: '2026-10-01',
     refNumber: 'BKK-001',
     description: 'Pembelian perlengkapan kantor secara tunai',
     lines: [
@@ -175,7 +175,7 @@ export const defaultTransactions: Transaction[] = [
   },
   {
     id: 'trx_002',
-    date: '2021-12-05',
+    date: '2026-10-05',
     refNumber: 'BM-001',
     description: 'Pemakaian perlengkapan kantor untuk operasional',
     lines: [
@@ -206,7 +206,7 @@ export const defaultTransactions: Transaction[] = [
   },
   {
     id: 'trx_003',
-    date: '2021-12-10',
+    date: '2026-10-10',
     refNumber: 'BKM-001',
     description: 'Penerimaan pelunasan piutang usaha dari klien',
     lines: [
@@ -237,7 +237,7 @@ export const defaultTransactions: Transaction[] = [
   },
   {
     id: 'trx_004',
-    date: '2021-12-15',
+    date: '2026-10-15',
     refNumber: 'BKM-002',
     description: 'Penerimaan pendapatan jasa produksi video / foto',
     lines: [
@@ -268,7 +268,7 @@ export const defaultTransactions: Transaction[] = [
   },
   {
     id: 'trx_005',
-    date: '2021-12-25',
+    date: '2026-10-25',
     refNumber: 'BKK-002',
     description: 'Pembayaran beban listrik, air, dan internet kantor',
     lines: [

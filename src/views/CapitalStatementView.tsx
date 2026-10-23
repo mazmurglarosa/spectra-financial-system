@@ -8,6 +8,7 @@ import {
   exportTableToExcel 
 } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const CapitalStatementView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -30,7 +31,7 @@ export const CapitalStatementView: React.FC<{ embedded?: boolean }> = ({ embedde
     const data: any[][] = [
       [settings.companyName.toUpperCase()],
       ['LAPORAN PERUBAHAN EKUITAS / MODAL (STATEMENT OF CHANGES IN EQUITY)'],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KETERANGAN', 'NOMINAL (RP)', 'JUMLAH (RP)'],
       ['Modal Awal Pemilik', '', modalAwal],
@@ -73,7 +74,7 @@ export const CapitalStatementView: React.FC<{ embedded?: boolean }> = ({ embedde
             LAPORAN PERUBAHAN MODAL
           </h1>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Untuk Periode yang Berakhir pada {settings.fiscalPeriod} ({settings.fiscalYear})
+            Untuk Periode yang Berakhir pada {formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}
           </div>
         </div>
 
@@ -130,7 +131,7 @@ export const CapitalStatementView: React.FC<{ embedded?: boolean }> = ({ embedde
           }}>
             <div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
-                MODAL AKHIR PER {settings.fiscalPeriod.toUpperCase()}
+                MODAL AKHIR PER {formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear).toUpperCase()}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 Nilai ekuitas akhir yang tercantum pada Neraca

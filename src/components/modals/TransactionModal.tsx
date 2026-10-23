@@ -17,13 +17,36 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   transactionToEdit,
   presetType = 'general'
 }) => {
-  const { accounts, addTransaction, updateTransaction, getNextRefNumber } = useAccounting();
+  const { accounts, addTransaction, updateTransaction, getNextRefNumber, settings } = useAccounting();
 
   // Filter out header accounts
   const selectableAccounts = accounts.filter(a => !a.isHeader);
 
+  const getInitialDate = () => {
+    const y = settings.fiscalYear || new Date().getFullYear();
+    const monthMap: Record<string, string> = {
+      januari: '01', februari: '02', maret: '03', april: '04', mei: '05', juni: '06',
+      juli: '07', agustus: '08', september: '09', oktober: '10', november: '11', desember: '12'
+    };
+    let m = String(new Date().getMonth() + 1).padStart(2, '0');
+    if (settings.fiscalPeriod) {
+      const p = settings.fiscalPeriod.toLowerCase();
+      for (const [k, v] of Object.entries(monthMap)) {
+        if (p.includes(k)) {
+          m = v;
+          break;
+        }
+      }
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    if (today.startsWith(`${y}-${m}`)) {
+      return today;
+    }
+    return `${y}-${m}-15`;
+  };
+
   const [txType, setTxType] = useState<TransactionType>(presetType);
-  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState<string>(getInitialDate);
   const [refNumber, setRefNumber] = useState<string>('');
   const [contact, setContact] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -42,7 +65,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     } else {
       const type = presetType || 'general';
       setTxType(type);
-      setDate('2021-12-15'); // default fiscal period
+      setDate(getInitialDate());
       const generatedRef = getNextRefNumber(type);
       setRefNumber(generatedRef);
       setContact('');

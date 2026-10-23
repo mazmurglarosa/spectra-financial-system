@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, FileSpreadsheet, CheckCircle } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateWorksheet, exportTableToExcel } from '../utils/accountingCalculations';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const WorksheetView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -12,7 +13,7 @@ export const WorksheetView: React.FC<{ embedded?: boolean }> = ({ embedded = fal
   const handleExport = () => {
     const data: any[][] = [
       [`NERACA LAJUR 10-KOLOM (WORKSHEET) - ${settings.companyName}`],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       [
         'KODE', 

@@ -243,6 +243,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (loaded.accountantName === 'Chief Financial Officer' || !loaded.accountantName) {
             loaded.accountantName = 'Direktur Keuangan';
           }
+          // Self-heal fiscalYear if fiscalPeriod specifies a 4-digit year (e.g. "Oktober 2026")
+          const yearMatch = loaded.fiscalPeriod?.match(/\b(20\d\d)\b/);
+          if (yearMatch) {
+            loaded.fiscalYear = parseInt(yearMatch[1], 10);
+          }
           return loaded;
         }
       }
@@ -610,6 +615,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateSettings = useCallback((newSettings: Partial<CompanySettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
+      // Keep fiscalYear in sync with fiscalPeriod if it contains a 4-digit year
+      const yearMatch = updated.fiscalPeriod?.match(/\b(20\d\d)\b/);
+      if (yearMatch) {
+        updated.fiscalYear = parseInt(yearMatch[1], 10);
+      }
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       broadcastChange('SETTINGS', updated);
       // Auto-sync company settings to Supabase in background

@@ -2,6 +2,7 @@ import React from 'react';
 import { Scale, CheckCircle, AlertTriangle, AlertCircle, Download } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { calculateFinancialRatios, exportTableToExcel } from '../utils/accountingCalculations';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const FinancialRatiosView: React.FC = () => {
   const { accounts, transactions, settings } = useAccounting();
@@ -11,7 +12,7 @@ export const FinancialRatiosView: React.FC = () => {
   const handleExport = () => {
     const data: any[][] = [
       [`ANALISIS RASIO KEUANGAN - ${settings.companyName}`],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['NAMA RASIO', 'KATEGORI', 'NILAI', 'SATUAN', 'STANDAR / BENCHMARK', 'STATUS', 'FORMULA', 'PENJELASAN']
     ];

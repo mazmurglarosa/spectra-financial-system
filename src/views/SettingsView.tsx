@@ -21,6 +21,7 @@ import {
   exportTableToExcel 
 } from '../utils/accountingCalculations';
 import { PwaInstallBanner } from '../components/common/PwaInstallBanner';
+import { MonthYearPicker } from '../components/common/MonthYearPicker';
 import * as XLSX from 'xlsx';
 
 export const SettingsView: React.FC = () => {
@@ -209,14 +210,17 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Periode Pembukuan</label>
-            <input 
-              type="text" 
-              required
+            <MonthYearPicker
+              label="Periode Pembukuan"
               value={formData.fiscalPeriod}
-              onChange={e => handleChange('fiscalPeriod', e.target.value)}
-              placeholder="Desember 2021"
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 font-medium"
+              yearValue={formData.fiscalYear}
+              onChange={(newPeriod, newYear) => {
+                setFormData(prev => ({
+                  ...prev,
+                  fiscalPeriod: newPeriod,
+                  fiscalYear: newYear
+                }));
+              }}
             />
           </div>
 

@@ -11,6 +11,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { CashBankView } from './CashBankView';
 import { SalesView } from './SalesView';
 import { PurchasesView } from './PurchasesView';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export type QuickReportSubTab = 'cashbank' | 'sales' | 'purchases';
 
@@ -130,7 +131,7 @@ export const QuickReportView: React.FC<QuickReportViewProps> = ({
         {/* Right side fiscal period indicator */}
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shrink-0">
           <Calendar className="w-3.5 h-3.5 text-slate-400" />
-          <span>Periode: <strong className="text-slate-700">{settings.fiscalPeriod} ({settings.fiscalYear})</strong></span>
+          <span>Periode: <strong className="text-slate-700">{formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}</strong></span>
         </div>
       </div>
 

@@ -3,6 +3,7 @@ import { Download, DollarSign, Printer, ArrowUpRight, ArrowDownRight, FileSpread
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateCashFlowStatement, exportTableToExcel } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const CashFlowView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -13,7 +14,7 @@ export const CashFlowView: React.FC<{ embedded?: boolean }> = ({ embedded = fals
     const data: any[][] = [
       [settings.companyName.toUpperCase()],
       ['LAPORAN ARUS KAS - METODE LANGSUNG (CASH FLOW STATEMENT)'],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KETERANGAN ARUS KAS', 'PENERIMAAN (+)', 'PENGELUARAN (-)', 'ARUS KAS BERSIH (RP)']
     ];
@@ -77,7 +78,7 @@ export const CashFlowView: React.FC<{ embedded?: boolean }> = ({ embedded = fals
             LAPORAN ARUS KAS
           </h1>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Metode Langsung • Untuk Periode {settings.fiscalPeriod} ({settings.fiscalYear})
+            Metode Langsung • Untuk Periode {formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}
           </div>
         </div>
 

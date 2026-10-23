@@ -3,6 +3,7 @@ import { Download, TrendingUp, Printer, FileSpreadsheet } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateIncomeStatement, exportTableToExcel } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const IncomeStatementView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
@@ -13,7 +14,7 @@ export const IncomeStatementView: React.FC<{ embedded?: boolean }> = ({ embedded
     const data: any[][] = [
       [settings.companyName.toUpperCase()],
       ['LAPORAN LABA RUGI (PROFIT AND LOSS STATEMENT)'],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KODE', 'KETERANGAN AKUN', 'NOMINAL (RP)', 'SUBTOTAL (RP)']
     ];
@@ -79,7 +80,7 @@ export const IncomeStatementView: React.FC<{ embedded?: boolean }> = ({ embedded
             LAPORAN LABA RUGI
           </h1>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Untuk Periode yang Berakhir pada {settings.fiscalPeriod} ({settings.fiscalYear})
+            Untuk Periode yang Berakhir pada {formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}
           </div>
         </div>
 

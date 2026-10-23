@@ -7,6 +7,7 @@ import {
   calculateAccountBalance,
   exportTableToExcel 
 } from '../utils/accountingCalculations';
+import { formatPeriodDisplay } from '../utils/formatPeriod';
 
 export const ClosingJournalView: React.FC = () => {
   const { accounts, transactions, settings } = useAccounting();
@@ -76,7 +77,7 @@ export const ClosingJournalView: React.FC = () => {
   const handleExport = () => {
     const data: any[][] = [
       [`JURNAL PENUTUP (CLOSING JOURNAL) - ${settings.companyName}`],
-      [`Periode: ${settings.fiscalPeriod} (${settings.fiscalYear})`],
+      [`Periode: ${formatPeriodDisplay(settings.fiscalPeriod, settings.fiscalYear)}`],
       [''],
       ['KETERANGAN / TAHAP', 'KODE AKUN', 'NAMA AKUN', 'DEBIT (RP)', 'KREDIT (RP)']
     ];
