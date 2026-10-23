@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateBalanceSheet, exportTableToExcel } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
 
-export const BalanceSheetView: React.FC = () => {
+export const BalanceSheetView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
 
   const bs = generateBalanceSheet(accounts, transactions);
@@ -61,7 +61,7 @@ export const BalanceSheetView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1100px', margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: embedded ? '0' : '32px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1100px', margin: '0 auto', width: '100%' }}>
       {/* Top Action Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }} className="no-print">
         {/* Status Pill */}

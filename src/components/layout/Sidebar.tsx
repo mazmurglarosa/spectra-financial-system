@@ -20,7 +20,8 @@ import {
   AlertCircle, 
   Activity,
   Award,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -32,6 +33,7 @@ export type ActiveTab =
   | 'coa'
   | 'journals'
   | 'ledger'
+  | 'simple-reports'
   | 'trial-balance'
   | 'worksheet'
   | 'profit-loss'
@@ -181,51 +183,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div 
-          onClick={() => setActiveTab('trial-balance')}
-          className={`nav-item ${activeTab === 'trial-balance' ? 'active' : ''}`}
+          onClick={() => setActiveTab('simple-reports')}
+          className={`nav-item ${
+            activeTab === 'simple-reports' ||
+            activeTab === 'trial-balance' ||
+            activeTab === 'worksheet' ||
+            activeTab === 'profit-loss' ||
+            activeTab === 'balance-sheet' ||
+            activeTab === 'capital-changes' ||
+            activeTab === 'cash-flow'
+              ? 'active'
+              : ''
+          }`}
         >
-          <Scale className="w-4 h-4 shrink-0" />
-          <span>Neraca Saldo</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('worksheet')}
-          className={`nav-item ${activeTab === 'worksheet' ? 'active' : ''}`}
-        >
-          <Table className="w-4 h-4 shrink-0" />
-          <span>Neraca Lajur 10 Kolom</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('profit-loss')}
-          className={`nav-item ${activeTab === 'profit-loss' ? 'active' : ''}`}
-        >
-          <TrendingUp className="w-4 h-4 shrink-0" />
-          <span>Laporan Laba Rugi</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('balance-sheet')}
-          className={`nav-item ${activeTab === 'balance-sheet' ? 'active' : ''}`}
-        >
-          <PieChart className="w-4 h-4 shrink-0" />
-          <span>Laporan Posisi Keuangan</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('capital-changes')}
-          className={`nav-item ${activeTab === 'capital-changes' ? 'active' : ''}`}
-        >
-          <RefreshCw className="w-4 h-4 shrink-0" />
-          <span>Perubahan Modal</span>
-        </div>
-
-        <div 
-          onClick={() => setActiveTab('cash-flow')}
-          className={`nav-item ${activeTab === 'cash-flow' ? 'active' : ''}`}
-        >
-          <DollarSign className="w-4 h-4 shrink-0" />
-          <span>Laporan Arus Kas</span>
+          <FileText className="w-4 h-4 shrink-0" />
+          <span>Laporan Sederhana</span>
         </div>
 
         <div 

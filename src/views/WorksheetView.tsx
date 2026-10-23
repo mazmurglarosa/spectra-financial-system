@@ -3,7 +3,7 @@ import { Download, FileSpreadsheet, CheckCircle } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateWorksheet, exportTableToExcel } from '../utils/accountingCalculations';
 
-export const WorksheetView: React.FC = () => {
+export const WorksheetView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
 
   const worksheet = generateWorksheet(accounts, transactions);
@@ -62,7 +62,7 @@ export const WorksheetView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ padding: embedded ? '0' : '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Top Banner */}
       <div style={{
         display: 'flex',

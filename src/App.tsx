@@ -12,12 +12,7 @@ import { PurchasesView } from './views/PurchasesView';
 import { AccountsView } from './views/AccountsView';
 import { GeneralJournalView } from './views/GeneralJournalView';
 import { GeneralLedgerView } from './views/GeneralLedgerView';
-import { TrialBalanceView } from './views/TrialBalanceView';
-import { WorksheetView } from './views/WorksheetView';
-import { IncomeStatementView } from './views/IncomeStatementView';
-import { BalanceSheetView } from './views/BalanceSheetView';
-import { CapitalStatementView } from './views/CapitalStatementView';
-import { CashFlowView } from './views/CashFlowView';
+import { SimpleReportsView } from './views/SimpleReportsView';
 import { FinancialRatiosView } from './views/FinancialRatiosView';
 import { SettingsView } from './views/SettingsView';
 import { AdminPanelView } from './views/AdminPanelView';
@@ -114,18 +109,19 @@ const MainContent: React.FC = () => {
         );
       case 'ledger':
         return <GeneralLedgerView />;
+      case 'simple-reports':
       case 'trial-balance':
-        return <TrialBalanceView />;
       case 'worksheet':
-        return <WorksheetView />;
       case 'profit-loss':
-        return <IncomeStatementView />;
       case 'balance-sheet':
-        return <BalanceSheetView />;
       case 'capital-changes':
-        return <CapitalStatementView />;
       case 'cash-flow':
-        return <CashFlowView />;
+        return (
+          <SimpleReportsView 
+            initialTab={activeTab === 'simple-reports' ? 'trial-balance' : (activeTab as any)} 
+            onTabChange={(tab) => setActiveTab(tab)}
+          />
+        );
       case 'ratios':
         return <FinancialRatiosView />;
       case 'psak-report':

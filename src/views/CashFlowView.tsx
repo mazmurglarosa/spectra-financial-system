@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateCashFlowStatement, exportTableToExcel } from '../utils/accountingCalculations';
 import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
 
-export const CashFlowView: React.FC = () => {
+export const CashFlowView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
 
   const cf = generateCashFlowStatement(accounts, transactions);
@@ -48,7 +48,7 @@ export const CashFlowView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '960px', margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: embedded ? '0' : '32px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '960px', margin: '0 auto', width: '100%' }}>
       {/* Top Action Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }} className="no-print">
         <button onClick={() => window.print()} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>

@@ -3,7 +3,7 @@ import { Download, CheckCircle, AlertTriangle, Scale } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { formatRupiah, generateTrialBalance, exportTableToExcel } from '../utils/accountingCalculations';
 
-export const TrialBalanceView: React.FC = () => {
+export const TrialBalanceView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { accounts, transactions, settings } = useAccounting();
 
   const trialBalance = generateTrialBalance(accounts, transactions);
@@ -32,7 +32,7 @@ export const TrialBalanceView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ padding: embedded ? '0' : '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Top Banner with Balance status */}
       <div style={{
         display: 'flex',
