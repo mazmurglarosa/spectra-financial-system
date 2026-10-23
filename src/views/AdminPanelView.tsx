@@ -22,16 +22,22 @@ import {
   Upload,
   Download,
   Copy,
-  Zap
+  Zap,
+  Palette
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { ResetModal } from '../components/modals/ResetModal';
 import { ApiIntegrationBanner } from '../components/common/ApiIntegrationBanner';
 import { SUPABASE_SQL_SCHEMA } from '../constants/sqlSchema';
+import { WebAppearanceView } from './WebAppearanceView';
 
-export type AdminSubTab = 'cloud' | 'security' | 'users' | 'complaints';
+export type AdminSubTab = 'cloud' | 'security' | 'users' | 'complaints' | 'appearance';
 
-export const AdminPanelView: React.FC = () => {
+export interface AdminPanelViewProps {
+  initialTab?: AdminSubTab;
+}
+
+export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ initialTab = 'cloud' }) => {
   const { 
     users, 
     approveUser, 
@@ -48,8 +54,14 @@ export const AdminPanelView: React.FC = () => {
     syncFromSupabase
   } = useAccounting();
 
-  // Primary subtab navigation (Default to 'cloud' matching user's request)
-  const [adminTab, setAdminTab] = useState<AdminSubTab>('cloud');
+  // Primary subtab navigation (Defaults to initialTab or 'cloud')
+  const [adminTab, setAdminTab] = useState<AdminSubTab>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setAdminTab(initialTab);
+    }
+  }, [initialTab]);
 
   // User management tab filter
   const [userTabFilter, setUserTabFilter] = useState<'all' | 'pending' | 'active'>('all');
@@ -251,6 +263,18 @@ export const AdminPanelView: React.FC = () => {
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Keluhan Operasional ({complaints.length})</span>
+          </button>
+
+          <button
+            onClick={() => setAdminTab('appearance')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+              adminTab === 'appearance'
+                ? 'bg-[#0284c7] text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span>Tampilan Web &amp; Login</span>
           </button>
         </div>
       </div>
@@ -865,6 +889,15 @@ export const AdminPanelView: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 5: TAMPILAN WEB & BACKGROUND LOGIN */}
+      {/* ======================================================== */}
+      {adminTab === 'appearance' && (
+        <div className="space-y-6 animate-fadeIn">
+          <WebAppearanceView embedded />
         </div>
       )}
 

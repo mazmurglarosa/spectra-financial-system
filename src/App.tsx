@@ -17,7 +17,6 @@ import { AdminPanelView } from './views/AdminPanelView';
 import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
 import { PsakReportView } from './views/PsakReportView';
-import { WebAppearanceView } from './views/WebAppearanceView';
 
 // Modals
 import { TransactionModal } from './components/modals/TransactionModal';
@@ -125,7 +124,7 @@ const MainContent: React.FC = () => {
       case 'authority-panel':
         return <AuthorityPanelView />;
       case 'web-appearance':
-        return <WebAppearanceView />;
+        return <AdminPanelView initialTab="appearance" />;
       case 'activity-logs':
         return <ActivityLogsView />;
       default:

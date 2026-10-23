@@ -15,8 +15,7 @@ import {
   FileText, 
   Zap, 
   ChevronRight, 
-  LogOut,
-  Palette 
+  LogOut 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { SyncInfoModal } from '../modals/SyncInfoModal';
@@ -249,14 +248,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div 
               onClick={() => setActiveTab('admin-panel')}
-              className={`nav-item ${activeTab === 'admin-panel' ? 'active' : ''}`}
+              className={`nav-item ${activeTab === 'admin-panel' || activeTab === 'web-appearance' ? 'active' : ''}`}
             >
-              <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'admin-panel' ? 'text-white' : 'text-rose-500'}`} />
+              <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'admin-panel' || activeTab === 'web-appearance' ? 'text-white' : 'text-rose-500'}`} />
               <span className="font-medium text-xs">Administrator</span>
-              <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'admin-panel' ? 'bg-white/20 text-white' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
+              <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'admin-panel' || activeTab === 'web-appearance' ? 'bg-white/20 text-white' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
                 SUPER
               </span>
-              {activeTab === 'admin-panel' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
+              {(activeTab === 'admin-panel' || activeTab === 'web-appearance') && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
             </div>
 
             <div 
@@ -266,18 +265,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <AlertCircle className={`w-4 h-4 shrink-0 ${activeTab === 'authority-panel' ? 'text-white' : 'text-amber-500'}`} />
               <span className="font-medium text-xs">Otoritas</span>
               {activeTab === 'authority-panel' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
-            </div>
-
-            <div 
-              onClick={() => setActiveTab('web-appearance')}
-              className={`nav-item ${activeTab === 'web-appearance' ? 'active' : ''}`}
-            >
-              <Palette className={`w-4 h-4 shrink-0 ${activeTab === 'web-appearance' ? 'text-white' : 'text-purple-600'}`} />
-              <span className="font-medium text-xs">Tampilan Web</span>
-              <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'web-appearance' ? 'bg-white/20 text-white' : 'bg-purple-50 text-purple-600 border border-purple-200'}`}>
-                LOGIN & UI
-              </span>
-              {activeTab === 'web-appearance' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
             </div>
           </div>
 

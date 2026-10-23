@@ -61,7 +61,11 @@ export const PRESET_BACKGROUNDS: ImagePreset[] = [
   }
 ];
 
-export const WebAppearanceView: React.FC = () => {
+export interface WebAppearanceViewProps {
+  embedded?: boolean;
+}
+
+export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded = false }) => {
   const { settings, updateSettings, logActivity } = useAccounting();
 
   const [bgImageUrl, setBgImageUrl] = useState<string>(
@@ -156,7 +160,7 @@ export const WebAppearanceView: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-6xl mx-auto w-full animate-fadeIn">
+    <div className={embedded ? "space-y-6 w-full animate-fadeIn" : "p-4 md:p-8 space-y-6 max-w-6xl mx-auto w-full animate-fadeIn"}>
       
       {/* 1. Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200">
