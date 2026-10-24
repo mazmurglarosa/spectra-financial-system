@@ -179,7 +179,19 @@ function normalizeAccount(raw: any, index: number): Account {
 
 function normalizeTransaction(raw: any, index: number): Transaction {
   if (!raw || typeof raw !== 'object') {
-    return defaultTransactions[0];
+    return {
+      id: `tx-empty-${index}`,
+      date: new Date().toISOString().split('T')[0],
+      refNumber: `JU-${index + 1}`,
+      type: 'general',
+      description: '',
+      lines: [],
+      totalDebit: 0,
+      totalCredit: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      partner: '-'
+    };
   }
   const rawLines = Array.isArray(raw.lines) ? raw.lines : Array.isArray(raw.items) ? raw.items : [];
   const lines = rawLines.map((l: any, lIdx: number) => ({
@@ -214,13 +226,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // 1. Initialize State with safe fallbacks and normalization
   const [accounts, setAccounts] = useState<Account[]>(() => {
     try {
+      const dummyCleared = localStorage.getItem('sikeu_mock_cleared_v1');
       const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS) || localStorage.getItem('sikeu_coa_v3');
       if (saved && saved !== 'null' && saved !== 'undefined') {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
-            .map((acc, idx) => normalizeAccount(acc, idx))
+          const list = parsed
+            .map((acc, idx) => {
+              const item = normalizeAccount(acc, idx);
+              // Clean out dummy initial balances if previously saved from old templates
+              if (!dummyCleared && ['10001', '10003', '30000', '40005', '50001'].includes(item.code)) {
+                item.debetAwal = 0;
+                item.kreditAwal = 0;
+              }
+              return item;
+            })
             .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+          if (!dummyCleared) {
+            localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(list));
+            localStorage.setItem('sikeu_coa_v3', JSON.stringify(list));
+          }
+          return list;
         }
       }
     } catch (e) {
@@ -231,13 +258,36 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
+      const dummyCleared = localStorage.getItem('sikeu_mock_cleared_v1');
       const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || localStorage.getItem('sikeu_transactions_v3');
       if (saved && saved !== 'null' && saved !== 'undefined') {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.map((trx, idx) => normalizeTransaction(trx, idx));
+          // Filter out dummy template transactions
+          const filtered = parsed
+            .filter((trx: any) => {
+              if (!trx) return false;
+              const id = String(trx.id || '');
+              const ref = String(trx.refNumber || trx.ref || '');
+              const desc = String(trx.description || '');
+              if (id.startsWith('trx_00') || ['BKM-001', 'BKM-002', 'BKK-001', 'BKK-002', 'BM-001'].includes(ref)) {
+                return false;
+              }
+              if (desc.includes('Penerimaan pendapatan jasa produksi video') || desc.includes('Pembayaran beban listrik, air, dan internet kantor')) {
+                return false;
+              }
+              return true;
+            })
+            .map((trx, idx) => normalizeTransaction(trx, idx));
+
+          if (!dummyCleared) {
+            localStorage.setItem('sikeu_mock_cleared_v1', 'true');
+            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(filtered));
+          }
+          return filtered;
         }
       }
+      localStorage.setItem('sikeu_mock_cleared_v1', 'true');
     } catch (e) {
       console.error('Failed to load transactions from storage:', e);
     }
