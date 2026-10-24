@@ -214,13 +214,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (saved && saved !== 'null' && saved !== 'undefined') {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((acc, idx) => normalizeAccount(acc, idx));
+          return parsed
+            .map((acc, idx) => normalizeAccount(acc, idx))
+            .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
         }
       }
     } catch (e) {
       console.error('Failed to load accounts from storage:', e);
     }
-    return defaultAccounts;
+    return defaultAccounts.slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -442,6 +444,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [broadcastChannel]);
 
+  // Ensure local accounts are always sorted by code ascending (1xxxx to 5xxxx)
+  useEffect(() => {
+    setAccounts(prev => {
+      const isOutOfOrder = prev.some((acc, idx) => idx > 0 && acc.code.localeCompare(prev[idx - 1].code, undefined, { numeric: true }) < 0);
+      if (isOutOfOrder) {
+        const sorted = [...prev].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+        localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(sorted));
+        return sorted;
+      }
+      return prev;
+    });
+  }, []);
+
   // 3. Automatic Initial Sync from Supabase Cloud on mount (Ensures Laptop, Phone, and other devices are always identical)
   useEffect(() => {
     let isCancelled = false;
@@ -452,8 +467,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const res = await syncPullAllFromSupabase();
         if (!isCancelled && res.success && res.data) {
           if (res.data.accounts && res.data.accounts.length > 0) {
-            setAccounts(res.data.accounts);
-            localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(res.data.accounts));
+            const sortedAccounts = res.data.accounts.slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+            setAccounts(sortedAccounts);
+            localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(sortedAccounts));
           }
           if (Array.isArray(res.data.transactions)) {
             setTransactions(res.data.transactions);
@@ -575,7 +591,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       id: 'acc-' + acc.code
     };
     setAccounts(prev => {
-      const updated = [...prev, newAcc].sort((a, b) => a.code.localeCompare(b.code));
+      const updated = [...prev, newAcc].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
       broadcastChange('ACCOUNTS', updated);
       return updated;
@@ -586,7 +602,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateAccount = useCallback((id: string, acc: Partial<Account>) => {
     setAccounts(prev => {
-      const updated = prev.map(a => a.id === id ? { ...a, ...acc } : a);
+      const updated = prev
+        .map(a => a.id === id ? { ...a, ...acc } : a)
+        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
       broadcastChange('ACCOUNTS', updated);
       return updated;
@@ -989,8 +1007,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const res = await syncPullAllFromSupabase();
     if (res.success && res.data) {
       if (res.data.accounts && res.data.accounts.length > 0) {
-        setAccounts(res.data.accounts);
-        localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(res.data.accounts));
+        const sortedAccounts = res.data.accounts.slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+        setAccounts(sortedAccounts);
+        localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(sortedAccounts));
       }
       if (Array.isArray(res.data.transactions)) {
         setTransactions(res.data.transactions);

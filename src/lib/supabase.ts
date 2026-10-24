@@ -243,8 +243,11 @@ export async function syncPullAllFromSupabase(): Promise<{
   }
 
   try {
-    // 1. Pull Accounts
-    const { data: rawAccounts, error: accErr } = await client.from('accounts').select('*');
+    // 1. Pull Accounts (Always ordered by code ascending: 10000 -> 50000+)
+    const { data: rawAccounts, error: accErr } = await client
+      .from('accounts')
+      .select('*')
+      .order('code', { ascending: true });
     if (accErr) throw new Error(`Accounts pull error: ${accErr.message}`);
 
     const accounts: Account[] | undefined = rawAccounts ? rawAccounts.map(r => ({
@@ -259,7 +262,7 @@ export async function syncPullAllFromSupabase(): Promise<{
       kreditAwal: Number(r.kredit_awal) || 0,
       description: r.description,
       isHeader: Boolean(r.is_header)
-    })) : undefined;
+    })).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })) : undefined;
 
     // 2. Pull Transactions
     const { data: rawTx, error: txErr } = await client.from('transactions').select('*').order('date', { ascending: true });

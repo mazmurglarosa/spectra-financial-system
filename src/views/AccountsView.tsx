@@ -25,14 +25,21 @@ export const AccountsView: React.FC = () => {
     { key: 'BEBAN_OPERASIONAL', label: 'Beban Usaha' },
   ];
 
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   const filteredAccounts = useMemo(() => {
-    return accounts.filter(acc => {
-      const matchSearch = acc.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          acc.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchCat = selectedCategory === 'ALL' || acc.category === selectedCategory;
-      return matchSearch && matchCat;
-    });
-  }, [accounts, searchQuery, selectedCategory]);
+    return accounts
+      .filter(acc => {
+        const matchSearch = acc.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            acc.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchCat = selectedCategory === 'ALL' || acc.category === selectedCategory;
+        return matchSearch && matchCat;
+      })
+      .sort((a, b) => {
+        const diff = a.code.localeCompare(b.code, undefined, { numeric: true });
+        return sortOrder === 'asc' ? diff : -diff;
+      });
+  }, [accounts, searchQuery, selectedCategory, sortOrder]);
 
   const handleEdit = (acc: Account) => {
     setEditingAccount(acc);
@@ -146,7 +153,25 @@ export const AccountsView: React.FC = () => {
           <table>
             <thead>
               <tr>
-                <th style={{ width: '10%' }}>Kode</th>
+                <th 
+                  onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')} 
+                  style={{ width: '12%', cursor: 'pointer', userSelect: 'none' }}
+                  title="Klik untuk mengubah urutan kode akun"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Kode</span>
+                    <span style={{ 
+                      fontSize: '0.65rem', 
+                      padding: '1px 5px', 
+                      borderRadius: '4px', 
+                      backgroundColor: sortOrder === 'asc' ? '#e0f2fe' : '#fef3c7',
+                      color: sortOrder === 'asc' ? '#0284c7' : '#d97706',
+                      fontWeight: 700
+                    }}>
+                      {sortOrder === 'asc' ? '▲ 1 - 5' : '▼ 5 - 1'}
+                    </span>
+                  </div>
+                </th>
                 <th style={{ width: '28%' }}>Nama Akun</th>
                 <th style={{ width: '18%' }}>Kelompok</th>
                 <th style={{ width: '8%', textAlign: 'center' }}>Pos</th>
