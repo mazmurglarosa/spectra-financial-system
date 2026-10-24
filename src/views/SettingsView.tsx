@@ -7,7 +7,6 @@ import {
   AlertTriangle, 
   CheckCircle, 
   FileSpreadsheet, 
-  ShieldAlert,
   Award
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
@@ -475,23 +474,6 @@ export const SettingsView: React.FC = () => {
 
       {/* PWA Portal Installation Banner */}
       <PwaInstallBanner />
-
-      {/* Info Notice: Cloud, Supabase & Reset moved to Administrator panel */}
-      <div className="bg-sky-50 rounded-2xl border border-sky-200/80 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-[#0284c7] shrink-0">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wide">
-              Panel Cloud, Database Supabase, REST API &amp; Reset Terpusat
-            </h4>
-            <p className="text-xs text-sky-800/90 mt-0.5 max-w-2xl leading-relaxed">
-              Integrasi REST API, status website Vercel/GitHub Mirror, sinkronisasi database PostgreSQL Supabase, pengaturan PIN otorisasi, dan zona kritis RESET sistem telah dipindahkan ke menu <b>Akses Khusus &gt; Administrator</b> di sidebar.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

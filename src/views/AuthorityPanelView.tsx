@@ -30,11 +30,8 @@ export const AuthorityPanelView: React.FC = () => {
           <AlertCircle className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-base font-black tracking-wide text-white flex items-center space-x-2">
-            <span>PANEL KHUSUS OTORITAS</span>
-            <span className="text-[10px] bg-amber-950 text-amber-300 font-mono px-2 py-0.5 rounded border border-amber-700">
-              Akses Otoritas
-            </span>
+          <h2 className="text-base font-black tracking-wide text-white">
+            PANEL KHUSUS OTORITAS
           </h2>
           <p className="text-xs text-amber-200/90 mt-0.5">
             Saluran komunikasi resmi pemegang hak otoritas untuk mengirim keluhan, masukan, dan evaluasi langsung ke Administrator.

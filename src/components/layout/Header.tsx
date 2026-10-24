@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
               {isBalanced ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
-                  <span>Neraca Seimbang ✓</span>
+                  <span>Neraca Seimbang</span>
                 </>
               ) : (
                 <>
@@ -121,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({
                   {currentUser ? currentUser.fullName : 'Admin'}
                 </div>
                 <div className="text-[10px] text-sky-600 font-semibold leading-tight">
-                  {currentUser?.role === 'admin' ? `👑 ${currentUser.position}` : currentUser?.position || 'Administrator'}
+                  {currentUser?.position || (currentUser?.role === 'admin' ? 'Super Administrator' : 'Staf Akuntansi')}
                 </div>
               </div>
               <button 

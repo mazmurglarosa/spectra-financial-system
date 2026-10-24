@@ -196,21 +196,11 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ initialTab = 'cl
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black tracking-tight text-slate-900">Panel Khusus Administrator</h1>
-              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-full">
-                Level: Super Admin
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
               Pusat kendali integrasi cloud, sinkronisasi database online Supabase, REST API eksternal, otorisasi pengguna, serta zona kritis RESET sistem PT Nirwana Bhumi Energi.
             </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Cloud Sync Active</span>
-          </span>
         </div>
       </div>
 

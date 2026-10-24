@@ -54,11 +54,8 @@ export const ActivityLogsView: React.FC = () => {
             <Activity className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-800 flex items-center space-x-2">
-              <span>Log Aktivitas Pengguna (Audit Trail)</span>
-              <span className="text-[10px] bg-sky-100 text-sky-800 font-mono px-2 py-0.5 rounded font-bold">
-                Akses Terproteksi
-              </span>
+            <h2 className="text-base font-bold text-slate-800">
+              Log Aktivitas Pengguna (Audit Trail)
             </h2>
             <p className="text-xs text-slate-500">
               Rekaman jejak digital seluruh kegiatan pencatatan jurnal, akun, perubahan PIN, dan autentikasi.

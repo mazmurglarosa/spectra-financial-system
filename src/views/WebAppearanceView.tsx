@@ -501,11 +501,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-bold text-slate-800">
-                Google Drive Storage Bot &amp; Supabase Size Guard Aktif
+                Penyimpanan Otomatis Google Drive Aktif
               </h3>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                DB HEMAT 100%
-              </span>
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
               Semua foto dan berkas berat otomatis dialihkan dan disimpan ke folder Google Drive Anda. Supabase hanya merekam link URL dan riwayat aktivitas sehingga ukuran database tetap sangat kecil (~32 kB) dan selalu aman jauh di bawah limit gratis Supabase (500 MB).
@@ -524,26 +521,23 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
         </a>
       </div>
 
-      {/* 2. Success Banner & Auto-Save Cloud Indicator */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="font-semibold text-slate-700">Auto-Save Cloud Aktif:</span>
-          <span className="text-slate-500">Setiap perubahan foto pribadi, crop posisi, preset, dan logo langsung tersimpan permanen ke Cloud.</span>
+      {/* 2. Action Feedback Indicator */}
+      {(isSaved || isSaving) && (
+        <div className="flex items-center justify-end gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          {isSaved && (
+            <div className="flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 animate-fadeIn">
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{saveMessage || 'Pengaturan tersimpan ke Cloud!'}</span>
+            </div>
+          )}
+          {isSaving && (
+            <div className="flex items-center gap-1.5 text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 animate-fadeIn">
+              <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+              <span>Mengompresi &amp; Menyimpan ke Cloud...</span>
+            </div>
+          )}
         </div>
-        {isSaved && (
-          <div className="flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 animate-fadeIn">
-            <Check className="w-3.5 h-3.5 text-emerald-600" />
-            <span>{saveMessage || 'Pengaturan tersimpan ke Cloud!'}</span>
-          </div>
-        )}
-        {isSaving && (
-          <div className="flex items-center gap-1.5 text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 animate-fadeIn">
-            <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-            <span>Mengompresi &amp; Menyimpan ke Cloud...</span>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* 3. Main Grid: Left Form Controls (7 cols), Right Live Scaled Preview (5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -560,9 +554,6 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                 <ImageIcon className="w-4 h-4 text-purple-600" />
                 <span>1. Foto Background Halaman Login (Porsi 65%)</span>
               </h2>
-              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                Porsi Lebar: 65%
-              </span>
             </div>
 
             {/* Upload Button */}
@@ -797,9 +788,6 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                 <Monitor className="w-4 h-4 text-emerald-600" />
                 <span>2. Foto Background Layar Booting Sistem (Durasi 5 Detik)</span>
               </h2>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                <span>⏱ 5 Detik Loading</span>
-              </span>
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
@@ -1229,9 +1217,6 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
               <Sliders className="w-3.5 h-3.5 text-purple-600" />
               Pratinjau Hasil Desain (Rasio 65% : 35%)
             </span>
-            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              Live Real-time
-            </span>
           </div>
 
           {/* Miniature Split Login View Representation: EXACT 65% : 35% */}
@@ -1328,7 +1313,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           </div>
 
           <div className="p-3 bg-purple-50/80 border border-purple-200/70 rounded-xl text-[11px] text-purple-900 leading-relaxed">
-            💡 <strong>Rasio Desain:</strong> Halaman login menggunakan rasio <strong>65% latar belakang</strong> dan <strong>35% panel login</strong>. Posisi gambar, crop, dan ukuran logo yang Anda atur di atas otomatis disinkronkan ke seluruh sesi pengguna dan database Supabase Cloud.
+            Halaman login menggunakan rasio <strong>65% latar belakang</strong> dan <strong>35% panel login</strong>. Pengaturan posisi, crop, dan logo otomatis disinkronkan ke seluruh sesi pengguna dan cloud.
           </div>
         </div>
 

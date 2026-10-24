@@ -84,7 +84,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                 ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                 : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
             }`}>
-              <Activity className="w-5 h-5 animate-pulse" />
+              <Activity className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -333,7 +333,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                   </span>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                       TERHUBUNG
                     </span>
                     <a

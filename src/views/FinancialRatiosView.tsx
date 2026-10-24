@@ -76,9 +76,6 @@ export const FinancialRatiosView: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black tracking-tight text-slate-900">Analisis Rasio Keuangan Perusahaan</h1>
-              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-sky-50 text-[#0284c7] border border-sky-200 rounded-full">
-                Indikator Finansial
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
               Indikator kesehatan finansial komprehensif mengukur likuiditas lancar, solvabilitas struktur modal, dan profitabilitas ekuitas PT Nirwana Bhumi Energi.

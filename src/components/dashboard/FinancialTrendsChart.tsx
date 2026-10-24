@@ -850,8 +850,7 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
 
       {/* 8. Footer Info & Metric Interpretation */}
       <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <div>
           <span>
             Skala vertikal (Y) otomatis beradaptasi dengan nilai nominal tertinggi & terendah (termasuk nilai minus).
           </span>

@@ -160,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ? 'bg-rose-500 animate-ping'
                 : healthState.severity === 'warning'
                 ? 'bg-amber-500 animate-ping'
-                : 'bg-emerald-500 animate-pulse'
+                : 'bg-emerald-500'
             }`}></span>
             <span>{healthState.buttonText}</span>
           </button>
