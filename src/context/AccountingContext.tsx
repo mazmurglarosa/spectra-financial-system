@@ -22,7 +22,10 @@ import {
   syncPullAllFromSupabase,
   pushTransactionToSupabase,
   deleteTransactionFromSupabase,
-  pushSettingsToSupabase
+  pushSettingsToSupabase,
+  pushAccountToSupabase,
+  pushMultipleAccountsToSupabase,
+  deleteAccountFromSupabase
 } from '../lib/supabase';
 
 export interface SyncStatus {
@@ -77,6 +80,7 @@ interface AccountingContextType {
   addAccount: (acc: Omit<Account, 'id'>) => Account;
   updateAccount: (id: string, acc: Partial<Account>) => void;
   deleteAccount: (id: string) => { success: boolean; message?: string };
+  batchUpdateAccounts: (updatedList: Account[]) => Promise<void>;
 
   // Settings & DB
   updateSettings: (newSettings: Partial<CompanySettings>) => void;
@@ -457,7 +461,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   }, []);
 
-  // 3. Automatic Initial Sync from Supabase Cloud on mount (Ensures Laptop, Phone, and other devices are always identical)
+  // 3. Automatic Initial Sync from Supabase Cloud on mount (With Non-Destructive Auto-Preservation)
   useEffect(() => {
     let isCancelled = false;
     const fetchCloudData = async () => {
@@ -466,23 +470,82 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const res = await syncPullAllFromSupabase();
         if (!isCancelled && res.success && res.data) {
+          // A. Accounts Smart Sync (Protects User's Entered Initial Balances)
           if (res.data.accounts && res.data.accounts.length > 0) {
-            const sortedAccounts = res.data.accounts.slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-            setAccounts(sortedAccounts);
-            localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(sortedAccounts));
+            const cloudAccounts = res.data.accounts.slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+            setAccounts(prevLocal => {
+              const localHasBalances = prevLocal.some(a => (Number(a.debetAwal) || 0) > 0 || (Number(a.kreditAwal) || 0) > 0);
+              const cloudHasBalances = cloudAccounts.some(a => (Number(a.debetAwal) || 0) > 0 || (Number(a.kreditAwal) || 0) > 0);
+
+              // CASE 1: Local user has entered initial balances, but cloud has 0 balances!
+              // NEVER destroy user's work! Instead, push local up to cloud!
+              if (localHasBalances && !cloudHasBalances) {
+                console.log('[Auto-Sync] Mempertahankan saldo akun lokal pengguna dan mengunggah otomatis ke Cloud...');
+                pushMultipleAccountsToSupabase(prevLocal);
+                return prevLocal;
+              }
+
+              // CASE 2: Merge if both have data
+              if (localHasBalances && cloudHasBalances) {
+                const merged = cloudAccounts.map(ca => {
+                  const localMatch = prevLocal.find(la => la.code === ca.code);
+                  if (localMatch && (!ca.debetAwal && !ca.kreditAwal) && (localMatch.debetAwal || localMatch.kreditAwal)) {
+                    return { ...ca, debetAwal: localMatch.debetAwal, kreditAwal: localMatch.kreditAwal };
+                  }
+                  return ca;
+                });
+                try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(merged)); } catch (e) {}
+                return merged;
+              }
+
+              // CASE 3: Standard cloud sync
+              try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(cloudAccounts)); } catch (e) {}
+              return cloudAccounts;
+            });
           }
+
+          // B. Transactions Smart Sync (Protects User's Locally Created Transactions)
           if (Array.isArray(res.data.transactions)) {
-            setTransactions(res.data.transactions);
-            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(res.data.transactions));
+            const cloudTx = res.data.transactions;
+            setTransactions(prevLocal => {
+              if (prevLocal.length > 0 && cloudTx.length === 0) {
+                console.log('[Auto-Sync] Mempertahankan transaksi lokal dan mengunggah otomatis ke Cloud...');
+                prevLocal.forEach(t => pushTransactionToSupabase(t));
+                return prevLocal;
+              }
+              if (cloudTx.length > 0) {
+                try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTx)); } catch (e) {}
+                return cloudTx;
+              }
+              return prevLocal;
+            });
           }
+
+          // C. Contacts Smart Sync
           if (res.data.contacts && res.data.contacts.length > 0) {
             setContacts(res.data.contacts);
-            localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(res.data.contacts));
+            try { localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(res.data.contacts)); } catch (e) {}
           }
+
+          // D. Settings Smart Sync (Protects Custom Backgrounds & Logos)
           if (res.data.settings) {
-            setSettings(res.data.settings);
-            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(res.data.settings));
+            const cloudSettings = res.data.settings;
+            setSettings(prevLocal => {
+              const merged = { ...cloudSettings, ...prevLocal };
+              if (cloudSettings.loginBgImage && cloudSettings.loginBgImage.trim() !== '') {
+                merged.loginBgImage = cloudSettings.loginBgImage;
+              }
+              if (cloudSettings.bootingBgImage && cloudSettings.bootingBgImage.trim() !== '') {
+                merged.bootingBgImage = cloudSettings.bootingBgImage;
+              }
+              if (cloudSettings.loginLogoUrl && cloudSettings.loginLogoUrl.trim() !== '') {
+                merged.loginLogoUrl = cloudSettings.loginLogoUrl;
+              }
+              try { localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged)); } catch (e) {}
+              return merged;
+            });
           }
+
           setSyncStatus(prev => ({
             ...prev,
             lastSyncedAt: new Date(),
@@ -584,7 +647,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
   }, [transactions, broadcastChange, logActivity]);
 
-  // Account CRUD
+  // Account CRUD (With Real-Time Supabase Auto-Save)
   const addAccount = useCallback((acc: Omit<Account, 'id'>): Account => {
     const newAcc: Account = {
       ...acc,
@@ -592,23 +655,36 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
     setAccounts(prev => {
       const updated = [...prev, newAcc].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
+      try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated)); } catch (e) {}
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
+    // Auto-save new account to Supabase Cloud
+    pushAccountToSupabase(newAcc);
     logActivity('Tambah Akun', `Menambah akun baru: ${newAcc.code} - ${newAcc.name}`);
     return newAcc;
   }, [broadcastChange, logActivity]);
 
   const updateAccount = useCallback((id: string, acc: Partial<Account>) => {
+    let targetAcc: Account | undefined;
     setAccounts(prev => {
       const updated = prev
-        .map(a => a.id === id ? { ...a, ...acc } : a)
+        .map(a => {
+          if (a.id === id) {
+            targetAcc = { ...a, ...acc };
+            return targetAcc;
+          }
+          return a;
+        })
         .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
+      try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated)); } catch (e) {}
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
+    // Auto-save updated account & balances to Supabase Cloud
+    if (targetAcc) {
+      pushAccountToSupabase(targetAcc);
+    }
     logActivity('Edit Akun', `Memperbarui akun ID: ${id}`);
   }, [broadcastChange, logActivity]);
 
@@ -626,15 +702,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setAccounts(prev => {
       const updated = prev.filter(a => a.id !== id);
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated));
+      try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(updated)); } catch (e) {}
       broadcastChange('ACCOUNTS', updated);
       return updated;
     });
+    // Auto-delete from Supabase Cloud
+    deleteAccountFromSupabase(id);
     logActivity('Hapus Akun', `Menghapus akun: ${target.code} - ${target.name}`);
     return { success: true };
   }, [accounts, transactions, broadcastChange, logActivity]);
 
-  // Settings & Reset
+  const batchUpdateAccounts = useCallback(async (updatedList: Account[]): Promise<void> => {
+    const sorted = [...updatedList].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    setAccounts(sorted);
+    try { localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(sorted)); } catch (e) {}
+    broadcastChange('ACCOUNTS', sorted);
+    await pushMultipleAccountsToSupabase(sorted);
+    logActivity('Batch Update Akun', `Memperbarui massal ${sorted.length} akun dan saldo ke Supabase Cloud`);
+  }, [broadcastChange, logActivity]);
+
+  // Settings & Reset (With Safe Storage Quota Handling & Real-time Auto-Save)
   const updateSettings = useCallback((newSettings: Partial<CompanySettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
@@ -643,7 +730,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (yearMatch) {
         updated.fiscalYear = parseInt(yearMatch[1], 10);
       }
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      try {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      } catch (storageErr) {
+        console.warn('LocalStorage quota warning for settings, pushing to cloud directly:', storageErr);
+      }
       broadcastChange('SETTINGS', updated);
       // Auto-sync company settings to Supabase in background
       pushSettingsToSupabase(updated);
@@ -1054,6 +1145,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         addAccount,
         updateAccount,
         deleteAccount,
+        batchUpdateAccounts,
         updateSettings,
         resetToDefault,
         resetWithPin,

@@ -418,3 +418,60 @@ export async function pushSettingsToSupabase(s: CompanySettings): Promise<void> 
   }
 }
 
+export async function pushAccountToSupabase(a: Account): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('accounts').upsert({
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      category: a.category,
+      category_name: a.categoryName,
+      pos: a.pos,
+      sn: a.sn,
+      debet_awal: Number(a.debetAwal) || 0,
+      kredit_awal: Number(a.kreditAwal) || 0,
+      description: a.description || '',
+      is_header: Boolean(a.isHeader),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' });
+  } catch (e) {
+    console.warn('Auto push account to Supabase failed:', e);
+  }
+}
+
+export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client || !accounts.length) return;
+  try {
+    const rows = accounts.map(a => ({
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      category: a.category,
+      category_name: a.categoryName,
+      pos: a.pos,
+      sn: a.sn,
+      debet_awal: Number(a.debetAwal) || 0,
+      kredit_awal: Number(a.kreditAwal) || 0,
+      description: a.description || '',
+      is_header: Boolean(a.isHeader),
+      updated_at: new Date().toISOString()
+    }));
+    await client.from('accounts').upsert(rows, { onConflict: 'id' });
+  } catch (e) {
+    console.warn('Auto push multiple accounts to Supabase failed:', e);
+  }
+}
+
+export async function deleteAccountFromSupabase(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('accounts').delete().eq('id', id);
+  } catch (e) {
+    console.warn('Auto delete account from Supabase failed:', e);
+  }
+}
+

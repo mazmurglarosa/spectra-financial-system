@@ -1,17 +1,21 @@
-import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, Filter, Download } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Search, Plus, Edit2, Trash2, Filter, Download, Upload, CheckCircle } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { Account, AccountCategory } from '../types/accounting';
 import { formatRupiah, calculateAccountBalance, exportTableToExcel } from '../utils/accountingCalculations';
 import { AccountModal } from '../components/modals/AccountModal';
+import * as XLSX from 'xlsx';
 
 export const AccountsView: React.FC = () => {
-  const { accounts, transactions, deleteAccount } = useAccounting();
+  const { accounts, transactions, deleteAccount, batchUpdateAccounts } = useAccounting();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categories: { key: string; label: string }[] = [
     { key: 'ALL', label: 'Semua Akun' },
@@ -77,6 +81,65 @@ export const AccountsView: React.FC = () => {
     exportTableToExcel(data, `Daftar_Akun_COA_SPECTRA_${new Date().toISOString().split('T')[0]}`, 'Bagan Akun');
   };
 
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: any[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+      if (rows.length < 2) {
+        alert('File Excel kosong atau tidak memiliki baris data.');
+        return;
+      }
+
+      // Find header indices
+      const headerRow = rows[0].map((h: any) => String(h || '').toLowerCase().trim());
+      let codeIdx = headerRow.findIndex(h => h.includes('kode') || h.includes('code'));
+      let debetIdx = headerRow.findIndex(h => h.includes('debet') || h.includes('debit'));
+      let kreditIdx = headerRow.findIndex(h => h.includes('kredit') || h.includes('credit'));
+
+      if (codeIdx === -1) codeIdx = 0;
+      if (debetIdx === -1) debetIdx = 5;
+      if (kreditIdx === -1) kreditIdx = 6;
+
+      let updatedCount = 0;
+      const updatedAccounts = accounts.map(acc => {
+        const matchingRow = rows.slice(1).find(r => String(r[codeIdx] || '').trim() === acc.code);
+        if (matchingRow) {
+          const rawDebet = matchingRow[debetIdx];
+          const rawKredit = matchingRow[kreditIdx];
+          const debetAwal = Number(String(rawDebet || 0).replace(/[^0-9.-]+/g, '')) || 0;
+          const kreditAwal = Number(String(rawKredit || 0).replace(/[^0-9.-]+/g, '')) || 0;
+          updatedCount++;
+          return {
+            ...acc,
+            debetAwal,
+            kreditAwal
+          };
+        }
+        return acc;
+      });
+
+      if (updatedCount > 0) {
+        await batchUpdateAccounts(updatedAccounts);
+        setUploadMsg(`Berhasil mengunggah saldo untuk ${updatedCount} akun! Otomatis tersimpan ke Cloud.`);
+        setTimeout(() => setUploadMsg(''), 5000);
+      } else {
+        alert('Tidak ditemukan kode akun yang cocok pada file Excel. Pastikan kolom Kode Akun sesuai (contoh: 10001, 10002).');
+      }
+    } catch (err: any) {
+      alert('Gagal membaca file Excel: ' + (err.message || err));
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Top Filter and Action Bar */}
@@ -87,20 +150,55 @@ export const AccountsView: React.FC = () => {
         flexWrap: 'wrap',
         gap: '16px'
       }}>
-        {/* Search Input */}
-        <div style={{ position: 'relative', width: '320px' }}>
-          <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input 
-            type="text" 
-            placeholder="Cari kode atau nama akun..." 
-            value={searchQuery} 
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '38px' }}
-          />
+        {/* Search Input & Status Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', width: '300px' }}>
+            <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input 
+              type="text" 
+              placeholder="Cari kode atau nama akun..." 
+              value={searchQuery} 
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ paddingLeft: '38px' }}
+            />
+          </div>
+          
+          <div style={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            padding: '5px 12px', 
+            borderRadius: '20px', 
+            backgroundColor: '#ecfdf5', 
+            border: '1px solid #a7f3d0', 
+            color: '#065f46', 
+            fontSize: '0.72rem', 
+            fontWeight: 700 
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+            <span>Auto-Save Cloud Aktif</span>
+          </div>
         </div>
 
         {/* Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            accept=".xlsx, .xls, .csv" 
+            onChange={handleImportExcel} 
+            style={{ display: 'none' }} 
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()} 
+            disabled={isUploading}
+            className="btn btn-outline" 
+            style={{ fontSize: '0.825rem', borderColor: '#3b82f6', color: '#1d4ed8' }}
+            title="Unggah berkas Excel berisi saldo awal akun"
+          >
+            <Upload size={15} />
+            <span>{isUploading ? 'Memproses Excel...' : 'Upload Saldo Excel'}</span>
+          </button>
           <button onClick={handleExport} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
             <Download size={15} />
             Export Excel
@@ -115,6 +213,25 @@ export const AccountsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Upload Feedback Banner */}
+      {uploadMsg && (
+        <div style={{
+          padding: '10px 16px',
+          borderRadius: '10px',
+          backgroundColor: '#ecfdf5',
+          border: '1px solid #10b981',
+          color: '#065f46',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <CheckCircle size={16} color="#059669" />
+          <span>{uploadMsg}</span>
+        </div>
+      )}
 
       {/* Category Tabs */}
       <div style={{

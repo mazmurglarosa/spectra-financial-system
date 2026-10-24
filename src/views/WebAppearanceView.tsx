@@ -19,6 +19,8 @@ import {
   Maximize2
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
+import { compressImage, compressPngLogo } from '../lib/imageCompressor';
+import { CompanySettings } from '../types/accounting';
 
 export interface ImagePreset {
   id: string;
@@ -138,63 +140,114 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
   // Modals & Feedback
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewBootingModalOpen, setPreviewBootingModalOpen] = useState(false);
   const [bootingSimTime, setBootingSimTime] = useState(5);
   const [bootingSimProgress, setBootingSimProgress] = useState(0);
 
-  // Upload handler for login background
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Helper for instant auto-save to Supabase & local state
+  const autoSaveSettings = (partial: Partial<CompanySettings>, message = 'Pengaturan otomatis tersimpan ke Cloud!') => {
+    updateSettings(partial);
+    setSaveMessage(message);
+    setIsSaved(true);
+    setTimeout(() => setIsSaved(false), 3500);
+  };
+
+  // Upload handler for login background (With High-Definition Image Compression)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert('Ukuran file maksimal 8MB. Silakan pilih gambar lain yang lebih optimal.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const result = uploadEvent.target?.result as string;
-        if (result) setBgImageUrl(result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran file maksimal 15MB. Silakan pilih foto lain.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      // Compress user photo into crisp web-optimized HD JPEG (1920x1080, ~150-250KB)
+      // This prevents browser localStorage quota errors and syncs to Supabase in milliseconds!
+      const compressed = await compressImage(file, 1920, 1080, 0.82);
+      setBgImageUrl(compressed);
+      autoSaveSettings({
+        loginBgImage: compressed,
+        loginBgPosX: bgPosX,
+        loginBgPosY: bgPosY,
+        loginBgZoom: bgZoom
+      }, 'Foto background pribadi berhasil dioptimalkan dan otomatis tersimpan ke Cloud!');
+      logActivity('Tampilan Web', 'Mengunggah & mengaktifkan foto background login pribadi (HD)');
+    } catch (err: any) {
+      alert('Gagal memproses gambar: ' + (err.message || err));
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // Upload handler for booting background
-  const handleBootingFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBootingFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert('Ukuran file maksimal 8MB. Silakan pilih gambar lain.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const result = uploadEvent.target?.result as string;
-        if (result) setBootingBgUrl(result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran file maksimal 15MB. Silakan pilih gambar lain.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      const compressed = await compressImage(file, 1920, 1080, 0.82);
+      setBootingBgUrl(compressed);
+      autoSaveSettings({ bootingBgImage: compressed }, 'Background booting berhasil dioptimalkan dan otomatis tersimpan!');
+      logActivity('Tampilan Web', 'Memperbarui background booting sistem (HD)');
+    } catch (err: any) {
+      alert('Gagal memproses gambar booting: ' + (err.message || err));
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // Upload handler for Logo (PNG with transparency)
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 4 * 1024 * 1024) {
-        alert('Ukuran file logo maksimal 4MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const result = uploadEvent.target?.result as string;
-        if (result) setLogoUrl(result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (file.size > 6 * 1024 * 1024) {
+      alert('Ukuran file logo maksimal 6MB.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      const compressed = await compressPngLogo(file, 512, 256);
+      setLogoUrl(compressed);
+      autoSaveSettings({ loginLogoUrl: compressed, loginLogoHeight: logoHeight }, 'Logo transparan baru berhasil diunggah & tersimpan!');
+      logActivity('Tampilan Web', 'Memperbarui logo perusahaan');
+    } catch (err: any) {
+      alert('Gagal memproses logo: ' + (err.message || err));
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // Save changes to settings
+  // Preset selection with auto-save
+  const handleSelectPreset = (url: string) => {
+    setBgImageUrl(url);
+    autoSaveSettings({
+      loginBgImage: url,
+      loginBgPosX: bgPosX,
+      loginBgPosY: bgPosY,
+      loginBgZoom: bgZoom
+    }, 'Preset background aktif dan otomatis tersimpan!');
+  };
+
+  const handleSelectBootingPreset = (url: string) => {
+    setBootingBgUrl(url);
+    autoSaveSettings({ bootingBgImage: url }, 'Preset booting aktif dan otomatis tersimpan!');
+  };
+
+  // Manual save confirmation button
   const handleSave = () => {
     updateSettings({
       loginBgImage: bgImageUrl,
@@ -214,6 +267,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
       'Administrator memperbarui konfigurasi background login, background booting 5 detik, logo, serta posisi crop gambar.'
     );
 
+    setSaveMessage('Seluruh konfigurasi tampilan berhasil tersimpan ke Cloud!');
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };
@@ -347,13 +401,26 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
         </div>
       </div>
 
-      {/* 2. Success Banner */}
-      {isSaved && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800 text-xs font-semibold animate-fadeIn">
-          <Check className="w-4 h-4 text-emerald-600" />
-          <span>Pengaturan tampilan berhasil diperbarui. Background login 65:35, booting 5 detik, dan logo baru langsung aktif!</span>
+      {/* 2. Success Banner & Auto-Save Cloud Indicator */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="font-semibold text-slate-700">Auto-Save Cloud Aktif:</span>
+          <span className="text-slate-500">Setiap perubahan foto pribadi, crop posisi, preset, dan logo langsung tersimpan permanen ke Cloud.</span>
         </div>
-      )}
+        {isSaved && (
+          <div className="flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 animate-fadeIn">
+            <Check className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{saveMessage || 'Pengaturan tersimpan ke Cloud!'}</span>
+          </div>
+        )}
+        {isSaving && (
+          <div className="flex items-center gap-1.5 text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 animate-fadeIn">
+            <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+            <span>Mengompresi &amp; Menyimpan ke Cloud...</span>
+          </div>
+        )}
+      </div>
 
       {/* 3. Main Grid: Left Form Controls (7 cols), Right Live Scaled Preview (5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -458,6 +525,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                     max="100" 
                     value={bgPosX} 
                     onChange={e => setBgPosX(Number(e.target.value))}
+                    onMouseUp={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Posisi horizontal background tersimpan!')}
+                    onTouchEnd={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Posisi horizontal background tersimpan!')}
                     className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
                   />
                   <span className="text-[10px] text-slate-400">Kanan (100%)</span>
@@ -478,6 +547,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                     max="100" 
                     value={bgPosY} 
                     onChange={e => setBgPosY(Number(e.target.value))}
+                    onMouseUp={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Posisi vertikal background tersimpan!')}
+                    onTouchEnd={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Posisi vertikal background tersimpan!')}
                     className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
                   />
                   <span className="text-[10px] text-slate-400">Bawah (100%)</span>
@@ -502,6 +573,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                     step="5"
                     value={bgZoom} 
                     onChange={e => setBgZoom(Number(e.target.value))}
+                    onMouseUp={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Skala zoom background tersimpan!')}
+                    onTouchEnd={() => autoSaveSettings({ loginBgPosX: bgPosX, loginBgPosY: bgPosY, loginBgZoom: bgZoom }, 'Skala zoom background tersimpan!')}
                     className="flex-1 accent-purple-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer" 
                   />
                   <span className="text-[10px] text-slate-400">200% (Dekat)</span>
@@ -526,7 +599,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                     <button
                       key={idx}
                       type="button"
-                      onClick={() => { setBgPosX(pt.x); setBgPosY(pt.y); }}
+                      onClick={() => {
+                        setBgPosX(pt.x);
+                        setBgPosY(pt.y);
+                        autoSaveSettings({ loginBgPosX: pt.x, loginBgPosY: pt.y }, `Fokus ${pt.label} tersimpan!`);
+                      }}
                       className={`text-[9px] font-semibold py-1 px-1.5 rounded-md border text-center transition cursor-pointer ${
                         bgPosX === pt.x && bgPosY === pt.y
                           ? 'bg-purple-600 text-white border-purple-600'
@@ -558,7 +635,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                   return (
                     <div
                       key={preset.id}
-                      onClick={() => setBgImageUrl(preset.url)}
+                      onClick={() => handleSelectPreset(preset.url)}
                       className={`relative group rounded-xl overflow-hidden border-2 cursor-pointer transition-all aspect-video ${
                         isSelected 
                           ? 'border-purple-600 ring-2 ring-purple-100 shadow-sm' 
@@ -653,7 +730,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
                   return (
                     <div
                       key={preset.id}
-                      onClick={() => setBootingBgUrl(preset.url)}
+                      onClick={() => handleSelectBootingPreset(preset.url)}
                       className={`relative group rounded-xl overflow-hidden border-2 cursor-pointer transition-all aspect-video ${
                         isSelected 
                           ? 'border-emerald-600 ring-2 ring-emerald-100 shadow-sm' 
