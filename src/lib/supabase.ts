@@ -69,7 +69,7 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
-export async function testSupabaseConnection(): Promise<{ success: boolean; message: string; tableCount?: number }> {
+export async function testSupabaseConnection(): Promise<{ success: boolean; message: string; tableCount?: number; latencyMs?: number }> {
   const client = getSupabaseClient();
   if (!client) {
     return {
@@ -78,32 +78,39 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
     };
   }
 
+  const startTime = performance.now();
   try {
     // Attempt a lightweight select from accounts
     const { data, error } = await client.from('accounts').select('id').limit(1);
+    const latencyMs = Math.round(performance.now() - startTime);
     if (error) {
       // If table doesn't exist yet, it will report relation does not exist
       if (error.code === '42P01') {
         return {
           success: true,
-          message: 'Koneksi ke instance Supabase berhasil! Catatan: Tabel belum dibuat, silakan jalankan schema.sql di SQL Editor Supabase.'
+          message: 'Koneksi ke instance Supabase berhasil! Catatan: Tabel belum dibuat, silakan jalankan schema.sql di SQL Editor Supabase.',
+          latencyMs
         };
       }
       return {
         success: false,
-        message: `Gagal query ke Supabase: ${error.message} (${error.code || 'ERR'})`
+        message: `Gagal query ke Supabase: ${error.message} (${error.code || 'ERR'})`,
+        latencyMs
       };
     }
 
     return {
       success: true,
       message: 'Koneksi ke Supabase Database Online berhasil terhubung dan tersinkronisasi!',
-      tableCount: data ? data.length : 0
+      tableCount: data ? data.length : 0,
+      latencyMs
     };
   } catch (e: any) {
+    const latencyMs = Math.round(performance.now() - startTime);
     return {
       success: false,
-      message: `Gagal terhubung ke host Supabase: ${e?.message || 'Network Error'}`
+      message: `Gagal terhubung ke host Supabase: ${e?.message || 'Network Error'}`,
+      latencyMs
     };
   }
 }
@@ -205,6 +212,10 @@ export async function syncPushAllToSupabase(payload: {
         login_subtitle: s.loginSubtitle || '',
         login_overlay_darkness: s.loginOverlayDarkness || 'dark',
         booting_bg_image: s.bootingBgImage || '',
+        booting_overlay_darkness: s.bootingOverlayDarkness || 'dark',
+        booting_bg_pos_x: s.bootingBgPosX ?? 50,
+        booting_bg_pos_y: s.bootingBgPosY ?? 50,
+        booting_bg_zoom: s.bootingBgZoom ?? 100,
         login_logo_url: s.loginLogoUrl || '',
         login_logo_height: s.loginLogoHeight || 48,
         login_bg_pos_x: s.loginBgPosX ?? 50,
@@ -320,6 +331,10 @@ export async function syncPullAllFromSupabase(): Promise<{
         loginSubtitle: rawSettings.login_subtitle,
         loginOverlayDarkness: rawSettings.login_overlay_darkness,
         bootingBgImage: rawSettings.booting_bg_image,
+        bootingOverlayDarkness: rawSettings.booting_overlay_darkness,
+        bootingBgPosX: rawSettings.booting_bg_pos_x !== undefined && rawSettings.booting_bg_pos_x !== null ? Number(rawSettings.booting_bg_pos_x) : undefined,
+        bootingBgPosY: rawSettings.booting_bg_pos_y !== undefined && rawSettings.booting_bg_pos_y !== null ? Number(rawSettings.booting_bg_pos_y) : undefined,
+        bootingBgZoom: rawSettings.booting_bg_zoom !== undefined && rawSettings.booting_bg_zoom !== null ? Number(rawSettings.booting_bg_zoom) : undefined,
         loginLogoUrl: rawSettings.login_logo_url,
         loginLogoHeight: rawSettings.login_logo_height ? Number(rawSettings.login_logo_height) : undefined,
         loginBgPosX: rawSettings.login_bg_pos_x !== undefined && rawSettings.login_bg_pos_x !== null ? Number(rawSettings.login_bg_pos_x) : undefined,
@@ -406,6 +421,10 @@ export async function pushSettingsToSupabase(s: CompanySettings): Promise<void> 
       login_subtitle: s.loginSubtitle || '',
       login_overlay_darkness: s.loginOverlayDarkness || 'dark',
       booting_bg_image: s.bootingBgImage || '',
+      booting_overlay_darkness: s.bootingOverlayDarkness || 'dark',
+      booting_bg_pos_x: s.bootingBgPosX ?? 50,
+      booting_bg_pos_y: s.bootingBgPosY ?? 50,
+      booting_bg_zoom: s.bootingBgZoom ?? 100,
       login_logo_url: s.loginLogoUrl || '',
       login_logo_height: s.loginLogoHeight || 48,
       login_bg_pos_x: s.loginBgPosX ?? 50,

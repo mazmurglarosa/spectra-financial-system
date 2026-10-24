@@ -123,6 +123,10 @@ export interface CompanySettings {
   loginSubtitle?: string;
   loginOverlayDarkness?: 'dark' | 'medium' | 'light';
   bootingBgImage?: string;
+  bootingOverlayDarkness?: 'dark' | 'medium' | 'light';
+  bootingBgPosX?: number;
+  bootingBgPosY?: number;
+  bootingBgZoom?: number;
   loginLogoUrl?: string;
   loginLogoHeight?: number;
   loginBgPosX?: number;

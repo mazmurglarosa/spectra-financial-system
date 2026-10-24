@@ -538,6 +538,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               if (cloudSettings.bootingBgImage && cloudSettings.bootingBgImage.trim() !== '') {
                 merged.bootingBgImage = cloudSettings.bootingBgImage;
               }
+              if (cloudSettings.bootingOverlayDarkness) {
+                merged.bootingOverlayDarkness = cloudSettings.bootingOverlayDarkness;
+              }
+              if (cloudSettings.bootingBgPosX !== undefined) {
+                merged.bootingBgPosX = cloudSettings.bootingBgPosX;
+              }
+              if (cloudSettings.bootingBgPosY !== undefined) {
+                merged.bootingBgPosY = cloudSettings.bootingBgPosY;
+              }
+              if (cloudSettings.bootingBgZoom !== undefined) {
+                merged.bootingBgZoom = cloudSettings.bootingBgZoom;
+              }
               if (cloudSettings.loginLogoUrl && cloudSettings.loginLogoUrl.trim() !== '') {
                 merged.loginLogoUrl = cloudSettings.loginLogoUrl;
               }

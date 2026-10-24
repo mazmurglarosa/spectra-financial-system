@@ -44,6 +44,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   // Background, quote, logo, and positioning from settings
   const bgImage = settings.loginBgImage || PRESET_BACKGROUNDS[0].url;
   const bootingBg = settings.bootingBgImage || 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=1920&auto=format&fit=crop';
+  const bootingBgPosX = settings.bootingBgPosX ?? 50;
+  const bootingBgPosY = settings.bootingBgPosY ?? 50;
+  const bootingBgZoom = settings.bootingBgZoom ?? 100;
+  const bootingOverlayClass = settings.bootingOverlayDarkness === 'light'
+    ? 'bg-gradient-to-t from-slate-950/75 via-slate-900/40 to-slate-950/50'
+    : settings.bootingOverlayDarkness === 'medium'
+    ? 'bg-gradient-to-t from-slate-950/85 via-slate-900/60 to-slate-950/75'
+    : 'bg-gradient-to-t from-[#020b18]/95 via-[#06203d]/70 to-[#04162a]/90';
   const loginQuote = settings.loginQuote || 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.';
   const loginSubtitle = settings.loginSubtitle || 'Please enter your corporate credentials to access the executive portal.';
   const loginLogo = settings.loginLogoUrl || './assets/NBE_white.png';
@@ -126,16 +134,23 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   if (isTransitioning && transitionUser) {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 select-none overflow-hidden">
-        {/* Booting Background Image (Different from login screen) */}
+        {/* Booting Background Image (Different from login screen) with custom crop/position/zoom */}
         {bootingBg && (
-          <img 
-            src={bootingBg} 
-            alt="Booting Background" 
-            className="absolute inset-0 w-full h-full object-cover object-center scale-105 filter blur-xs brightness-[0.35] transition-all duration-700" 
-          />
+          <div className="absolute inset-0 overflow-hidden">
+            <img 
+              src={bootingBg} 
+              alt="Booting Background" 
+              style={{
+                objectPosition: `${bootingBgPosX}% ${bootingBgPosY}%`,
+                transform: `scale(${bootingBgZoom / 100})`,
+                transformOrigin: `${bootingBgPosX}% ${bootingBgPosY}%`
+              }}
+              className="w-full h-full object-cover transition-all duration-300" 
+            />
+          </div>
         )}
         {/* Atmospheric Dark Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/80 to-slate-950/90" />
+        <div className={`absolute inset-0 ${bootingOverlayClass}`} />
 
         <div className="relative z-10 max-w-md w-full text-center space-y-6 animate-fadeIn">
           <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
@@ -207,18 +222,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         {/* Deep Industrial Navy Overlay */}
         <div className={`absolute inset-0 ${overlayClass}`} />
 
-        {/* Top Left: Logo & Company Name */}
-        <div className="relative z-10 flex items-center gap-3">
+        {/* Top Left: Logo */}
+        <div className="relative z-10 flex items-center">
           <img 
             src={loginLogo} 
             alt="Logo Perusahaan" 
             style={{ height: `${logoHeight}px`, width: 'auto' }}
-            className="max-w-[220px] object-contain drop-shadow" 
+            className="max-w-[240px] object-contain drop-shadow" 
           />
-          <div className="text-white text-base sm:text-lg font-black tracking-wide leading-tight">
-            <div>Nirwana Bhumi</div>
-            <div className="text-sky-400 font-extrabold">Energy</div>
-          </div>
         </div>
 
         {/* Bottom Left: Corporate Quote / Slogan */}

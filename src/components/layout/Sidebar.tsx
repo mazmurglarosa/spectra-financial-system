@@ -18,7 +18,8 @@ import {
   LogOut 
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
-import { SyncInfoModal } from '../modals/SyncInfoModal';
+import { useSystemHealth } from '../../hooks/useSystemHealth';
+import { SystemDiagnosticsModal } from '../modals/SystemDiagnosticsModal';
 
 export type ActiveTab = 
   | 'dashboard'
@@ -59,7 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile
 }) => {
   const { currentUser, logout } = useAccounting();
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const { healthState, recheckHealth, autoRepair } = useSystemHealth();
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const isAuthority = currentUser?.isAuthority || isAdmin;
@@ -140,15 +142,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Enterprise Cloud Active Button - Opens Sync / Cloud Info Modal */}
+          {/* Realtime Connection Health Status Button */}
           <button
             type="button"
-            onClick={() => setIsSyncModalOpen(true)}
-            title="Klik untuk membuka Akses Web Online & Sinkronisasi Cloud SPECTRA"
-            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold w-fit mt-1 transition cursor-pointer shadow-xs active:scale-95"
+            onClick={() => setIsDiagnosticsModalOpen(true)}
+            title={`Status Koneksi: ${healthState.buttonText}. Klik untuk membuka laporan diagnostik & solusi otomatis.`}
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold w-fit mt-1 transition cursor-pointer shadow-xs active:scale-95 ${
+              healthState.severity === 'error'
+                ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300'
+                : healthState.severity === 'warning'
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+            }`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Enterprise Cloud Active</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${
+              healthState.severity === 'error'
+                ? 'bg-rose-500 animate-ping'
+                : healthState.severity === 'warning'
+                ? 'bg-amber-500 animate-ping'
+                : 'bg-emerald-500 animate-pulse'
+            }`}></span>
+            <span>{healthState.buttonText}</span>
           </button>
         </div>
 
@@ -304,10 +318,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </aside>
 
-      {/* Sync / Cloud Info Modal triggered by Enterprise Cloud Active */}
-      <SyncInfoModal 
-        isOpen={isSyncModalOpen}
-        onClose={() => setIsSyncModalOpen(false)}
+      {/* System Diagnostics & Auto-Repair Modal */}
+      <SystemDiagnosticsModal 
+        isOpen={isDiagnosticsModalOpen}
+        onClose={() => setIsDiagnosticsModalOpen(false)}
+        healthState={healthState}
+        onRecheck={recheckHealth}
+        onAutoRepair={autoRepair}
       />
     </>
   );
