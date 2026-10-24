@@ -116,238 +116,241 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Unified Executive Dashboard Section (Left: 7-Card Financial Metrics & Ratios Stack | Right: Dynamic Trends Chart) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        
-        {/* LEFT COLUMN: 7-Box Vertical Stack matching Reference Wireframe */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-2.5">
+      {/* 1 GRUP 1 KESATUAN: Master Executive Financial Overview Container */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 md:p-6 transition-all">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-stretch">
           
-          {/* Box 1: Total Transaksi Terdaftar (Hero Box) */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                Total Transaksi Terdaftar
-              </span>
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md border border-slate-200">
-                Akuntansi Resmi
-              </span>
-            </div>
-            <div className="mt-2 flex items-baseline justify-between">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-black text-slate-900 tracking-tight font-mono">
-                  {transactions.length}
+          {/* LEFT COLUMN: 7-Box Vertical Stack */}
+          <div className="lg:col-span-5 xl:col-span-4 space-y-2.5 flex flex-col justify-between">
+            
+            {/* Box 1: Total Transaksi Terdaftar (Hero Box) */}
+            <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Total Transaksi Terdaftar
                 </span>
-                <span className="text-xs font-semibold text-slate-500">
-                  Transaksi
+                <span className="px-2 py-0.5 bg-white text-slate-700 text-[10px] font-bold rounded-md border border-slate-200 shadow-2xs">
+                  Akuntansi Resmi
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('journals')}
-                className="text-xs text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
-                title="Buka Jurnal Umum"
-              >
-                <span>Lihat Jurnal</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="mt-2 flex items-baseline justify-between">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight font-mono">
+                    {transactions.length}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    Transaksi
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('journals')}
+                  className="text-xs text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
+                  title="Buka Jurnal Umum"
+                >
+                  <span>Lihat Jurnal</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600">
+                <span className="text-slate-500">Distribusi Status:</span>
+                <span className="font-bold text-slate-800">{transactions.length} Terverifikasi • 0 Pending</span>
+              </div>
             </div>
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
-              <span className="text-slate-500">Distribusi Status:</span>
-              <span className="font-bold text-slate-800">{transactions.length} Terverifikasi • 0 Pending</span>
+
+            {/* Box 2: Saldo Kas Utama */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('cashbank')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('cashbank');
+                }
+              }}
+              className="bg-slate-50/80 hover:bg-emerald-50/40 p-3 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              title="Buka Modul Kas & Bank"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-emerald-600 group-hover:text-emerald-700 tracking-wider uppercase truncate">
+                  SALDO KAS UTAMA
+                </div>
+                <div className="text-base font-black text-emerald-700 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(kasLedger.endingBalance)}>
+                  {formatRupiah(kasLedger.endingBalance)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Likuiditas 100% Aktif • Kas Riil
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <Wallet className="w-4 h-4" />
+              </div>
             </div>
+
+            {/* Box 3: Total Aset (Harta) */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('balance-sheet')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('balance-sheet');
+                }
+              }}
+              className="bg-slate-50/80 hover:bg-amber-50/40 p-3 rounded-xl border border-slate-200/80 hover:border-amber-300 transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              title="Buka Laporan Neraca (Posisi Keuangan)"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-amber-600 group-hover:text-amber-700 tracking-wider uppercase truncate">
+                  TOTAL ASET (HARTA)
+                </div>
+                <div className="text-base font-black text-amber-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(bs.totalAssets)}>
+                  {formatRupiah(bs.totalAssets)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Struktur Aset: Lancar + Tetap
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <Landmark className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* Box 4: Kewajiban & Ekuitas */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('balance-sheet')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('balance-sheet');
+                }
+              }}
+              className="bg-slate-50/80 hover:bg-sky-50/40 p-3 rounded-xl border border-slate-200/80 hover:border-sky-300 transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              title="Buka Laporan Neraca"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-sky-600 group-hover:text-sky-700 tracking-wider uppercase truncate">
+                  KEWAJIBAN & EKUITAS
+                </div>
+                <div className="text-base font-black text-sky-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(bs.totalLiabilitiesAndEquity)}>
+                  {formatRupiah(bs.totalLiabilitiesAndEquity)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Integritas: {bs.isBalanced ? 'Neraca Seimbang (Valid)' : 'Perlu Diperiksa'}
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* Box 5: Total Pendapatan */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('profit-loss')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('profit-loss');
+                }
+              }}
+              className="bg-slate-50/80 hover:bg-cyan-50/40 p-3 rounded-xl border border-slate-200/80 hover:border-cyan-300 transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+              title="Buka Laporan Laba Rugi"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-cyan-600 group-hover:text-cyan-700 tracking-wider uppercase truncate">
+                  TOTAL PENDAPATAN
+                </div>
+                <div className="text-base font-black text-cyan-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(totalRevenue)}>
+                  {formatRupiah(totalRevenue)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Akumulasi L/R: Operasional & Non
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 border border-cyan-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* Box 6: Total Beban */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('profit-loss')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('profit-loss');
+                }
+              }}
+              className="bg-slate-50/80 hover:bg-rose-50/40 p-3 rounded-xl border border-slate-200/80 hover:border-rose-300 transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              title="Buka Laporan Laba Rugi"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-rose-600 group-hover:text-rose-700 tracking-wider uppercase truncate">
+                  TOTAL BEBAN
+                </div>
+                <div className="text-base font-black text-rose-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(totalExpense)}>
+                  {formatRupiah(totalExpense)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Beban Berjalan: Operasional & Pokok
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <TrendingDown className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* Box 7: KONDISI REAL TIME */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab('ratios')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab('ratios');
+                }
+              }}
+              className="bg-rose-50/30 hover:bg-rose-50/50 p-3.5 rounded-xl border border-rose-200/80 transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              title="Klik untuk membuka Analisis Rasio Keuangan Perusahaan"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] font-black text-rose-700 uppercase tracking-wider">
+                  KONDISI REAL TIME
+                </div>
+                <ArrowUpRight className="w-3.5 h-3.5 text-rose-600 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${ratioBadgeClass}`}>
+                  {ratioStatus}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1.5 leading-snug">
+                {ratioSummary}
+              </p>
+            </div>
+
           </div>
 
-          {/* Box 2: Saldo Kas Utama */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('cashbank')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('cashbank');
-              }
-            }}
-            className="bg-white hover:bg-emerald-50/20 p-3 rounded-xl border border-slate-200/90 hover:border-emerald-300 shadow-2xs transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-            title="Buka Modul Kas & Bank"
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-black text-emerald-600 group-hover:text-emerald-700 tracking-wider uppercase truncate">
-                SALDO KAS UTAMA
-              </div>
-              <div className="text-base font-black text-emerald-700 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(kasLedger.endingBalance)}>
-                {formatRupiah(kasLedger.endingBalance)}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Likuiditas 100% Aktif • Kas Riil
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <Wallet className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Box 3: Total Aset (Harta) */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('balance-sheet')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('balance-sheet');
-              }
-            }}
-            className="bg-white hover:bg-amber-50/20 p-3 rounded-xl border border-slate-200/90 hover:border-amber-300 shadow-2xs transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-            title="Buka Laporan Neraca (Posisi Keuangan)"
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-black text-amber-600 group-hover:text-amber-700 tracking-wider uppercase truncate">
-                TOTAL ASET (HARTA)
-              </div>
-              <div className="text-base font-black text-amber-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(bs.totalAssets)}>
-                {formatRupiah(bs.totalAssets)}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Struktur Aset: Lancar + Tetap
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <Landmark className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Box 4: Kewajiban & Ekuitas */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('balance-sheet')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('balance-sheet');
-              }
-            }}
-            className="bg-white hover:bg-sky-50/20 p-3 rounded-xl border border-slate-200/90 hover:border-sky-300 shadow-2xs transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-            title="Buka Laporan Neraca"
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-black text-sky-600 group-hover:text-sky-700 tracking-wider uppercase truncate">
-                KEWAJIBAN & EKUITAS
-              </div>
-              <div className="text-base font-black text-sky-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(bs.totalLiabilitiesAndEquity)}>
-                {formatRupiah(bs.totalLiabilitiesAndEquity)}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Integritas: {bs.isBalanced ? 'Neraca Seimbang (Valid)' : 'Perlu Diperiksa'}
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <ShieldCheck className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Box 5: Total Pendapatan */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('profit-loss')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('profit-loss');
-              }
-            }}
-            className="bg-white hover:bg-cyan-50/20 p-3 rounded-xl border border-slate-200/90 hover:border-cyan-300 shadow-2xs transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
-            title="Buka Laporan Laba Rugi"
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-black text-cyan-600 group-hover:text-cyan-700 tracking-wider uppercase truncate">
-                TOTAL PENDAPATAN
-              </div>
-              <div className="text-base font-black text-cyan-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(totalRevenue)}>
-                {formatRupiah(totalRevenue)}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Akumulasi L/R: Operasional & Non
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 border border-cyan-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Box 6: Total Beban */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('profit-loss')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('profit-loss');
-              }
-            }}
-            className="bg-white hover:bg-rose-50/20 p-3 rounded-xl border border-slate-200/90 hover:border-rose-300 shadow-2xs transition-all cursor-pointer group flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-            title="Buka Laporan Laba Rugi"
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-black text-rose-600 group-hover:text-rose-700 tracking-wider uppercase truncate">
-                TOTAL BEBAN
-              </div>
-              <div className="text-base font-black text-rose-600 font-mono tracking-tight whitespace-nowrap truncate num mt-0.5" title={formatRupiah(totalExpense)}>
-                {formatRupiah(totalExpense)}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Beban Berjalan: Operasional & Pokok
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <TrendingDown className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Box 7: KESIMPULAN DARI SLIDE BAR "ANALISIS RASIO KEUANGAN PERUSAHAAN" */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('ratios')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setActiveTab('ratios');
-              }
-            }}
-            className="bg-white hover:bg-rose-50/30 p-3.5 rounded-xl border border-rose-200/80 shadow-2xs transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-            title="Klik untuk membuka Analisis Rasio Keuangan Perusahaan"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-black text-rose-700 uppercase tracking-wider">
-                KONDISI REAL TIME
-              </div>
-              <ArrowUpRight className="w-3.5 h-3.5 text-rose-600 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${ratioBadgeClass}`}>
-                {ratioStatus}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-600 mt-1.5 leading-snug">
-              {ratioSummary}
-            </p>
+          {/* RIGHT COLUMN: Visual Multi-Line Financial Trends Chart (Embedded inside same group container) */}
+          <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-full lg:pl-6 lg:border-l lg:border-slate-100">
+            <FinancialTrendsChart 
+              accounts={accounts} 
+              transactions={transactions} 
+              currentPeriodName={settings.fiscalPeriod || 'Oktober 2026'} 
+              embedded={true}
+            />
           </div>
 
         </div>
-
-        {/* RIGHT COLUMN: Visual Multi-Line Financial Trends Chart (5 Pilar Dasar Keuangan) */}
-        <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-full">
-          <FinancialTrendsChart 
-            accounts={accounts} 
-            transactions={transactions} 
-            currentPeriodName={settings.fiscalPeriod || 'Oktober 2026'} 
-          />
-        </div>
-
       </div>
 
       {/* Recent Transactions Table */}

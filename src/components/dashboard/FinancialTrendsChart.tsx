@@ -80,6 +80,7 @@ interface FinancialTrendsChartProps {
   accounts: Account[];
   transactions: Transaction[];
   currentPeriodName?: string;
+  embedded?: boolean;
 }
 
 interface DataPoint {
@@ -95,7 +96,8 @@ interface DataPoint {
 export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
   accounts,
   transactions,
-  currentPeriodName = 'Periode Berjalan'
+  currentPeriodName = 'Periode Berjalan',
+  embedded = false
 }) => {
   const [period, setPeriod] = useState<TimePeriod>('month');
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({
@@ -361,7 +363,9 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
   const activeHoverPoint = hoverIndex !== null && dataPoints[hoverIndex] ? dataPoints[hoverIndex] : null;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 md:p-6 transition-all duration-200 h-full flex flex-col justify-between">
+    <div className={`transition-all duration-200 h-full flex flex-col justify-between ${
+      embedded ? 'w-full' : 'bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 md:p-6'
+    }`}>
       
       {/* 1. Header (Simple & Minimalist matching Reference Mockup) */}
       <div className="pb-3 border-b border-slate-100">
