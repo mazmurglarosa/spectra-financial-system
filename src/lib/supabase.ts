@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Account, Transaction, Contact, CompanySettings, ActivityLog, User } from '../types/accounting';
+import { isBase64DataUri, uploadHeavyFileToDrive } from '../services/googleDriveBot';
 
 export interface SupabaseConfig {
   url: string;
@@ -115,6 +116,49 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
   }
 }
 
+/**
+ * Database Size Guard: Mencegah berkas Base64 berat masuk ke tabel Supabase.
+ * Berkas berat otomatis dialihkan ke Google Drive dan hanya URL CDN ringan yang disimpan.
+ */
+async function sanitizeSettingsForSupabase(s: CompanySettings): Promise<CompanySettings> {
+  const sanitized = { ...s };
+
+  if (isBase64DataUri(sanitized.loginBgImage)) {
+    try {
+      const res = await uploadHeavyFileToDrive(sanitized.loginBgImage!, `login_bg_${Date.now()}.jpg`, 'image/jpeg');
+      if (res.success && res.directUrl) {
+        sanitized.loginBgImage = res.directUrl;
+      }
+    } catch {
+      sanitized.loginBgImage = '';
+    }
+  }
+
+  if (isBase64DataUri(sanitized.bootingBgImage)) {
+    try {
+      const res = await uploadHeavyFileToDrive(sanitized.bootingBgImage!, `booting_bg_${Date.now()}.jpg`, 'image/jpeg');
+      if (res.success && res.directUrl) {
+        sanitized.bootingBgImage = res.directUrl;
+      }
+    } catch {
+      sanitized.bootingBgImage = '';
+    }
+  }
+
+  if (isBase64DataUri(sanitized.loginLogoUrl)) {
+    try {
+      const res = await uploadHeavyFileToDrive(sanitized.loginLogoUrl!, `logo_${Date.now()}.png`, 'image/png');
+      if (res.success && res.directUrl) {
+        sanitized.loginLogoUrl = res.directUrl;
+      }
+    } catch {
+      sanitized.loginLogoUrl = '';
+    }
+  }
+
+  return sanitized;
+}
+
 // Synchronisation helpers
 export async function syncPushAllToSupabase(payload: {
   accounts: Account[];
@@ -186,9 +230,9 @@ export async function syncPushAllToSupabase(payload: {
       if (error) throw new Error(`Contacts error: ${error.message}`);
     }
 
-    // 4. Upsert Company Settings
+    // 4. Upsert Company Settings (Protected by Google Drive Size Guard)
     if (payload.settings) {
-      const s = payload.settings;
+      const s = await sanitizeSettingsForSupabase(payload.settings);
       const { error } = await client.from('company_settings').upsert({
         id: 'primary',
         company_name: s.companyName,
@@ -393,10 +437,11 @@ export async function deleteTransactionFromSupabase(id: string): Promise<void> {
   }
 }
 
-export async function pushSettingsToSupabase(s: CompanySettings): Promise<void> {
+export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {
   const client = getSupabaseClient();
   if (!client) return;
   try {
+    const s = await sanitizeSettingsForSupabase(rawSettings);
     await client.from('company_settings').upsert({
       id: 'primary',
       company_name: s.companyName,

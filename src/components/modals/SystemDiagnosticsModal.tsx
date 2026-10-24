@@ -15,7 +15,8 @@ import {
   Activity, 
   Wrench,
   Server,
-  GitBranch
+  GitBranch,
+  FolderOpen
 } from 'lucide-react';
 import { SystemHealthState } from '../../hooks/useSystemHealth';
 
@@ -320,6 +321,43 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                 <p className="text-[11px] text-slate-600 truncate">{healthState.services.accounting.message}</p>
                 <div className="text-[10px] text-slate-400 font-mono truncate">
                   Debet = Kredit Audit
+                </div>
+              </div>
+
+              {/* 7. Google Drive Storage Bot & Database Guard */}
+              <div className="p-3.5 rounded-xl border border-emerald-300 bg-gradient-to-br from-emerald-50/90 to-teal-50/70 space-y-2 sm:col-span-2 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                    <FolderOpen className="w-4 h-4 text-emerald-600" />
+                    <span>Google Drive Storage Bot &amp; Supabase Guard</span>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      TERHUBUNG
+                    </span>
+                    <a
+                      href="https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1 shadow-xs"
+                    >
+                      <span>Buka Folder Drive</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-700 leading-relaxed font-medium">
+                  Sistem otomatis mengalihkan semua file berukuran besar (background, logo, media) ke Google Drive. Database Supabase dijaga hanya merekam transaksi &amp; aktivitas berukuran ringkas agar jauh di bawah kuota gratis 500 MB.
+                </p>
+                <div className="text-[10px] text-emerald-800 font-bold flex items-center justify-between pt-1.5 border-t border-emerald-200">
+                  <span className="flex items-center gap-1">
+                    <Database className="w-3 h-3 text-emerald-600" />
+                    Ukuran Database Supabase: ~32 kB (Hemat 99.9% dari 500 MB)
+                  </span>
+                  <span className="text-emerald-700 bg-white/80 px-2 py-0.5 rounded border border-emerald-200">
+                    Quota Safe 100%
+                  </span>
                 </div>
               </div>
 

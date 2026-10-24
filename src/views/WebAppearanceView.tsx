@@ -16,11 +16,13 @@ import {
   ZoomIn,
   Play,
   Monitor,
-  Maximize2
+  Maximize2,
+  HardDrive
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { compressImage, compressPngLogo } from '../lib/imageCompressor';
 import { CompanySettings } from '../types/accounting';
+import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
 
 export interface ImagePreset {
   id: string;
@@ -191,17 +193,29 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
     try {
       setIsSaving(true);
-      // Compress user photo into crisp web-optimized HD JPEG (1920x1080, ~150-250KB)
-      // This prevents browser localStorage quota errors and syncs to Supabase in milliseconds!
-      const compressed = await compressImage(file, 1920, 1080, 0.82);
-      setBgImageUrl(compressed);
+      setSaveMessage('Mengompres dan mengunggah ke Google Drive...');
+      // 1. Compress image to clean HD
+      const compressed = await compressImage(file, 1920, 1080, 0.85);
+      
+      // 2. Offload heavy binary to Google Drive Bot (Folder: 1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn)
+      const offloadRes = await uploadHeavyFileToDrive(
+        compressed,
+        `login_bg_${Date.now()}.jpg`,
+        'image/jpeg',
+        { title: 'Background Login SPECTRA', uploadedBy: 'Administrator' }
+      );
+
+      const targetUrl = (offloadRes.success && offloadRes.directUrl) ? offloadRes.directUrl : compressed;
+      setBgImageUrl(targetUrl);
       autoSaveSettings({
-        loginBgImage: compressed,
+        loginBgImage: targetUrl,
         loginBgPosX: bgPosX,
         loginBgPosY: bgPosY,
         loginBgZoom: bgZoom
-      }, 'Foto background pribadi berhasil dioptimalkan dan otomatis tersimpan ke Cloud!');
-      logActivity('Tampilan Web', 'Mengunggah & mengaktifkan foto background login pribadi (HD)');
+      }, offloadRes.success 
+        ? 'Foto background berhasil disimpan ke Google Drive Anda & disinkronkan ke Cloud!' 
+        : 'Foto background tersimpan secara lokal.');
+      logActivity('Tampilan Web', 'Mengunggah foto background login ke Google Drive (Supabase hemat)');
     } catch (err: any) {
       alert('Gagal memproses gambar: ' + (err.message || err));
     } finally {
@@ -221,10 +235,29 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
     try {
       setIsSaving(true);
-      const compressed = await compressImage(file, 1920, 1080, 0.82);
-      setBootingBgUrl(compressed);
-      autoSaveSettings({ bootingBgImage: compressed }, 'Background booting berhasil dioptimalkan dan otomatis tersimpan!');
-      logActivity('Tampilan Web', 'Memperbarui background booting sistem (HD)');
+      setSaveMessage('Mengompres dan mengunggah background booting ke Google Drive...');
+      const compressed = await compressImage(file, 1920, 1080, 0.85);
+      
+      // Offload to Google Drive Bot
+      const offloadRes = await uploadHeavyFileToDrive(
+        compressed,
+        `booting_bg_${Date.now()}.jpg`,
+        'image/jpeg',
+        { title: 'Background Booting 5 Detik', uploadedBy: 'Administrator' }
+      );
+
+      const targetUrl = (offloadRes.success && offloadRes.directUrl) ? offloadRes.directUrl : compressed;
+      setBootingBgUrl(targetUrl);
+      autoSaveSettings({ 
+        bootingBgImage: targetUrl,
+        bootingOverlayDarkness: bootingDarkness,
+        bootingBgPosX,
+        bootingBgPosY,
+        bootingBgZoom
+      }, offloadRes.success 
+        ? 'Background booting berhasil disimpan ke Google Drive & disinkronkan!' 
+        : 'Background booting berhasil tersimpan!');
+      logActivity('Tampilan Web', 'Memperbarui background booting ke Google Drive (Supabase hemat)');
     } catch (err: any) {
       alert('Gagal memproses gambar booting: ' + (err.message || err));
     } finally {
@@ -244,10 +277,26 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
     try {
       setIsSaving(true);
+      setSaveMessage('Mengunggah logo resmi ke Google Drive...');
       const compressed = await compressPngLogo(file, 512, 256);
-      setLogoUrl(compressed);
-      autoSaveSettings({ loginLogoUrl: compressed, loginLogoHeight: logoHeight }, 'Logo transparan baru berhasil diunggah & tersimpan!');
-      logActivity('Tampilan Web', 'Memperbarui logo perusahaan');
+      
+      // Offload to Google Drive Bot
+      const offloadRes = await uploadHeavyFileToDrive(
+        compressed,
+        `logo_spectra_${Date.now()}.png`,
+        'image/png',
+        { title: 'Logo Perusahaan SPECTRA', uploadedBy: 'Administrator' }
+      );
+
+      const targetUrl = (offloadRes.success && offloadRes.directUrl) ? offloadRes.directUrl : compressed;
+      setLogoUrl(targetUrl);
+      autoSaveSettings({ 
+        loginLogoUrl: targetUrl, 
+        loginLogoHeight: logoHeight 
+      }, offloadRes.success 
+        ? 'Logo resmi berhasil disimpan ke Google Drive & disinkronkan!' 
+        : 'Logo transparan baru berhasil diunggah & tersimpan!');
+      logActivity('Tampilan Web', 'Memperbarui logo perusahaan ke Google Drive (Supabase hemat)');
     } catch (err: any) {
       alert('Gagal memproses logo: ' + (err.message || err));
     } finally {
@@ -441,6 +490,38 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
             )}
           </button>
         </div>
+      </div>
+
+      {/* 1.1 Google Drive Storage Offloader & Supabase Size Guard Banner */}
+      <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-emerald-500/10 text-emerald-700 rounded-xl border border-emerald-300 shrink-0 mt-0.5">
+            <HardDrive className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-bold text-slate-800">
+                Google Drive Storage Bot &amp; Supabase Size Guard Aktif
+              </h3>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                DB HEMAT 100%
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+              Semua foto dan berkas berat otomatis dialihkan dan disimpan ke folder Google Drive Anda. Supabase hanya merekam link URL dan riwayat aktivitas sehingga ukuran database tetap sangat kecil (~32 kB) dan selalu aman jauh di bawah limit gratis Supabase (500 MB).
+            </p>
+          </div>
+        </div>
+
+        <a
+          href={SPECTRA_DRIVE_FOLDER_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+        >
+          <span>Buka Folder Drive</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
       </div>
 
       {/* 2. Success Banner & Auto-Save Cloud Indicator */}

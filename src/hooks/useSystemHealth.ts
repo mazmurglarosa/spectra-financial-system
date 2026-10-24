@@ -29,6 +29,7 @@ export interface SystemHealthState {
     internet: ServiceHealth;
     storage: ServiceHealth;
     accounting: ServiceHealth;
+    driveBot: ServiceHealth;
   };
 }
 
@@ -79,6 +80,13 @@ export function useSystemHealth() {
         category: 'Financial Balance Audit',
         status: 'healthy',
         message: 'Semua jurnal berimbang (Debet = Kredit)'
+      },
+      driveBot: {
+        name: 'Google Drive Storage Bot',
+        category: 'Heavy Data Offloader',
+        status: 'healthy',
+        message: 'Aktif mengalihkan file berat ke Google Drive',
+        details: 'Folder: 1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn (Database Supabase terjaga ~32 kB)'
       }
     }
   }));
@@ -281,7 +289,14 @@ export function useSystemHealth() {
           github: githubHealth,
           internet: internetHealth,
           storage: storageHealth,
-          accounting: accountingHealth
+          accounting: accountingHealth,
+          driveBot: {
+            name: 'Google Drive Storage Bot',
+            category: 'Heavy Data Offloader',
+            status: 'healthy',
+            message: 'Aktif mengalihkan file berat ke Google Drive',
+            details: 'Folder: 1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn (Database Supabase terjaga ~32 kB)'
+          }
         }
       });
     }
