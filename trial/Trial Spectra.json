@@ -1,0 +1,2182 @@
+{
+  "version": "3.0",
+  "timestamp": "2026-10-24T09:50:54.442Z",
+  "exportedAt": "2026-09-23T19:00:55.499Z",
+  "company": {
+    "companyName": "PT Nirwana Bhumi Energy",
+    "businessType": "Jasa Kontraktor & Energi",
+    "fiscalPeriod": "Desember 2021",
+    "fiscalYear": 2021,
+    "currency": "IDR",
+    "taxRatePercent": 11,
+    "address": "Jl. Bisnis Raya No. 12, Bandung - Jawa Barat",
+    "phone": "(022) 7890123",
+    "email": "finance@ptbaru.co.id",
+    "directorName": "Sudono Salim",
+    "directorTitle": "Direktur Utama",
+    "accountantName": "Mazmur Gusti Agung L",
+    "accountantTitle": "Direktur Keuangan",
+    "preparerName": "Mazmur Gusti Agung L",
+    "preparerTitle": "Direktur Keuangan",
+    "approverName": "Sudono Salim",
+    "approverTitle": "Direktur Utama",
+    "loginBgImage": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop",
+    "loginQuote": "Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.",
+    "loginOverlayDarkness": "dark",
+    "bootingBgImage": "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?q=80&w=1920&auto=format&fit=crop",
+    "bootingOverlayDarkness": "dark",
+    "bootingBgPosX": 50,
+    "bootingBgPosY": 50,
+    "bootingBgZoom": 100,
+    "dashboardHeaderBgImage": "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?q=80&w=1920&auto=format&fit=crop",
+    "dashboardHeaderOverlayDarkness": "dark",
+    "dashboardHeaderBgPosX": 50,
+    "dashboardHeaderBgPosY": 50,
+    "dashboardHeaderBgZoom": 100,
+    "loginLogoUrl": "./assets/NBE_white.png",
+    "loginLogoHeight": 48,
+    "loginBgPosX": 50,
+    "loginBgPosY": 50,
+    "loginBgZoom": 100
+  },
+  "accounts": [
+    {
+      "id": "acc-10000",
+      "code": "10000",
+      "name": "Harta Lancar",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-10001",
+      "code": "10001",
+      "name": "Kas",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10002",
+      "code": "10002",
+      "name": "Persediaan Barang Dagang",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10003",
+      "code": "10003",
+      "name": "Piutang Usaha",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10004",
+      "code": "10004",
+      "name": "Piutang Pendapatan",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10005",
+      "code": "10005",
+      "name": "Wesel Tagih",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10006",
+      "code": "10006",
+      "name": "Perlengkapan Kantor",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10007",
+      "code": "10007",
+      "name": "Perlengkapan Toko",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10008",
+      "code": "10008",
+      "name": "Iklan Dibayar Dimuka",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10009",
+      "code": "10009",
+      "name": "Sewa Dibayar Dimuka",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-10010",
+      "code": "10010",
+      "name": "Asuransi Dibayar Dimuka",
+      "category": "HARTA_LANCAR",
+      "categoryName": "Harta Lancar",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11000",
+      "code": "11000",
+      "name": "Harta Tetap",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-11001",
+      "code": "11001",
+      "name": "Peralatan Kantor",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11002",
+      "code": "11002",
+      "name": "Akumulasi Penyusutan Peralatan Kantor",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11003",
+      "code": "11003",
+      "name": "Kendaraan",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11004",
+      "code": "11004",
+      "name": "Akumulasi Penyusutan Kendaraan",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11005",
+      "code": "11005",
+      "name": "Gedung",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11006",
+      "code": "11006",
+      "name": "Akumulasi Penyusutan Gedung",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11007",
+      "code": "11007",
+      "name": "Mesin",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11008",
+      "code": "11008",
+      "name": "Akumulasi Penyusutan Mesin",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11009",
+      "code": "11009",
+      "name": "Peralatan Toko",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11010",
+      "code": "11010",
+      "name": "Akumulasi Penyusutan Peralatan Toko",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-11011",
+      "code": "11011",
+      "name": "Tanah",
+      "category": "HARTA_TETAP",
+      "categoryName": "Harta Tetap",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20000",
+      "code": "20000",
+      "name": "Kewajiban Lancar",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-20001",
+      "code": "20001",
+      "name": "Utang Usaha/Dagang",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20002",
+      "code": "20002",
+      "name": "Utang Wesel",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20003",
+      "code": "20003",
+      "name": "Utang Gaji",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20004",
+      "code": "20004",
+      "name": "Utang Pajak Penghasilan",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20005",
+      "code": "20005",
+      "name": "Utang Hipotek",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20006",
+      "code": "20006",
+      "name": "Utang Obligasi",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20007",
+      "code": "20007",
+      "name": "Pendapatan Diterima Dimuka",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-20008",
+      "code": "20008",
+      "name": "Utang Utilitas",
+      "category": "UTANG_LANCAR",
+      "categoryName": "Utang Lancar",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-21000",
+      "code": "21000",
+      "name": "Utang Non Operasional",
+      "category": "UTANG_JANGKA_PANJANG",
+      "categoryName": "Utang Jangka Panjang",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-21001",
+      "code": "21001",
+      "name": "Utang Sewa",
+      "category": "UTANG_JANGKA_PANJANG",
+      "categoryName": "Utang Jangka Panjang",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-21002",
+      "code": "21002",
+      "name": "Utang Bank",
+      "category": "UTANG_JANGKA_PANJANG",
+      "categoryName": "Utang Jangka Panjang",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-21003",
+      "code": "21003",
+      "name": "Utang Bunga",
+      "category": "UTANG_JANGKA_PANJANG",
+      "categoryName": "Utang Jangka Panjang",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-30000",
+      "code": "30000",
+      "name": "Modal / Ekuitas",
+      "category": "EKUITAS",
+      "categoryName": "Modal / Ekuitas",
+      "pos": "Nrc",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-30001",
+      "code": "30001",
+      "name": "Prive",
+      "category": "EKUITAS",
+      "categoryName": "Modal / Ekuitas",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-30002",
+      "code": "30002",
+      "name": "Ikhtisar Laba Rugi",
+      "category": "EKUITAS",
+      "categoryName": "Modal / Ekuitas",
+      "pos": "Nrc",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40000",
+      "code": "40000",
+      "name": "Pendapatan Operasional",
+      "category": "PENDAPATAN_OPERASIONAL",
+      "categoryName": "Pendapatan Operasional",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-40001",
+      "code": "40001",
+      "name": "Pendapatan Jasa / Penjualan",
+      "category": "PENDAPATAN_OPERASIONAL",
+      "categoryName": "Pendapatan Operasional",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40002",
+      "code": "40002",
+      "name": "Retur Penjualan",
+      "category": "PENDAPATAN_OPERASIONAL",
+      "categoryName": "Pendapatan Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40003",
+      "code": "40003",
+      "name": "Potongan Penjualan",
+      "category": "PENDAPATAN_OPERASIONAL",
+      "categoryName": "Pendapatan Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40004",
+      "code": "40004",
+      "name": "Pembelian Barang Dagang",
+      "category": "HPP",
+      "categoryName": "Harga Pokok Penjualan (HPP)",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40005",
+      "code": "40005",
+      "name": "Retur Pembelian",
+      "category": "HPP",
+      "categoryName": "Harga Pokok Penjualan (HPP)",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40006",
+      "code": "40006",
+      "name": "Beban Angkut Pembelian",
+      "category": "HPP",
+      "categoryName": "Harga Pokok Penjualan (HPP)",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40007",
+      "code": "40007",
+      "name": "Ikhtisar L/R Persediaan",
+      "category": "HPP",
+      "categoryName": "Harga Pokok Penjualan (HPP)",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-40008",
+      "code": "40008",
+      "name": "Potongan Pembelian",
+      "category": "HPP",
+      "categoryName": "Harga Pokok Penjualan (HPP)",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-41000",
+      "code": "41000",
+      "name": "Pendapatan Non Operasional",
+      "category": "PENDAPATAN_NON_OPERASIONAL",
+      "categoryName": "Pendapatan Non Operasional",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-41001",
+      "code": "41001",
+      "name": "Pendapatan Bunga Bank",
+      "category": "PENDAPATAN_NON_OPERASIONAL",
+      "categoryName": "Pendapatan Non Operasional",
+      "pos": "Lr",
+      "sn": "Kr",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50000",
+      "code": "50000",
+      "name": "Beban Operasional",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": true
+    },
+    {
+      "id": "acc-50001",
+      "code": "50001",
+      "name": "Beban Gaji Toko",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50002",
+      "code": "50002",
+      "name": "Beban Gaji Kantor",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50003",
+      "code": "50003",
+      "name": "Beban Sewa Lahan",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50004",
+      "code": "50004",
+      "name": "Beban Asuransi",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50005",
+      "code": "50005",
+      "name": "Beban Penyesuaian Piutang",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50006",
+      "code": "50006",
+      "name": "Beban Perlengkapan Kantor",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50007",
+      "code": "50007",
+      "name": "Beban Perlengkapan Toko",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50008",
+      "code": "50008",
+      "name": "Beban Iklan",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50009",
+      "code": "50009",
+      "name": "Beban Penyusutan Peralatan Kantor",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50010",
+      "code": "50010",
+      "name": "Beban Penyusutan Gedung",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50011",
+      "code": "50011",
+      "name": "Beban Bunga",
+      "category": "BEBAN_NON_OPERASIONAL",
+      "categoryName": "Beban Non-Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50012",
+      "code": "50012",
+      "name": "Beban Listrik Dan Telepon",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50013",
+      "code": "50013",
+      "name": "Beban Penyusutan Mesin",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50014",
+      "code": "50014",
+      "name": "Beban Lain-lain",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50015",
+      "code": "50015",
+      "name": "Beban Penyusutan Kendaraan",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50016",
+      "code": "50016",
+      "name": "Beban Penjualan",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50018",
+      "code": "50018",
+      "name": "Pajak Penghasilan (PPh)",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50019",
+      "code": "50019",
+      "name": "Beban Penyusutan Peralatan Toko",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50020",
+      "code": "50020",
+      "name": "Beban Service & Pemeliharaan",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50021",
+      "code": "50021",
+      "name": "Beban Akibat Bencana Alam",
+      "category": "BEBAN_NON_OPERASIONAL",
+      "categoryName": "Beban Non-Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50022",
+      "code": "50022",
+      "name": "Beban Administrasi Bank",
+      "category": "BEBAN_NON_OPERASIONAL",
+      "categoryName": "Beban Non-Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50023",
+      "code": "50023",
+      "name": "Beban Bahan Bakar",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50024",
+      "code": "50024",
+      "name": "Pajak Kendaraan Bermotor (PKB0",
+      "category": "BEBAN_OPERASIONAL",
+      "categoryName": "Beban Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    },
+    {
+      "id": "acc-50025",
+      "code": "50025",
+      "name": "Beban Angsruan Kendaraan",
+      "category": "BEBAN_NON_OPERASIONAL",
+      "categoryName": "Beban Non-Operasional",
+      "pos": "Lr",
+      "sn": "Db",
+      "debetAwal": 0,
+      "kreditAwal": 0,
+      "isHeader": false
+    }
+  ],
+  "transactions": [
+    {
+      "id": "tx-1790185054303",
+      "date": "2026-09-23",
+      "refNumber": "JU-1",
+      "type": "general",
+      "description": "Setoran Modal Awal",
+      "lines": [
+        {
+          "id": "line-tx-1790185054303-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 100000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185054303-2",
+          "accountId": "acc-30000",
+          "accountCode": "30000",
+          "accountName": "Modal / Ekuitas",
+          "debit": 0,
+          "credit": 100000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 100000000,
+      "totalCredit": 100000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185142021",
+      "date": "2026-09-23",
+      "refNumber": "JU-2",
+      "type": "general",
+      "description": "Beli Kendaraan Parsial",
+      "lines": [
+        {
+          "id": "line-tx-1790185142021-1",
+          "accountId": "acc-11003",
+          "accountCode": "11003",
+          "accountName": "Kendaraan",
+          "debit": 60000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185142021-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 30000000,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185142021-3",
+          "accountId": "acc-20001",
+          "accountCode": "20001",
+          "accountName": "Utang Usaha/Dagang",
+          "debit": 0,
+          "credit": 30000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 60000000,
+      "totalCredit": 60000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185229609",
+      "date": "2026-09-23",
+      "refNumber": "JU-3",
+      "type": "general",
+      "description": "Beban Sewa Kantor",
+      "lines": [
+        {
+          "id": "line-tx-1790185229609-1",
+          "accountId": "acc-50003",
+          "accountCode": "50003",
+          "accountName": "Beban Sewa Lahan",
+          "debit": 500000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185229609-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 500000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 500000,
+      "totalCredit": 500000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185314247",
+      "date": "2026-09-23",
+      "refNumber": "JU-4",
+      "type": "general",
+      "description": "Pembelian perlengkapan",
+      "lines": [
+        {
+          "id": "line-tx-1790185314247-1",
+          "accountId": "acc-10006",
+          "accountCode": "10006",
+          "accountName": "Perlengkapan Kantor",
+          "debit": 1000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185314247-2",
+          "accountId": "acc-20001",
+          "accountCode": "20001",
+          "accountName": "Utang Usaha/Dagang",
+          "debit": 0,
+          "credit": 1000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 1000000,
+      "totalCredit": 1000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185470159",
+      "date": "2026-09-23",
+      "refNumber": "JU-5",
+      "type": "general",
+      "description": "Pembayaran Beban Iklan",
+      "lines": [
+        {
+          "id": "line-tx-1790185470159-1",
+          "accountId": "acc-50008",
+          "accountCode": "50008",
+          "accountName": "Beban Iklan",
+          "debit": 200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185470159-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 200000,
+      "totalCredit": 200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185616657",
+      "date": "2026-09-23",
+      "refNumber": "JU-6",
+      "type": "general",
+      "description": "Beli Perlengkapan",
+      "lines": [
+        {
+          "id": "line-tx-1790185616657-1",
+          "accountId": "acc-10006",
+          "accountCode": "10006",
+          "accountName": "Perlengkapan Kantor",
+          "debit": 4000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185616657-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 4000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 4000000,
+      "totalCredit": 4000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185711838",
+      "date": "2026-09-23",
+      "refNumber": "JU-7",
+      "type": "general",
+      "description": "Nemerima Pendapatan Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790185711838-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 3000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185711838-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 3000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 3000000,
+      "totalCredit": 3000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185845491",
+      "date": "2026-09-23",
+      "refNumber": "JU-8",
+      "type": "general",
+      "description": "Penerimaan Uang Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790185845491-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 3000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185845491-2",
+          "accountId": "acc-10003",
+          "accountCode": "10003",
+          "accountName": "Piutang Usaha",
+          "debit": 3000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185845491-3",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 6000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 6000000,
+      "totalCredit": 6000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185935979",
+      "date": "2026-09-23",
+      "refNumber": "JU-9",
+      "type": "general",
+      "description": "Beli Peralatan",
+      "lines": [
+        {
+          "id": "line-tx-1790185935979-1",
+          "accountId": "acc-11001",
+          "accountCode": "11001",
+          "accountName": "Peralatan Kantor",
+          "debit": 1500000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185935979-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 1500000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 1500000,
+      "totalCredit": 1500000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790185999011",
+      "date": "2026-09-23",
+      "refNumber": "JU-10",
+      "type": "general",
+      "description": "Pembayaran Utang Dagang",
+      "lines": [
+        {
+          "id": "line-tx-1790185999011-1",
+          "accountId": "acc-20001",
+          "accountCode": "20001",
+          "accountName": "Utang Usaha/Dagang",
+          "debit": 500000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790185999011-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 500000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 500000,
+      "totalCredit": 500000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186067613",
+      "date": "2026-09-23",
+      "refNumber": "JU-11",
+      "type": "general",
+      "description": "Penerimaan Jasa Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790186067613-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 600000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186067613-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 600000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 600000,
+      "totalCredit": 600000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186177674",
+      "date": "2026-09-23",
+      "refNumber": "JU-12",
+      "type": "general",
+      "description": "Biaya Service Kendaraan",
+      "lines": [
+        {
+          "id": "line-tx-1790186177674-1",
+          "accountId": "acc-50020",
+          "accountCode": "50020",
+          "accountName": "Beban Service & Pemeliharaan",
+          "debit": 2200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186177674-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 2200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2200000,
+      "totalCredit": 2200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186220190",
+      "date": "2026-09-23",
+      "refNumber": "JU-13",
+      "type": "general",
+      "description": "Penerimaan Pelunasan Piutang",
+      "lines": [
+        {
+          "id": "line-tx-1790186220190-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 1000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186220190-2",
+          "accountId": "acc-10003",
+          "accountCode": "10003",
+          "accountName": "Piutang Usaha",
+          "debit": 0,
+          "credit": 1000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 1000000,
+      "totalCredit": 1000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186255357",
+      "date": "2026-09-23",
+      "refNumber": "JU-14",
+      "type": "general",
+      "description": "Penerimaan Jasa Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790186255357-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 2000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186255357-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 2000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2000000,
+      "totalCredit": 2000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186455334",
+      "date": "2026-09-23",
+      "refNumber": "JU-15",
+      "type": "general",
+      "description": "Beli Bensin",
+      "lines": [
+        {
+          "id": "line-tx-1790186455334-1",
+          "accountId": "acc-50023",
+          "accountCode": "50023",
+          "accountName": "Beban Bahan Bakar",
+          "debit": 300000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186455334-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 300000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 300000,
+      "totalCredit": 300000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186525338",
+      "date": "2026-09-23",
+      "refNumber": "JU-16",
+      "type": "general",
+      "description": "Pembayaran Gaji Karyawan",
+      "lines": [
+        {
+          "id": "line-tx-1790186525338-1",
+          "accountId": "acc-50002",
+          "accountCode": "50002",
+          "accountName": "Beban Gaji Kantor",
+          "debit": 5400000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186525338-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 2400000,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186525338-3",
+          "accountId": "acc-20003",
+          "accountCode": "20003",
+          "accountName": "Utang Gaji",
+          "debit": 0,
+          "credit": 3000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 5400000,
+      "totalCredit": 5400000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186568561",
+      "date": "2026-09-23",
+      "refNumber": "JU-17",
+      "type": "general",
+      "description": "Menerima Jasa Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790186568561-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 4200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186568561-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 4200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 4200000,
+      "totalCredit": 4200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186639030",
+      "date": "2026-09-23",
+      "refNumber": "JU-18",
+      "type": "general",
+      "description": "Menerima Jasa Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790186639030-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 2000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186639030-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 2000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2000000,
+      "totalCredit": 2000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186812864",
+      "date": "2026-09-23",
+      "refNumber": "JU-19",
+      "type": "general",
+      "description": "Bayar Pajak Kendaraan",
+      "lines": [
+        {
+          "id": "line-tx-1790186812864-1",
+          "accountId": "acc-50024",
+          "accountCode": "50024",
+          "accountName": "Pajak Kendaraan Bermotor (PKB0",
+          "debit": 3200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186812864-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 3200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 3200000,
+      "totalCredit": 3200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186923862",
+      "date": "2026-09-23",
+      "refNumber": "JU-20",
+      "type": "general",
+      "description": "Beli Perlengkapan Kantor",
+      "lines": [
+        {
+          "id": "line-tx-1790186923862-1",
+          "accountId": "acc-10006",
+          "accountCode": "10006",
+          "accountName": "Perlengkapan Kantor",
+          "debit": 350000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186923862-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 350000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 350000,
+      "totalCredit": 350000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790186978794",
+      "date": "2026-09-23",
+      "refNumber": "JU-21",
+      "type": "general",
+      "description": "Menerima Pendapatan Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790186978794-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 3500000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790186978794-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 3500000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 3500000,
+      "totalCredit": 3500000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187117540",
+      "date": "2026-09-23",
+      "refNumber": "JU-22",
+      "type": "general",
+      "description": "Bayar Beban Utilitas",
+      "lines": [
+        {
+          "id": "line-tx-1790187117540-1",
+          "accountId": "acc-50012",
+          "accountCode": "50012",
+          "accountName": "Beban Listrik Dan Telepon",
+          "debit": 350000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187117540-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 350000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 350000,
+      "totalCredit": 350000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187169890",
+      "date": "2026-09-23",
+      "refNumber": "JU-23",
+      "type": "general",
+      "description": "Pendapatan Sewa Diterima",
+      "lines": [
+        {
+          "id": "line-tx-1790187169890-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 2000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187169890-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 2000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2000000,
+      "totalCredit": 2000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187236908",
+      "date": "2026-09-23",
+      "refNumber": "JU-24",
+      "type": "general",
+      "description": "Belo Peralatan Kantor",
+      "lines": [
+        {
+          "id": "line-tx-1790187236908-1",
+          "accountId": "acc-11001",
+          "accountCode": "11001",
+          "accountName": "Peralatan Kantor",
+          "debit": 3000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187236908-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 3000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 3000000,
+      "totalCredit": 3000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187277504",
+      "date": "2026-09-23",
+      "refNumber": "JU-25",
+      "type": "general",
+      "description": "Bayar Biaya Service Kendaraan ",
+      "lines": [
+        {
+          "id": "line-tx-1790187277504-1",
+          "accountId": "acc-50020",
+          "accountCode": "50020",
+          "accountName": "Beban Service & Pemeliharaan",
+          "debit": 2200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187277504-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 2200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2200000,
+      "totalCredit": 2200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187374484",
+      "date": "2026-09-23",
+      "refNumber": "JU-26",
+      "type": "general",
+      "description": "Bayar Beban Angsuran Kendaraan ",
+      "lines": [
+        {
+          "id": "line-tx-1790187374484-1",
+          "accountId": "acc-50025",
+          "accountCode": "50025",
+          "accountName": "Beban Angsruan Kendaraan",
+          "debit": 5000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187374484-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 5000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 5000000,
+      "totalCredit": 5000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187456192",
+      "date": "2026-09-23",
+      "refNumber": "JU-27",
+      "type": "general",
+      "description": "Terima Jasa Sewa",
+      "lines": [
+        {
+          "id": "line-tx-1790187456192-1",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 2000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187456192-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 2000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 2000000,
+      "totalCredit": 2000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187505522",
+      "date": "2026-09-23",
+      "refNumber": "JU-28",
+      "type": "general",
+      "description": "Bayar Telpon",
+      "lines": [
+        {
+          "id": "line-tx-1790187505522-1",
+          "accountId": "acc-50012",
+          "accountCode": "50012",
+          "accountName": "Beban Listrik Dan Telepon",
+          "debit": 200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187505522-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 200000,
+      "totalCredit": 200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187551128",
+      "date": "2026-09-23",
+      "refNumber": "JU-29",
+      "type": "general",
+      "description": "Pemilik Menarik Modal",
+      "lines": [
+        {
+          "id": "line-tx-1790187551128-1",
+          "accountId": "acc-30001",
+          "accountCode": "30001",
+          "accountName": "Prive",
+          "debit": 1500000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187551128-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 1500000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 1500000,
+      "totalCredit": 1500000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187596332",
+      "date": "2026-09-23",
+      "refNumber": "JU-30",
+      "type": "general",
+      "description": "Pembayaran Beban Lain Lain",
+      "lines": [
+        {
+          "id": "line-tx-1790187596332-1",
+          "accountId": "acc-50014",
+          "accountCode": "50014",
+          "accountName": "Beban Lain-lain",
+          "debit": 1000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187596332-2",
+          "accountId": "acc-10001",
+          "accountCode": "10001",
+          "accountName": "Kas",
+          "debit": 0,
+          "credit": 1000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 1000000,
+      "totalCredit": 1000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187690896",
+      "date": "2026-09-23",
+      "refNumber": "JU-31",
+      "type": "adjustment",
+      "description": "Penyesuaian Perlengkapan",
+      "lines": [
+        {
+          "id": "line-tx-1790187690896-1",
+          "accountId": "acc-50006",
+          "accountCode": "50006",
+          "accountName": "Beban Perlengkapan Kantor",
+          "debit": 350000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187690896-2",
+          "accountId": "acc-10006",
+          "accountCode": "10006",
+          "accountName": "Perlengkapan Kantor",
+          "debit": 0,
+          "credit": 350000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 350000,
+      "totalCredit": 350000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187807512",
+      "date": "2026-09-23",
+      "refNumber": "JU-32",
+      "type": "adjustment",
+      "description": "Penyesuaian Gaji",
+      "lines": [
+        {
+          "id": "line-tx-1790187807512-1",
+          "accountId": "acc-50002",
+          "accountCode": "50002",
+          "accountName": "Beban Gaji Kantor",
+          "debit": 200000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187807512-2",
+          "accountId": "acc-20003",
+          "accountCode": "20003",
+          "accountName": "Utang Gaji",
+          "debit": 0,
+          "credit": 200000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 200000,
+      "totalCredit": 200000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187898282",
+      "date": "2026-09-23",
+      "refNumber": "JU-33",
+      "type": "adjustment",
+      "description": "Penyesuaian Pendapatan",
+      "lines": [
+        {
+          "id": "line-tx-1790187898282-1",
+          "accountId": "acc-10003",
+          "accountCode": "10003",
+          "accountName": "Piutang Usaha",
+          "debit": 5400000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187898282-2",
+          "accountId": "acc-40001",
+          "accountCode": "40001",
+          "accountName": "Pendapatan Jasa / Penjualan",
+          "debit": 0,
+          "credit": 5400000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 5400000,
+      "totalCredit": 5400000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790187990174",
+      "date": "2026-09-23",
+      "refNumber": "JU-34",
+      "type": "adjustment",
+      "description": "Beban Penyusutan Kendaraan ",
+      "lines": [
+        {
+          "id": "line-tx-1790187990174-1",
+          "accountId": "acc-50015",
+          "accountCode": "50015",
+          "accountName": "Beban Penyusutan Kendaraan",
+          "debit": 3000000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790187990174-2",
+          "accountId": "acc-11004",
+          "accountCode": "11004",
+          "accountName": "Akumulasi Penyusutan Kendaraan",
+          "debit": 0,
+          "credit": 3000000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 3000000,
+      "totalCredit": 3000000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790188128909",
+      "date": "2026-09-23",
+      "refNumber": "JU-35",
+      "type": "adjustment",
+      "description": "Penyusutan Peralatan",
+      "lines": [
+        {
+          "id": "line-tx-1790188128909-1",
+          "accountId": "acc-50009",
+          "accountCode": "50009",
+          "accountName": "Beban Penyusutan Peralatan Kantor",
+          "debit": 300000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790188128909-2",
+          "accountId": "acc-11002",
+          "accountCode": "11002",
+          "accountName": "Akumulasi Penyusutan Peralatan Kantor",
+          "debit": 0,
+          "credit": 300000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 300000,
+      "totalCredit": 300000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    },
+    {
+      "id": "tx-1790188212490",
+      "date": "2026-09-23",
+      "refNumber": "JU-36",
+      "type": "adjustment",
+      "description": "Penyesuaian Utang Listrik",
+      "lines": [
+        {
+          "id": "line-tx-1790188212490-1",
+          "accountId": "acc-50012",
+          "accountCode": "50012",
+          "accountName": "Beban Listrik Dan Telepon",
+          "debit": 150000,
+          "credit": 0,
+          "memo": ""
+        },
+        {
+          "id": "line-tx-1790188212490-2",
+          "accountId": "acc-20008",
+          "accountCode": "20008",
+          "accountName": "Utang Utilitas",
+          "debit": 0,
+          "credit": 150000,
+          "memo": ""
+        }
+      ],
+      "totalDebit": 150000,
+      "totalCredit": 150000,
+      "createdAt": 1790121600000,
+      "updatedAt": 1792835454442,
+      "partner": ""
+    }
+  ],
+  "contacts": [
+    {
+      "id": "c-001",
+      "code": "CUST-001",
+      "name": "Andi Transport Service",
+      "type": "customer",
+      "phone": "08123456789",
+      "balance": 500000
+    },
+    {
+      "id": "c-002",
+      "code": "CUST-002",
+      "name": "CV Mitra Sejati",
+      "type": "customer",
+      "phone": "08198765432",
+      "balance": 0
+    },
+    {
+      "id": "v-001",
+      "code": "VEND-001",
+      "name": "Toko ATK Sejahtera",
+      "type": "vendor",
+      "phone": "08561234567",
+      "balance": 0
+    },
+    {
+      "id": "v-002",
+      "code": "VEND-002",
+      "name": "PT Sumber Perlengkapan",
+      "type": "vendor",
+      "phone": "08771122334",
+      "balance": 0
+    }
+  ],
+  "users": [
+    {
+      "id": "u-admin",
+      "username": "mazmur.larosa",
+      "fullName": "Mazmur Gusti Agung L",
+      "position": "Direktur Keuangan",
+      "role": "admin",
+      "isAuthority": true,
+      "status": "active",
+      "registeredAt": "2026-09-20"
+    }
+  ],
+  "activityLogs": [
+    {
+      "id": "log-001",
+      "timestamp": "2026-10-24T09:50:54.443Z",
+      "username": "mazmur.larosa",
+      "fullName": "Mazmur Gusti Agung L",
+      "position": "Direktur Keuangan",
+      "action": "Restore Database",
+      "detail": "Basis data Trial Spectra: 75 Akun COA, 36 Transaksi Jurnal Umum"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { 
   Account, 
   Transaction, 
+  TransactionLine,
   CompanySettings, 
   User, 
   ActivityLog, 
@@ -1089,23 +1090,125 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!data.accounts || !data.transactions) {
         return { success: false, message: 'Format file JSON tidak valid. Memerlukan properti accounts dan transactions.' };
       }
-      setAccounts(data.accounts);
-      setTransactions(data.transactions);
-      if (data.company) setSettings(data.company);
-      if (data.contacts) setContacts(data.contacts);
 
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(data.accounts));
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(data.transactions));
-      if (data.company) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.company));
+      // Helper map category
+      const mapImportCategory = (cat: any, code: string): { category: AccountCategory; categoryName: string } => {
+        const c = String(cat || '').toLowerCase();
+        const num = parseInt(code, 10) || 0;
+        if (c.includes('aset lancar') || c.includes('harta lancar')) return { category: 'HARTA_LANCAR', categoryName: 'Harta Lancar' };
+        if (c.includes('aset tetap') || c.includes('harta tetap')) return { category: 'HARTA_TETAP', categoryName: 'Harta Tetap' };
+        if (c.includes('kewajiban lancar') || c.includes('utang lancar')) return { category: 'UTANG_LANCAR', categoryName: 'Utang Lancar' };
+        if (c.includes('kewajiban jangka panjang') || c.includes('utang jangka panjang')) return { category: 'UTANG_JANGKA_PANJANG', categoryName: 'Utang Jangka Panjang' };
+        if (c.includes('ekuitas') || c.includes('modal')) return { category: 'EKUITAS', categoryName: 'Modal / Ekuitas' };
+        if (c.includes('pendapatan lain') || (c.includes('non operasional') && num < 50000)) return { category: 'PENDAPATAN_NON_OPERASIONAL', categoryName: 'Pendapatan Non Operasional' };
+        if (c.includes('pendapatan')) return { category: 'PENDAPATAN_OPERASIONAL', categoryName: 'Pendapatan Operasional' };
+        if (c.includes('hpp')) return { category: 'BEBAN_OPERASIONAL', categoryName: 'Harga Pokok Penjualan (HPP)' };
+        if (c.includes('beban non-operasional') || c.includes('beban lain')) return { category: 'BEBAN_NON_OPERASIONAL', categoryName: 'Beban Non-Operasional' };
+        return { category: 'BEBAN_OPERASIONAL', categoryName: 'Beban Operasional' };
+      };
+
+      // 1. Normalisasi Akun
+      const normalizedAccounts: Account[] = (Array.isArray(data.accounts) ? data.accounts : []).map((a: any) => {
+        const cat = mapImportCategory(a.category, a.code);
+        return {
+          id: a.id || `acc-${a.code}`,
+          code: String(a.code),
+          name: String(a.name || ''),
+          category: (typeof a.category === 'string' && a.category.toUpperCase() === a.category) ? a.category : cat.category,
+          categoryName: a.categoryName || cat.categoryName,
+          pos: (a.pos === 'Lr' || a.pos === 'Nrc') ? a.pos : 'Nrc',
+          sn: (a.sn === 'Kr' || a.sn === 'Db') ? a.sn : 'Db',
+          debetAwal: Number(a.debetAwal !== undefined ? a.debetAwal : (a.debit || 0)),
+          kreditAwal: Number(a.kreditAwal !== undefined ? a.kreditAwal : (a.credit || 0)),
+          isHeader: a.isHeader !== undefined ? Boolean(a.isHeader) : (a.type === 'header'),
+          description: a.description || ''
+        };
+      });
+
+      // 2. Normalisasi Transaksi
+      const normalizedTransactions: Transaction[] = (Array.isArray(data.transactions) ? data.transactions : []).map((t: any, idx: number) => {
+        const rawLines = Array.isArray(t.lines) ? t.lines : (Array.isArray(t.items) ? t.items : []);
+        const lines: TransactionLine[] = rawLines.map((l: any, lIdx: number) => ({
+          id: l.id || `line-${t.id || `tx-${idx}`}-${lIdx + 1}`,
+          accountId: l.accountId || `acc-${l.accountCode}`,
+          accountCode: String(l.accountCode || ''),
+          accountName: String(l.accountName || ''),
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
+          memo: l.memo || ''
+        }));
+        const totalDebit = Number(t.totalDebit) || lines.reduce((s, x) => s + x.debit, 0);
+        const totalCredit = Number(t.totalCredit) || lines.reduce((s, x) => s + x.credit, 0);
+        const dateStr = t.date || new Date().toISOString().split('T')[0];
+
+        return {
+          id: t.id || `tx-${Date.now()}-${idx}`,
+          date: dateStr,
+          refNumber: t.refNumber || t.ref || `JU-${idx + 1}`,
+          type: (t.type || 'general') as TransactionType,
+          description: t.description || '',
+          lines,
+          totalDebit,
+          totalCredit,
+          createdAt: Number(t.createdAt) || (Date.parse(dateStr) || Date.now()),
+          updatedAt: Number(t.updatedAt) || Date.now(),
+          partner: t.partner || t.contact || '',
+          tags: Array.isArray(t.tags) ? t.tags : []
+        };
+      });
+
+      // 3. Normalisasi Pengaturan Perusahaan
+      let normalizedCompany: CompanySettings | undefined;
+      if (data.company) {
+        normalizedCompany = {
+          ...settings,
+          companyName: data.company.companyName || data.company.name || settings.companyName,
+          businessType: data.company.businessType || settings.businessType,
+          fiscalPeriod: data.company.fiscalPeriod || data.company.period || settings.fiscalPeriod,
+          fiscalYear: Number(data.company.fiscalYear) || (data.company.period?.match(/\d{4}/) ? parseInt(data.company.period.match(/\d{4}/)[0], 10) : settings.fiscalYear),
+          currency: data.company.currency || settings.currency,
+          taxRatePercent: Number(data.company.taxRatePercent) || settings.taxRatePercent,
+          address: data.company.address || settings.address,
+          phone: data.company.phone || settings.phone,
+          email: data.company.email || settings.email,
+          directorName: data.company.directorName || settings.directorName,
+          directorTitle: data.company.directorTitle || settings.directorTitle,
+          accountantName: data.company.accountantName || settings.accountantName,
+          accountantTitle: data.company.accountantTitle || settings.accountantTitle,
+          preparerName: data.company.preparerName || settings.preparerName,
+          preparerTitle: data.company.preparerTitle || settings.preparerTitle,
+          approverName: data.company.approverName || settings.approverName,
+          approverTitle: data.company.approverTitle || settings.approverTitle,
+        };
+      }
+
+      setAccounts(normalizedAccounts);
+      setTransactions(normalizedTransactions);
+      if (normalizedCompany) setSettings(normalizedCompany);
+      if (data.contacts && Array.isArray(data.contacts)) setContacts(data.contacts);
+
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(normalizedAccounts));
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(normalizedTransactions));
+      if (normalizedCompany) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(normalizedCompany));
       if (data.contacts) localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(data.contacts));
 
-      broadcastChange('ALL', data);
-      logActivity('Restore Database', `Memulihkan database: ${data.accounts.length} akun, ${data.transactions.length} transaksi`);
-      return { success: true, message: `Berhasil memulihkan ${data.accounts.length} akun dan ${data.transactions.length} transaksi!` };
+      // Asynchronous background sync to Supabase if connected
+      pushMultipleAccountsToSupabase(normalizedAccounts).catch(() => {});
+      if (normalizedCompany) pushSettingsToSupabase(normalizedCompany).catch(() => {});
+
+      broadcastChange('ALL', {
+        accounts: normalizedAccounts,
+        transactions: normalizedTransactions,
+        company: normalizedCompany || settings,
+        contacts: data.contacts || contacts
+      });
+
+      logActivity('Restore Database', `Memulihkan database: ${normalizedAccounts.length} akun, ${normalizedTransactions.length} transaksi`);
+      return { success: true, message: `Berhasil memulihkan ${normalizedAccounts.length} akun dan ${normalizedTransactions.length} transaksi!` };
     } catch (e: any) {
       return { success: false, message: `Gagal membaca berkas JSON: ${e.message}` };
     }
-  }, [broadcastChange, logActivity]);
+  }, [settings, contacts, broadcastChange, logActivity]);
 
   const triggerManualSync = useCallback(() => {
     setSyncStatus(prev => ({
