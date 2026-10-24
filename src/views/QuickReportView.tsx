@@ -66,9 +66,6 @@ export const QuickReportView: React.FC<QuickReportViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black tracking-tight text-slate-900">Quick Report</h1>
-              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-sky-50 text-[#0284c7] border border-sky-200 rounded-full">
-                Operasional Cepat
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
               Ringkasan transaksi dan buku pembantu harian: Kas & Bank riil, Penjualan & Piutang Usaha (AR), serta Pembelian & Hutang Dagang (AP).

@@ -66,9 +66,6 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black tracking-tight text-slate-900">Laporan Keuangan Standar Publik / PSAK Resmi</h1>
-                <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-                  Format Dokumen Contoh (IDX / OJK)
-                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
                 Disusun otomatis secara bilingual (Indonesia - Inggris) dengan nomor catatan atas laporan keuangan (CALK), komparasi tahun buku berjalan & sebelumnya, serta lembar tanda tangan otentik Direksi sesuai standar laporan keuangan publik.

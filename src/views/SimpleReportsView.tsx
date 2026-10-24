@@ -82,9 +82,6 @@ export const SimpleReportsView: React.FC<SimpleReportsViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black tracking-tight text-slate-900">Laporan Sederhana</h1>
-              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-sky-50 text-[#0284c7] border border-sky-200 rounded-full">
-                Internal & Operasional
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
               Pusat laporan keuangan operasional lengkap: Neraca Saldo, Neraca Lajur 10 Kolom, Laba Rugi, Posisi Keuangan, Perubahan Modal, dan Arus Kas.

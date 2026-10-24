@@ -162,22 +162,6 @@ export const AccountsView: React.FC = () => {
               style={{ paddingLeft: '38px' }}
             />
           </div>
-          
-          <div style={{ 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '6px', 
-            padding: '5px 12px', 
-            borderRadius: '20px', 
-            backgroundColor: '#ecfdf5', 
-            border: '1px solid #a7f3d0', 
-            color: '#065f46', 
-            fontSize: '0.72rem', 
-            fontWeight: 700 
-          }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-            <span>Auto-Save Cloud Aktif</span>
-          </div>
         </div>
 
         {/* Buttons */}

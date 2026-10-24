@@ -103,10 +103,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">
               Akuntansi Resmi {settings.companyName || 'NBE'}
             </span>
-            <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Cloud Active
-            </span>
             <span className="text-[10px] text-slate-400 font-medium">Real-time Terintegrasi</span>
           </div>
 
