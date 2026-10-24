@@ -6,11 +6,14 @@ import {
   Info, 
   ArrowLeft, 
   Check, 
-  ShieldCheck 
+  ShieldCheck,
+  Upload,
+  User as UserIcon
 } from 'lucide-react';
 import { useAccounting, DEFAULT_SUPERADMIN } from '../../context/AccountingContext';
 import { User } from '../../types/accounting';
 import { PRESET_BACKGROUNDS } from '../../views/WebAppearanceView';
+import { compressImage } from '../../lib/imageCompressor';
 
 interface AuthGateProps {
   onAuthenticated: (user: User) => void;
@@ -31,6 +34,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [regPassword, setRegPassword] = useState('');
   const [regSpecialCode, setRegSpecialCode] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
+  const [regAvatarUrl, setRegAvatarUrl] = useState('');
+  const [isCompressingAvatar, setIsCompressingAvatar] = useState(false);
 
   // Alerts
   const [alertInfo, setAlertInfo] = useState<{ message: string; type: 'error' | 'warning' | 'success' } | null>(null);
@@ -75,6 +80,26 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     }
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Ukuran file maksimal 10MB.');
+      return;
+    }
+
+    try {
+      setIsCompressingAvatar(true);
+      const compressed = await compressImage(file, 256, 256, 0.85);
+      setRegAvatarUrl(compressed);
+    } catch (err: any) {
+      alert('Gagal mengompres foto profil: ' + (err.message || err));
+    } finally {
+      setIsCompressingAvatar(false);
+    }
+  };
+
   const handleRegisterSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAlertInfo(null);
@@ -84,7 +109,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       position: regPosition,
       username: regUsername,
       password: regPassword,
-      specialCode: regSpecialCode || '-'
+      specialCode: regSpecialCode || '-',
+      avatarUrl: regAvatarUrl || undefined
     });
 
     if (res.success) {
@@ -98,6 +124,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       setRegUsername('');
       setRegPassword('');
       setRegSpecialCode('');
+      setRegAvatarUrl('');
       setTimeout(() => {
         setAuthTab('login');
       }, 3500);
@@ -130,11 +157,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     }, 100);
   };
 
-  // 5-SECOND TRANSITION / BOOTING SCREEN
+  // 5-SECOND TRANSITION / BOOTING SCREEN (Clean Corporate, Non-AI Look)
   if (isTransitioning && transitionUser) {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 select-none overflow-hidden">
-        {/* Booting Background Image (Different from login screen) with custom crop/position/zoom */}
+        {/* Booting Background Image with custom crop/position/zoom */}
         {bootingBg && (
           <div className="absolute inset-0 overflow-hidden">
             <img 
@@ -153,38 +180,51 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         <div className={`absolute inset-0 ${bootingOverlayClass}`} />
 
         <div className="relative z-10 max-w-md w-full text-center space-y-6 animate-fadeIn">
-          <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
-            <img 
-              src={loginLogo && !loginLogo.includes('_white') ? loginLogo : './assets/NBE.png'} 
-              alt="Logo" 
-              style={{ height: `${Math.max(48, Math.min(84, logoHeight + 16))}px`, width: 'auto' }}
-              className="max-w-[200px] object-contain" 
-            />
-          </div>
+          {/* User Profile Avatar OR Clean Company Logo (Tanpa outline AI / pulsating border) */}
+          {transitionUser.avatarUrl ? (
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border border-white/25 shadow-2xl mx-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-1">
+              <img 
+                src={transitionUser.avatarUrl} 
+                alt={transitionUser.fullName} 
+                className="w-full h-full object-cover rounded-xl"
+              />
+            </div>
+          ) : (
+            <div className="mx-auto flex items-center justify-center mb-2">
+              <img 
+                src={loginLogo && !loginLogo.includes('_white') ? loginLogo : './assets/NBE_white.png'} 
+                alt="Logo Perusahaan" 
+                style={{ height: `${Math.max(48, Math.min(84, logoHeight + 16))}px`, width: 'auto' }}
+                className="max-w-[220px] object-contain drop-shadow-md" 
+              />
+            </div>
+          )}
 
           <div className="space-y-2">
-            <h2 className="text-2xl font-black text-white tracking-wide">
+            {/* Nama Lengkap User Terdaftar */}
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-wide">
               {transitionUser.fullName}
             </h2>
-            <div className="h-1 w-16 bg-blue-500 mx-auto rounded-full"></div>
-            <p className="text-lg font-bold text-emerald-400">
-              Selamat Datang Kembali "{transitionUser.position}"
+            <div className="h-1 w-12 bg-sky-400 mx-auto rounded-full"></div>
+            {/* Jabatan User: Tanpa tanda petik, warna kontras biru muda elegan */}
+            <p className="text-sm sm:text-base font-semibold text-sky-300 tracking-wide">
+              Selamat Datang Kembali ({transitionUser.position})
             </p>
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-300 font-normal">
               Menyiapkan buku besar, neraca, dan lembar kerja akuntansi...
             </p>
           </div>
 
           {/* Progress bar 5 seconds */}
-          <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-slate-700/80 backdrop-blur-xs">
+          <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden border border-slate-700/80 backdrop-blur-xs">
             <div 
-              className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400 rounded-full transition-all duration-100 ease-linear"
+              className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-cyan-400 rounded-full transition-all duration-100 ease-linear"
               style={{ width: `${progressWidth}%` }}
             />
           </div>
 
           <div className="text-[11px] text-slate-400 font-mono">
-            Membuka SPECTRA dalam <span className="text-blue-400 font-bold">{countdown}</span> detik...
+            Membuka SPECTRA dalam <span className="text-sky-300 font-bold">{countdown}</span> detik...
           </div>
         </div>
       </div>
@@ -361,7 +401,45 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
             </form>
           ) : (
             /* REGISTER FORM */
-            <form onSubmit={handleRegisterSubmit} className="space-y-4">
+            <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+              
+              {/* Profile Photo Upload Field */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Foto Profil Pengguna</span>
+                  {regAvatarUrl && (
+                    <button 
+                      type="button" 
+                      onClick={() => setRegAvatarUrl('')}
+                      className="text-[10px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                    >
+                      Hapus Foto
+                    </button>
+                  )}
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="w-13 h-13 rounded-xl border border-blue-200 bg-[#eef4ff] flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                    {regAvatarUrl ? (
+                      <img src={regAvatarUrl} alt="Preview Foto" className="w-full h-full object-cover" />
+                    ) : (
+                      <UserIcon className="w-6 h-6 text-blue-400" />
+                    )}
+                  </div>
+                  <label className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-blue-200 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl px-3 py-2.5 text-center cursor-pointer transition">
+                    <Upload className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="text-xs font-semibold text-blue-700">
+                      {isCompressingAvatar ? 'Mengompres...' : regAvatarUrl ? 'Ganti Foto Profil' : 'Unggah Foto Profil'}
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleAvatarUpload} 
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap</label>
                 <input 

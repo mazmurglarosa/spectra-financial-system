@@ -64,6 +64,7 @@ export interface User {
   isAuthority: boolean;
   status: 'active' | 'pending';
   registeredAt: string;
+  avatarUrl?: string;
 }
 
 export interface ActivityLog {
@@ -127,6 +128,11 @@ export interface CompanySettings {
   bootingBgPosX?: number;
   bootingBgPosY?: number;
   bootingBgZoom?: number;
+  dashboardHeaderBgImage?: string;
+  dashboardHeaderOverlayDarkness?: 'dark' | 'medium' | 'light';
+  dashboardHeaderBgPosX?: number;
+  dashboardHeaderBgPosY?: number;
+  dashboardHeaderBgZoom?: number;
   loginLogoUrl?: string;
   loginLogoHeight?: number;
   loginBgPosX?: number;

@@ -735,7 +735,18 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ initialTab = 'cl
                           '••••••••'
                         )}
                       </td>
-                      <td className="font-medium text-slate-900">{u.fullName}</td>
+                      <td className="font-medium text-slate-900">
+                        <div className="flex items-center gap-2">
+                          {u.avatarUrl ? (
+                            <img src={u.avatarUrl} alt={u.fullName} className="w-6 h-6 rounded-md object-cover border border-slate-200 shrink-0" />
+                          ) : (
+                            <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-bold shrink-0">
+                              {u.fullName.charAt(0)}
+                            </div>
+                          )}
+                          <span>{u.fullName}</span>
+                        </div>
+                      </td>
                       <td className="text-slate-600">{u.position}</td>
                       <td className="font-mono text-xs">{u.specialCode || '-'}</td>
                       <td>

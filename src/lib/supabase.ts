@@ -145,6 +145,17 @@ async function sanitizeSettingsForSupabase(s: CompanySettings): Promise<CompanyS
     }
   }
 
+  if (isBase64DataUri(sanitized.dashboardHeaderBgImage)) {
+    try {
+      const res = await uploadHeavyFileToDrive(sanitized.dashboardHeaderBgImage!, `header_bg_${Date.now()}.jpg`, 'image/jpeg');
+      if (res.success && res.directUrl) {
+        sanitized.dashboardHeaderBgImage = res.directUrl;
+      }
+    } catch {
+      sanitized.dashboardHeaderBgImage = '';
+    }
+  }
+
   if (isBase64DataUri(sanitized.loginLogoUrl)) {
     try {
       const res = await uploadHeavyFileToDrive(sanitized.loginLogoUrl!, `logo_${Date.now()}.png`, 'image/png');

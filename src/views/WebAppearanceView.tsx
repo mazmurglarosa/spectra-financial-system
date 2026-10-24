@@ -17,7 +17,8 @@ import {
   Play,
   Monitor,
   Maximize2,
-  HardDrive
+  HardDrive,
+  Layout
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { compressImage, compressPngLogo } from '../lib/imageCompressor';
@@ -127,6 +128,17 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
   const [bootingBgPosY, setBootingBgPosY] = useState<number>(settings.bootingBgPosY ?? 50);
   const [bootingBgZoom, setBootingBgZoom] = useState<number>(settings.bootingBgZoom ?? 100);
 
+  // 2B. Background Dashboard Header states (Configurable Executive Banner)
+  const [headerBgUrl, setHeaderBgUrl] = useState<string>(
+    settings.dashboardHeaderBgImage || PRESET_BACKGROUNDS[1].url
+  );
+  const [headerDarkness, setHeaderDarkness] = useState<'dark' | 'medium' | 'light'>(
+    settings.dashboardHeaderOverlayDarkness || 'dark'
+  );
+  const [headerBgPosX, setHeaderBgPosX] = useState<number>(settings.dashboardHeaderBgPosX ?? 50);
+  const [headerBgPosY, setHeaderBgPosY] = useState<number>(settings.dashboardHeaderBgPosY ?? 50);
+  const [headerBgZoom, setHeaderBgZoom] = useState<number>(settings.dashboardHeaderBgZoom ?? 100);
+
   // 3. Logo states
   const [logoUrl, setLogoUrl] = useState<string>(
     settings.loginLogoUrl || './assets/NBE_white.png'
@@ -166,6 +178,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     if (settings.bootingBgPosX !== undefined) setBootingBgPosX(settings.bootingBgPosX);
     if (settings.bootingBgPosY !== undefined) setBootingBgPosY(settings.bootingBgPosY);
     if (settings.bootingBgZoom !== undefined) setBootingBgZoom(settings.bootingBgZoom);
+    if (settings.dashboardHeaderBgImage) setHeaderBgUrl(settings.dashboardHeaderBgImage);
+    if (settings.dashboardHeaderOverlayDarkness) setHeaderDarkness(settings.dashboardHeaderOverlayDarkness);
+    if (settings.dashboardHeaderBgPosX !== undefined) setHeaderBgPosX(settings.dashboardHeaderBgPosX);
+    if (settings.dashboardHeaderBgPosY !== undefined) setHeaderBgPosY(settings.dashboardHeaderBgPosY);
+    if (settings.dashboardHeaderBgZoom !== undefined) setHeaderBgZoom(settings.dashboardHeaderBgZoom);
     if (settings.loginLogoUrl) setLogoUrl(settings.loginLogoUrl);
     if (settings.loginLogoHeight) setLogoHeight(settings.loginLogoHeight);
     if (settings.loginQuote) setQuote(settings.loginQuote);
@@ -304,6 +321,47 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     }
   };
 
+  // Upload handler for Dashboard Header background
+  const handleHeaderFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran file maksimal 15MB. Silakan pilih gambar lain.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setSaveMessage('Mengompres dan mengunggah background header dashboard ke Google Drive...');
+      const compressed = await compressImage(file, 1920, 1080, 0.85);
+      
+      const offloadRes = await uploadHeavyFileToDrive(
+        compressed,
+        `header_bg_${Date.now()}.jpg`,
+        'image/jpeg',
+        { title: 'Background Header Dashboard', uploadedBy: 'Administrator' }
+      );
+
+      const targetUrl = (offloadRes.success && offloadRes.directUrl) ? offloadRes.directUrl : compressed;
+      setHeaderBgUrl(targetUrl);
+      autoSaveSettings({ 
+        dashboardHeaderBgImage: targetUrl,
+        dashboardHeaderOverlayDarkness: headerDarkness,
+        dashboardHeaderBgPosX: headerBgPosX,
+        dashboardHeaderBgPosY: headerBgPosY,
+        dashboardHeaderBgZoom: headerBgZoom
+      }, offloadRes.success 
+        ? 'Background header dashboard berhasil disimpan ke Google Drive & disinkronkan!' 
+        : 'Background header dashboard berhasil tersimpan!');
+      logActivity('Tampilan Web', 'Memperbarui background header dashboard ke Google Drive (Supabase hemat)');
+    } catch (err: any) {
+      alert('Gagal memproses gambar header: ' + (err.message || err));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Preset selection with auto-save
   const handleSelectPreset = (url: string) => {
     setBgImageUrl(url);
@@ -326,6 +384,17 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     }, 'Preset booting aktif dan otomatis tersimpan!');
   };
 
+  const handleSelectHeaderPreset = (url: string) => {
+    setHeaderBgUrl(url);
+    autoSaveSettings({ 
+      dashboardHeaderBgImage: url,
+      dashboardHeaderOverlayDarkness: headerDarkness,
+      dashboardHeaderBgPosX: headerBgPosX,
+      dashboardHeaderBgPosY: headerBgPosY,
+      dashboardHeaderBgZoom: headerBgZoom
+    }, 'Preset header dashboard aktif dan otomatis tersimpan!');
+  };
+
   // Manual save confirmation button
   const handleSave = () => {
     updateSettings({
@@ -338,6 +407,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
       bootingBgPosX,
       bootingBgPosY,
       bootingBgZoom,
+      dashboardHeaderBgImage: headerBgUrl,
+      dashboardHeaderOverlayDarkness: headerDarkness,
+      dashboardHeaderBgPosX: headerBgPosX,
+      dashboardHeaderBgPosY: headerBgPosY,
+      dashboardHeaderBgZoom: headerBgZoom,
       loginLogoUrl: logoUrl,
       loginLogoHeight: logoHeight,
       loginQuote: quote,
@@ -347,7 +421,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
     logActivity(
       'Pengaturan Tampilan',
-      'Administrator memperbarui konfigurasi background login, background booting 5 detik, logo, serta posisi crop gambar.'
+      'Administrator memperbarui konfigurasi background login, background booting, background header dashboard, logo, serta posisi crop gambar.'
     );
 
     setSaveMessage('Seluruh konfigurasi tampilan berhasil tersimpan ke Cloud!');
@@ -360,6 +434,7 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
     if (confirm('Kembalikan background, posisi gambar, logo, dan teks ke pengaturan standar pabrik?')) {
       const defaultBg = PRESET_BACKGROUNDS[0].url;
       const defaultBootingBg = PRESET_BOOTING_BACKGROUNDS[0].url;
+      const defaultHeaderBg = PRESET_BACKGROUNDS[1].url;
       const defaultLogo = './assets/NBE_white.png';
       const defaultQuote = 'Driving sustainable energy excellence through decisive leadership, asset intelligence, and synchronized executive oversight.';
       const defaultSubtitle = 'Please enter your corporate credentials to access the executive portal.';
@@ -369,6 +444,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
       setBgPosY(50);
       setBgZoom(100);
       setBootingBgUrl(defaultBootingBg);
+      setHeaderBgUrl(defaultHeaderBg);
+      setHeaderDarkness('dark');
+      setHeaderBgPosX(50);
+      setHeaderBgPosY(50);
+      setHeaderBgZoom(100);
       setLogoUrl(defaultLogo);
       setLogoHeight(48);
       setQuote(defaultQuote);
@@ -389,6 +469,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
         bootingBgPosX: 50,
         bootingBgPosY: 50,
         bootingBgZoom: 100,
+        dashboardHeaderBgImage: defaultHeaderBg,
+        dashboardHeaderOverlayDarkness: 'dark',
+        dashboardHeaderBgPosX: 50,
+        dashboardHeaderBgPosY: 50,
+        dashboardHeaderBgZoom: 100,
         loginLogoUrl: defaultLogo,
         loginLogoHeight: 48,
         loginQuote: defaultQuote,
@@ -1037,13 +1122,318 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           </div>
 
           {/* ======================================================== */}
-          {/* CARD 3: GANTI LOGO & SESUAIKAN UKURAN (User Request) */}
+          {/* CARD 3: FOTO BACKGROUND HEADER DASHBOARD (BANNER EKSEKUTIF) */}
+          {/* ======================================================== */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Layout className="w-4 h-4 text-indigo-600" />
+                <span>3. Foto Background Header Dashboard (Banner Eksekutif)</span>
+              </h2>
+              <span className="text-[10px] font-semibold text-slate-400">Tampilan Utama Dashboard</span>
+            </div>
+
+            {/* Info Google Drive Sync */}
+            <div className="flex items-center justify-between bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-2.5 text-xs text-indigo-900">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-indigo-600 shrink-0" />
+                <div>
+                  <span className="font-bold">Google Drive Storage Bot Aktif:</span>
+                  <span className="text-[11px] text-indigo-700 ml-1">Foto otomatis dikompres &amp; diarsipkan ke Drive agar database Supabase tetap ringan.</span>
+                </div>
+              </div>
+              <a 
+                href={SPECTRA_DRIVE_FOLDER_URL} 
+                target="_blank" 
+                rel="noreferrer"
+                className="shrink-0 ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 bg-white px-2.5 py-1 rounded-lg border border-indigo-200 transition"
+              >
+                <span>Buka Drive</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            {/* Upload File */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Unggah Foto Background Header Dashboard
+              </label>
+              <label className="flex border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl p-3 text-center cursor-pointer transition items-center justify-center gap-2">
+                <Upload className="w-4 h-4 text-indigo-600" />
+                <span className="text-xs font-semibold text-slate-700">Pilih Berkas Foto Baru</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleHeaderFileUpload} 
+                  className="hidden" 
+                />
+              </label>
+            </div>
+
+            {/* URL Input */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Atau Masukkan Tautan (URL) Foto Header
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <LinkIcon className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="url"
+                    value={headerBgUrl}
+                    onChange={(e) => {
+                      setHeaderBgUrl(e.target.value);
+                      autoSaveSettings({ 
+                        dashboardHeaderBgImage: e.target.value,
+                        dashboardHeaderOverlayDarkness: headerDarkness,
+                        dashboardHeaderBgPosX: headerBgPosX,
+                        dashboardHeaderBgPosY: headerBgPosY,
+                        dashboardHeaderBgZoom: headerBgZoom
+                      }, 'Tautan foto header dashboard diperbarui!');
+                    }}
+                    placeholder="https://images.unsplash.com/..."
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Preset Options for Header */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Pilih Preset Industri Energi &amp; Migas (Cepat)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {PRESET_BACKGROUNDS.map((preset) => (
+                  <button
+                    key={`header-${preset.id}`}
+                    type="button"
+                    onClick={() => handleSelectHeaderPreset(preset.url)}
+                    className={`relative rounded-xl overflow-hidden border text-left p-1.5 transition cursor-pointer ${
+                      headerBgUrl === preset.url 
+                        ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/40' 
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="h-16 w-full rounded-lg overflow-hidden bg-slate-100 mb-1.5 relative">
+                      <img 
+                        src={preset.thumb} 
+                        alt={preset.title} 
+                        className="w-full h-full object-cover" 
+                      />
+                      {headerBgUrl === preset.url && (
+                        <div className="absolute top-1 right-1 bg-indigo-600 text-white rounded-full p-0.5 shadow-xs">
+                          <Check className="w-3 h-3" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-800 line-clamp-1">{preset.title}</div>
+                    <div className="text-[9px] text-slate-400">{preset.category}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Position and Zoom Adjustment */}
+            <div className="pt-2 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Move className="w-3.5 h-3.5 text-indigo-600" />
+                  Atur Fokus &amp; Zoom Banner Header
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  X: {headerBgPosX}% | Y: {headerBgPosY}% | Zoom: {headerBgZoom}%
+                </span>
+              </div>
+
+              {/* Sliders */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                <div>
+                  <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+                    <span>Posisi Horizontal (X)</span>
+                    <span className="font-mono text-indigo-700">{headerBgPosX}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={headerBgPosX}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setHeaderBgPosX(val);
+                      autoSaveSettings({ 
+                        dashboardHeaderBgImage: headerBgUrl,
+                        dashboardHeaderOverlayDarkness: headerDarkness,
+                        dashboardHeaderBgPosX: val,
+                        dashboardHeaderBgPosY: headerBgPosY,
+                        dashboardHeaderBgZoom: headerBgZoom
+                      });
+                    }}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 mt-0.5">
+                    <span>Kiri</span>
+                    <span>Tengah</span>
+                    <span>Kanan</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+                    <span>Posisi Vertikal (Y)</span>
+                    <span className="font-mono text-indigo-700">{headerBgPosY}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={headerBgPosY}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setHeaderBgPosY(val);
+                      autoSaveSettings({ 
+                        dashboardHeaderBgImage: headerBgUrl,
+                        dashboardHeaderOverlayDarkness: headerDarkness,
+                        dashboardHeaderBgPosX: headerBgPosX,
+                        dashboardHeaderBgPosY: val,
+                        dashboardHeaderBgZoom: headerBgZoom
+                      });
+                    }}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 mt-0.5">
+                    <span>Atas</span>
+                    <span>Tengah</span>
+                    <span>Bawah</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+                    <span className="flex items-center gap-1">
+                      <ZoomIn className="w-3 h-3 text-indigo-600" />
+                      Perbesaran (Zoom)
+                    </span>
+                    <span className="font-mono text-indigo-700">{headerBgZoom}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="200"
+                    step="5"
+                    value={headerBgZoom}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setHeaderBgZoom(val);
+                      autoSaveSettings({ 
+                        dashboardHeaderBgImage: headerBgUrl,
+                        dashboardHeaderOverlayDarkness: headerDarkness,
+                        dashboardHeaderBgPosX: headerBgPosX,
+                        dashboardHeaderBgPosY: headerBgPosY,
+                        dashboardHeaderBgZoom: val
+                      });
+                    }}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 mt-0.5">
+                    <span>100%</span>
+                    <span>150%</span>
+                    <span>200%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 9-Point Alignment Preset Grid for Header */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                  Titik Fokus Cepat (9-Point Focus)
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 max-w-xs">
+                  {[
+                    { label: 'Kiri Atas', x: 0, y: 0 },
+                    { label: 'Tengah Atas', x: 50, y: 0 },
+                    { label: 'Kanan Atas', x: 100, y: 0 },
+                    { label: 'Kiri Tengah', x: 0, y: 50 },
+                    { label: 'Pusat (Center)', x: 50, y: 50 },
+                    { label: 'Kanan Tengah', x: 100, y: 50 },
+                    { label: 'Kiri Bawah', x: 0, y: 100 },
+                    { label: 'Tengah Bawah', x: 50, y: 100 },
+                    { label: 'Kanan Bawah', x: 100, y: 100 }
+                  ].map((pos, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setHeaderBgPosX(pos.x);
+                        setHeaderBgPosY(pos.y);
+                        autoSaveSettings({ 
+                          dashboardHeaderBgImage: headerBgUrl,
+                          dashboardHeaderOverlayDarkness: headerDarkness,
+                          dashboardHeaderBgPosX: pos.x,
+                          dashboardHeaderBgPosY: pos.y,
+                          dashboardHeaderBgZoom: headerBgZoom
+                        });
+                      }}
+                      className={`text-[10px] py-1 px-1 rounded-lg border text-center transition cursor-pointer ${
+                        headerBgPosX === pos.x && headerBgPosY === pos.y
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-700 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {pos.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Darkness Selector for Header */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Tingkat Kegelapan Filter Header (Agar Teks &amp; Tombol Terbaca Jelas)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'dark', label: 'Pekat (85% Dark)' },
+                    { id: 'medium', label: 'Standar (70% Deep)' },
+                    { id: 'light', label: 'Ringan (50% Subtle)' }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setHeaderDarkness(item.id as any);
+                        autoSaveSettings({ 
+                          dashboardHeaderBgImage: headerBgUrl,
+                          dashboardHeaderOverlayDarkness: item.id as any,
+                          dashboardHeaderBgPosX: headerBgPosX,
+                          dashboardHeaderBgPosY: headerBgPosY,
+                          dashboardHeaderBgZoom: headerBgZoom
+                        });
+                      }}
+                      className={`py-2 px-2 text-xs font-semibold rounded-xl border text-center transition cursor-pointer ${
+                        headerDarkness === item.id
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-300 shadow-2xs'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
+          {/* CARD 4: GANTI LOGO & SESUAIKAN UKURAN (User Request) */}
           {/* ======================================================== */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-sky-600" />
-                <span>3. Logo Perusahaan di Halaman Login &amp; Booting</span>
+                <span>4. Logo Perusahaan di Halaman Login &amp; Booting</span>
               </h2>
               <span className="text-[10px] font-semibold text-slate-400">Mendukung format PNG</span>
             </div>
@@ -1129,13 +1519,13 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           </div>
 
           {/* ======================================================== */}
-          {/* CARD 4: TEKS SLOGAN & TINGKAT KEGELAPAN OVERLAY */}
+          {/* CARD 5: TEKS SLOGAN & TINGKAT KEGELAPAN OVERLAY */}
           {/* ======================================================== */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Quote className="w-4 h-4 text-purple-600" />
-                <span>4. Pesan Korporat &amp; Intensitas Kegelapan Filter</span>
+                <span>5. Pesan Korporat &amp; Intensitas Kegelapan Filter</span>
               </h2>
             </div>
 
@@ -1211,13 +1601,77 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
         </div>
 
         {/* Right Column: Live Scaled Interactive Preview (5 cols) */}
-        <div className="lg:col-span-5 sticky top-20 space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-purple-600" />
-              Pratinjau Hasil Desain (Rasio 65% : 35%)
-            </span>
+        <div className="lg:col-span-5 sticky top-20 space-y-4">
+          
+          {/* Live Preview 1: Header Dashboard Banner (User Request Prom UI) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Layout className="w-3.5 h-3.5 text-indigo-600" />
+                Live Preview: Banner Header Dashboard
+              </span>
+              <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                Otomatis Sinkron
+              </span>
+            </div>
+
+            {/* Mockup Header Dashboard Banner matching Prom UI No 1 */}
+            <div className="relative rounded-2xl overflow-hidden shadow-md border border-slate-700/60 text-white min-h-[140px] flex flex-col justify-between">
+              {/* Background Photo */}
+              <div className="absolute inset-0 overflow-hidden bg-slate-950">
+                <img 
+                  src={headerBgUrl} 
+                  alt="Dashboard Header Preview" 
+                  style={{
+                    objectPosition: `${headerBgPosX}% ${headerBgPosY}%`,
+                    transform: `scale(${headerBgZoom / 100})`,
+                    transformOrigin: `${headerBgPosX}% ${headerBgPosY}%`
+                  }}
+                  className="w-full h-full object-cover transition-all duration-300" 
+                />
+              </div>
+
+              {/* Overlay Darkness */}
+              <div className={`absolute inset-0 ${getOverlayClass(headerDarkness)}`} />
+
+              {/* Content Header Banner */}
+              <div className="relative z-10 p-3.5 space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wider text-slate-300 font-bold drop-shadow">
+                  Financial Reporting System
+                </div>
+                <h3 className="text-sm font-extrabold text-white tracking-tight drop-shadow leading-tight">
+                  {settings.companyName || 'PT Nirwana Bhumi Energy'}
+                </h3>
+              </div>
+
+              {/* 4 Bottom Action Buttons */}
+              <div className="relative z-10 p-2.5 pt-0">
+                <div className="grid grid-cols-4 gap-1.5 bg-black/40 backdrop-blur-md p-1.5 rounded-xl border border-white/10">
+                  <div className="text-center py-1 px-1 bg-white/10 rounded-lg text-[8px] font-bold text-white truncate">
+                    Laporan Sederhana
+                  </div>
+                  <div className="text-center py-1 px-1 bg-white/10 rounded-lg text-[8px] font-bold text-white truncate">
+                    Laporan Resmi
+                  </div>
+                  <div className="text-center py-1 px-1 bg-white/10 rounded-lg text-[8px] font-bold text-white truncate">
+                    Quick Report
+                  </div>
+                  <div className="text-center py-1 px-1 bg-white/10 rounded-lg text-[8px] font-bold text-white truncate">
+                    Analisis Rasio
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+
+          {/* Live Preview 2: Login Page Preview (65% : 35%) */}
+          <div className="space-y-2 pt-1 border-t border-slate-200">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-purple-600" />
+                Pratinjau Hasil Desain Login (Rasio 65% : 35%)
+              </span>
+            </div>
 
           {/* Miniature Split Login View Representation: EXACT 65% : 35% */}
           <div className="w-full bg-white rounded-2xl border border-slate-300/80 shadow-md overflow-hidden flex flex-row aspect-[16/10]">
@@ -1318,6 +1772,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
         </div>
 
       </div>
+
+    </div>
 
       {/* ======================================================== */}
       {/* MODAL 1: FULL PREVIEW LOGIN (65% : 35% EXACT RATIO) */}
@@ -1453,8 +1909,8 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
           <div className={`absolute inset-0 ${getOverlayClass(bootingDarkness)}`} />
 
           <div className="relative z-10 max-w-md w-full text-center space-y-6 animate-fadeIn">
-            {/* Logo with configured size */}
-            <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl border-2 border-blue-500/50 animate-pulse">
+            {/* Clean Avatar / Logo container without cheesy AI border */}
+            <div className="inline-flex p-3.5 bg-white/95 backdrop-blur-xs rounded-2xl shadow-2xl">
               <img 
                 src={logoUrl && !logoUrl.includes('_white') ? logoUrl : './assets/NBE.png'} 
                 alt="Logo NBE" 
@@ -1465,11 +1921,11 @@ export const WebAppearanceView: React.FC<WebAppearanceViewProps> = ({ embedded =
 
             <div className="space-y-2">
               <h2 className="text-2xl font-black text-white tracking-wide">
-                Administrator Sistem
+                Mazmur Gusti Agung Larosa
               </h2>
               <div className="h-1 w-16 bg-blue-500 mx-auto rounded-full"></div>
-              <p className="text-lg font-bold text-emerald-400">
-                Selamat Datang Kembali "Super Admin"
+              <p className="text-base font-semibold text-sky-300">
+                Selamat Datang Kembali Direktur Keuangan
               </p>
               <p className="text-xs text-slate-300">
                 Menyiapkan buku besar, neraca, dan lembar kerja akuntansi...

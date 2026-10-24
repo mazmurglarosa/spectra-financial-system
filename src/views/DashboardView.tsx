@@ -73,47 +73,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full animate-fadeIn">
       
-      {/* Header Banner matching Reference Image */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-1">
-        <div>
-          <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
-            <BarChart3 className="w-6 h-6 text-sky-600" />
-            <span>Dashboard & Kontrol Keuangan</span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-            Ringkasan saldo kas, neraca lajur, statistik akun, dan daftar transaksi resmi yang telah terdaftar di {settings.companyName || 'PT Nirwana Bhumi Energi'}.
+      {/* Executive Corporate Header Banner (Configured via Tampilan Web & Login) */}
+      <div className="relative rounded-2xl overflow-hidden shadow-xs border border-slate-800/20 text-white p-6 sm:p-8 min-h-[190px] flex flex-col justify-between group transition-all duration-300">
+        
+        {/* Background Image with configurable crop, position & zoom */}
+        <div className="absolute inset-0 overflow-hidden">
+          <img 
+            src={settings.dashboardHeaderBgImage || 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?q=80&w=1920&auto=format&fit=crop'} 
+            alt="Corporate Facility" 
+            style={{
+              objectPosition: `${settings.dashboardHeaderBgPosX ?? 50}% ${settings.dashboardHeaderBgPosY ?? 50}%`,
+              transform: `scale(${(settings.dashboardHeaderBgZoom ?? 100) / 100})`,
+              transformOrigin: `${settings.dashboardHeaderBgPosX ?? 50}% ${settings.dashboardHeaderBgPosY ?? 50}%`
+            }}
+            className="w-full h-full object-cover transition-all duration-300 group-hover:scale-[1.01]"
+          />
+        </div>
+
+        {/* Deep Industrial Corporate Navy Overlay */}
+        <div className={`absolute inset-0 ${
+          settings.dashboardHeaderOverlayDarkness === 'light'
+            ? 'bg-gradient-to-r from-slate-950/80 via-slate-900/60 to-slate-950/70'
+            : settings.dashboardHeaderOverlayDarkness === 'medium'
+            ? 'bg-gradient-to-r from-slate-950/90 via-slate-900/75 to-slate-950/85'
+            : 'bg-gradient-to-r from-[#031528]/95 via-[#062445]/85 to-[#041930]/75'
+        }`} />
+
+        {/* Top Section: Title & Subtitle */}
+        <div className="relative z-10 space-y-1">
+          <p className="text-slate-300 text-xs sm:text-sm font-medium tracking-wide">
+            Financial Reporting System
           </p>
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight">
+            {settings.companyName || 'PT Nirwana Bhumi Energy'}
+          </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab('simple-reports')}
-            className="bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-xl border border-slate-200/90 shadow-xs flex items-center gap-1.5 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-            title="Buka Laporan Sederhana"
-          >
-            <FileText className="w-4 h-4 text-sky-600" />
-            <span>Laporan Sederhana</span>
-          </button>
+        {/* Bottom Section: 4 Quick Action Executive Buttons (Grid) */}
+        <div className="relative z-10 pt-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5">
+            {/* Button 1: Laporan Sederhana */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('simple-reports')}
+              className="bg-white/10 hover:bg-white/20 active:scale-[0.98] backdrop-blur-md border border-white/20 hover:border-white/35 text-white rounded-xl py-3 px-4 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              title="Buka Laporan Sederhana"
+            >
+              <FileText className="w-4 h-4 text-sky-300" />
+              <span>Laporan Sederhana</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('psak-report')}
-            className="bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-xl border border-slate-200/90 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <Award className="w-4 h-4 text-amber-500" />
-            <span>Laporan Resmi</span>
-          </button>
+            {/* Button 2: Laporan Resmi */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('psak-report')}
+              className="bg-white/10 hover:bg-white/20 active:scale-[0.98] backdrop-blur-md border border-white/20 hover:border-white/35 text-white rounded-xl py-3 px-4 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+              title="Buka Laporan Resmi (PSAK)"
+            >
+              <Award className="w-4 h-4 text-amber-300" />
+              <span>Laporan Resmi</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('quick-report')}
-            className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <Zap className="w-4 h-4 text-amber-500" />
-            <span>Quick Report</span>
-          </button>
+            {/* Button 3: Quick Report */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('quick-report')}
+              className="bg-white/10 hover:bg-white/20 active:scale-[0.98] backdrop-blur-md border border-white/20 hover:border-white/35 text-white rounded-xl py-3 px-4 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              title="Buka Quick Report"
+            >
+              <Zap className="w-4 h-4 text-emerald-300" />
+              <span>Quick Report</span>
+            </button>
+
+            {/* Button 4: Analisis Rasio & Status */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('ratios')}
+              className="bg-white/10 hover:bg-white/20 active:scale-[0.98] backdrop-blur-md border border-white/20 hover:border-white/35 text-white rounded-xl py-3 px-4 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+              title="Buka Analisis Rasio & Status Keuangan"
+            >
+              <TrendingUp className="w-4 h-4 text-cyan-300" />
+              <span>Analisis Rasio & Status</span>
+            </button>
+          </div>
         </div>
+
       </div>
 
       {/* 1 GRUP 1 KESATUAN: Master Executive Financial Overview Container */}
