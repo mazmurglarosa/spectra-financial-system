@@ -302,11 +302,11 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
 
   // SVG coordinate dimensions
   const svgWidth = 980;
-  const svgHeight = 360;
+  const svgHeight = 490;
   const paddingLeft = 88;
   const paddingRight = 130; // Space for right-edge value callout tags
-  const paddingTop = 32;
-  const paddingBottom = 42;
+  const paddingTop = 36;
+  const paddingBottom = 46;
 
   const chartWidth = svgWidth - paddingLeft - paddingRight;
   const chartHeight = svgHeight - paddingTop - paddingBottom;
@@ -361,7 +361,7 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
   const activeHoverPoint = hoverIndex !== null && dataPoints[hoverIndex] ? dataPoints[hoverIndex] : null;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 md:p-6 transition-all duration-200">
+    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 md:p-6 transition-all duration-200 h-full flex flex-col justify-between">
       
       {/* 1. Header (Simple & Minimalist matching Reference Mockup) */}
       <div className="pb-3 border-b border-slate-100">
@@ -379,10 +379,10 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
       </div>
 
       {/* 3. SVG Financial Chart Canvas */}
-      <div className="relative mt-2 w-full overflow-hidden select-none bg-slate-50/50 rounded-xl border border-slate-100 p-1">
+      <div className="relative mt-2 w-full overflow-hidden select-none bg-slate-50/50 rounded-xl border border-slate-100 p-1 flex-1 flex flex-col justify-center min-h-[390px]">
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="w-full h-auto max-h-[380px] overflow-visible"
+          className="w-full h-auto overflow-visible"
           preserveAspectRatio="xMidYMid meet"
           onMouseLeave={() => setHoverIndex(null)}
           onMouseMove={(e) => {

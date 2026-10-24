@@ -117,7 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Unified Executive Dashboard Section (Left: 7-Card Financial Metrics & Ratios Stack | Right: Dynamic Trends Chart) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         
         {/* LEFT COLUMN: 7-Box Vertical Stack matching Reference Wireframe */}
         <div className="lg:col-span-5 xl:col-span-4 space-y-2.5">
@@ -322,8 +322,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             title="Klik untuk membuka Analisis Rasio Keuangan Perusahaan"
           >
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-black text-rose-700 uppercase tracking-tight line-clamp-1">
-                KESIMPULAN DARI SLIDE BAR &ldquo;ANALISIS RASIO KEUANGAN PERUSAHAAN&rdquo;
+              <div className="text-[11px] font-black text-rose-700 uppercase tracking-wider">
+                KONDISI REAL TIME
               </div>
               <ArrowUpRight className="w-3.5 h-3.5 text-rose-600 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </div>
@@ -340,7 +340,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN: Visual Multi-Line Financial Trends Chart (5 Pilar Dasar Keuangan) */}
-        <div className="lg:col-span-7 xl:col-span-8">
+        <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-full">
           <FinancialTrendsChart 
             accounts={accounts} 
             transactions={transactions} 
