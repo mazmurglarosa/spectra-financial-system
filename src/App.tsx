@@ -17,6 +17,7 @@ import { AdminPanelView } from './views/AdminPanelView';
 import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
 import { PsakReportView } from './views/PsakReportView';
+import { AutoRecordView } from './views/AutoRecordView';
 
 // Modals
 import { TransactionModal } from './components/modals/TransactionModal';
@@ -87,6 +88,13 @@ const MainContent: React.FC = () => {
             initialTab={activeTab === 'quick-report' ? 'cashbank' : (activeTab as any)}
             onTabChange={(tab) => setActiveTab(tab)}
             openNewTransactionModal={handleOpenNewTransaction}
+          />
+        );
+      case 'auto-record':
+        return (
+          <AutoRecordView 
+            setActiveTab={setActiveTab} 
+            openNewTransactionModal={handleOpenNewTransaction} 
           />
         );
       case 'coa':

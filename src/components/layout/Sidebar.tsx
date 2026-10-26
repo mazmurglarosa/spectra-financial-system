@@ -15,7 +15,8 @@ import {
   FileText, 
   Zap, 
   ChevronRight, 
-  LogOut 
+  LogOut,
+  Scan
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useSystemHealth } from '../../hooks/useSystemHealth';
@@ -27,6 +28,7 @@ export type ActiveTab =
   | 'cashbank'
   | 'sales'
   | 'purchases'
+  | 'auto-record'
   | 'coa'
   | 'journals'
   | 'ledger'
@@ -190,6 +192,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Buku Besar & Jurnal */}
           <div className="px-3 pt-3 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             Buku Besar & Jurnal
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('auto-record')}
+            className={`nav-item ${activeTab === 'auto-record' ? 'active' : ''}`}
+          >
+            <Scan className={`w-4 h-4 shrink-0 ${activeTab === 'auto-record' ? 'text-white' : 'text-indigo-600'}`} />
+            <span className="font-medium text-xs">Auto Record</span>
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'auto-record' ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'}`}>
+              AI OCR
+            </span>
+            {activeTab === 'auto-record' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
           </div>
 
           <div 
