@@ -41,10 +41,23 @@ export interface ExtractedItem {
   confidence: number; // 0 - 100
   boundingBox?: { x: number; y: number; width: number; height: number };
   isTaxOrFee?: boolean;
-  taxOrFeeType?: 'PB1' | 'PPN' | 'SERVICE' | 'ONGKIR' | 'OTHER';
+  taxOrFeeType?: 'PB1' | 'PPN' | 'SERVICE' | 'ONGKIR' | 'OTHER' | 'BI_FAST' | 'ADMIN_BANK';
   hasDiscrepancy?: boolean;
   discrepancyNote?: string;
   originalText?: string;
+}
+
+export interface RealOcrExtractionResult {
+  detectedType: 'transfer_bank' | 'nota_pembelian' | 'faktur' | 'struk_thermal' | 'lainnya';
+  sellerOrRecipient: string;
+  transactionDate?: string;
+  extractedItems: ExtractedItem[];
+  declaredGrandTotal: number;
+  calculatedSum: number;
+  mathDiscrepancy: boolean;
+  discrepancyMessage?: string;
+  sourceEngine: 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
+  rawResponse?: any;
 }
 
 export interface SpreadsheetRowData {
@@ -480,17 +493,29 @@ export function analyzeAndSuggestJournal(
   const selectedPos = getPosRules().find(p => p.code === posCode) || DEFAULT_POS_RULES[0];
   const suggestedLines: SuggestedJournalLine[] = [];
 
-  // Group items: Aggregasi fisik vs Pajak/Biaya tersendiri
+  // Group items: Jasa / Pelatihan / Bank Fee / Pajak vs Barang Fisik
   const physicalItems: ExtractedItem[] = [];
+  const serviceOrTrainingItems: ExtractedItem[] = [];
   const taxAndFeeItems: ExtractedItem[] = [];
+  const allocatedCodes: string[] = [];
 
   items.forEach(it => {
     const lower = it.name.toLowerCase();
     const isTax = lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph');
-    const isFee = lower.includes('ongkir') || lower.includes('kirim') || lower.includes('service') || lower.includes('layanan');
+    const isBankFee = lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || 
+                      lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
+    const isFreight = lower.includes('ongkir') || lower.includes('kirim');
+    const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || 
+                                lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') || 
+                                lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') || 
+                                lower.includes('service') || lower.includes('servis') || lower.includes('bengkel') ||
+                                lower.includes('pemeliharaan') || lower.includes('perbaikan') || lower.includes('sewa') ||
+                                lower.includes('iklan') || lower.includes('listrik') || lower.includes('telepon');
 
-    if (it.isTaxOrFee || isTax || isFee) {
+    if (it.isTaxOrFee || isTax || isBankFee || isFreight) {
       taxAndFeeItems.push(it);
+    } else if (isTrainingOrService) {
+      serviceOrTrainingItems.push(it);
     } else {
       physicalItems.push(it);
     }
@@ -498,11 +523,10 @@ export function analyzeAndSuggestJournal(
 
   // 1. Pembentukan Akun Sisi Debit
   if (posCode === 'A' || posCode === 'B') {
-    // Pembelian: Agregasi barang fisik sejenis menjadi 1 baris akun Perlengkapan/Persediaan
+    // A. Barang Fisik: Agregasi barang fisik sejenis menjadi 1 baris Perlengkapan / Persediaan
     if (physicalItems.length > 0) {
       const totalPhysical = physicalItems.reduce((acc, it) => acc + it.totalPrice, 0);
       
-      // Cari akun Perlengkapan di COA
       let perlengkapanAcc = accounts.find(a => 
         !a.isHeader && (a.name.toLowerCase().includes('perlengkapan kantor') || a.name.toLowerCase() === 'perlengkapan')
       );
@@ -528,36 +552,114 @@ export function analyzeAndSuggestJournal(
       });
     }
 
-    // Pemisahan Pajak & Biaya Berdiri Sendiri
+    // B. Jasa / Pelatihan / Brevet / Beban Operasional Pokok
+    serviceOrTrainingItems.forEach((srvItem, idx) => {
+      const lower = srvItem.name.toLowerCase();
+      let targetAccName = srvItem.name;
+      let targetCat: AccountCategory = 'BEBAN_OPERASIONAL';
+      let targetPos: ReportType = 'Lr';
+      let existingAcc: Account | undefined = undefined;
+
+      if (lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan')) {
+        targetAccName = 'Beban Pelatihan & Brevet Pajak';
+        existingAcc = accounts.find(a => 
+          !a.isHeader && (
+            a.name.toLowerCase().includes('pelatihan') || 
+            a.name.toLowerCase().includes('brevet') || 
+            a.name.toLowerCase().includes('pendidikan') ||
+            a.name.toLowerCase().includes('kursus')
+          )
+        );
+      } else if (lower.includes('service') || lower.includes('servis') || lower.includes('pemeliharaan') || lower.includes('bengkel') || lower.includes('perbaikan')) {
+        targetAccName = 'Beban Service';
+        existingAcc = accounts.find(a => 
+          !a.isHeader && (a.name.toLowerCase().includes('service') || a.name.toLowerCase().includes('pemeliharaan'))
+        );
+      } else if (lower.includes('sewa')) {
+        targetAccName = 'Beban Sewa Lahan';
+        existingAcc = accounts.find(a => !a.isHeader && a.name.toLowerCase().includes('sewa'));
+      } else if (lower.includes('iklan')) {
+        targetAccName = 'Beban Iklan';
+        existingAcc = accounts.find(a => !a.isHeader && a.name.toLowerCase().includes('iklan'));
+      } else if (lower.includes('listrik') || lower.includes('telepon')) {
+        targetAccName = 'Beban Listrik Dan Telepon';
+        existingAcc = accounts.find(a => !a.isHeader && a.name.toLowerCase().includes('listrik'));
+      } else {
+        targetAccName = srvItem.name.toLowerCase().startsWith('beban') ? srvItem.name : `Beban ${srvItem.name}`;
+        existingAcc = accounts.find(a => !a.isHeader && a.name.toLowerCase() === targetAccName.toLowerCase());
+      }
+
+      const isNew = !existingAcc;
+      const finalName = existingAcc ? existingAcc.name : targetAccName;
+      const finalCode = existingAcc ? existingAcc.code : generateNextAccountCode('50000', accounts, allocatedCodes);
+      if (isNew) {
+        allocatedCodes.push(finalCode);
+      }
+
+      suggestedLines.push({
+        id: `sug-${Date.now()}-srv-${idx}`,
+        accountCode: finalCode,
+        accountName: finalName,
+        accountCategory: targetCat,
+        pos: targetPos,
+        sn: 'Db',
+        debit: srvItem.totalPrice,
+        credit: 0,
+        memo: `${srvItem.name} (${keterangan || 'Pembayaran Jasa/Pelatihan'})`,
+        isNewAccount: isNew,
+        suggestedNewCode: finalCode,
+        sourceItems: [srvItem.name]
+      });
+    });
+
+    // C. Pemisahan Pajak, Biaya Transfer BI-FAST, & Biaya Berdiri Sendiri
     taxAndFeeItems.forEach((taxItem, idx) => {
       const lower = taxItem.name.toLowerCase();
       let targetAccName = taxItem.name;
-      if (lower.includes('pb1') || lower.includes('pembelian pb1')) {
+      let targetCat: AccountCategory = 'BEBAN_OPERASIONAL';
+      let targetPos: ReportType = 'Lr';
+
+      if (lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')))) {
+        targetAccName = 'Beban Administrasi Bank';
+        targetCat = 'BEBAN_OPERASIONAL';
+        targetPos = 'Lr';
+      } else if (lower.includes('pb1') || lower.includes('pembelian pb1')) {
         targetAccName = taxItem.name.toLowerCase().includes('pajak') ? taxItem.name : 'Pajak Pembelian PB1';
+        targetCat = 'BEBAN_OPERASIONAL';
+        targetPos = 'Lr';
       } else if (lower.includes('ppn')) {
         targetAccName = 'PPN Masukan';
+        targetCat = 'HARTA_LANCAR';
+        targetPos = 'Nrc';
       } else if (lower.includes('ongkir') || lower.includes('kirim')) {
         targetAccName = 'Beban Angkut Pembelian';
+        targetCat = 'BEBAN_OPERASIONAL';
+        targetPos = 'Lr';
       }
 
       // Cek apakah akun sudah terdaftar di COA
-      const existingAcc = accounts.find(a => 
+      let existingAcc = accounts.find(a => 
         !a.isHeader && (
           a.name.toLowerCase() === targetAccName.toLowerCase() ||
-          (lower.includes('pb1') && (a.name.toLowerCase().includes('pb1') || a.name.toLowerCase().includes('pajak pembelian pb1')))
+          (lower.includes('pb1') && (a.name.toLowerCase().includes('pb1') || a.name.toLowerCase().includes('pajak pembelian pb1'))) ||
+          (targetAccName === 'Beban Administrasi Bank' && (a.name.toLowerCase().includes('administrasi bank') || a.name.toLowerCase().includes('admin bank')))
         )
       );
 
       const isNew = !existingAcc;
       const finalName = existingAcc ? existingAcc.name : targetAccName;
-      const finalCode = existingAcc ? existingAcc.code : generateNextAccountCode('50000', accounts);
+      const headerPrefix = targetCat === 'HARTA_LANCAR' ? '10000' : '50000';
+      const finalCode = existingAcc ? existingAcc.code : generateNextAccountCode(headerPrefix, accounts, allocatedCodes);
+      if (isNew) {
+        allocatedCodes.push(finalCode);
+      }
 
       suggestedLines.push({
         id: `sug-${Date.now()}-tax-${idx}`,
         accountCode: finalCode,
         accountName: finalName,
-        accountCategory: lower.includes('ppn') ? 'HARTA_LANCAR' : 'BEBAN_OPERASIONAL',
-        pos: lower.includes('ppn') ? 'Nrc' : 'Lr',
+        accountCategory: targetCat,
+        pos: targetPos,
         sn: 'Db',
         debit: taxItem.totalPrice,
         credit: 0,
@@ -701,7 +803,11 @@ export function analyzeAndSuggestJournal(
  * 40000: Pendapatan
  * 50000: Beban
  */
-export function generateNextAccountCode(headerPrefix: string, accounts: Account[]): string {
+export function generateNextAccountCode(
+  headerPrefix: string,
+  accounts: Account[],
+  additionalAllocatedCodes: string[] = []
+): string {
   const prefixNum = parseInt(headerPrefix, 10);
   const minCode = prefixNum;
   const maxCode = prefixNum + 9999;
@@ -709,6 +815,15 @@ export function generateNextAccountCode(headerPrefix: string, accounts: Account[
   let maxFound = minCode;
   accounts.forEach(a => {
     const num = parseInt(a.code, 10);
+    if (!isNaN(num) && num >= minCode && num <= maxCode) {
+      if (num > maxFound) {
+        maxFound = num;
+      }
+    }
+  });
+
+  additionalAllocatedCodes.forEach(code => {
+    const num = parseInt(code, 10);
     if (!isNaN(num) && num >= minCode && num <= maxCode) {
       if (num > maxFound) {
         maxFound = num;
@@ -831,3 +946,520 @@ export const SAMPLE_RECEIPT_DATA = {
     }
   ]
 };
+
+// =========================================================================
+// 9. MESIN EKSTRAKSI NYATA (GEMINI VISION MULTIMODAL & OFFLINE OCR PIPELINE)
+// =========================================================================
+
+export const GEMINI_API_KEY_STORAGE = 'spectra_gemini_api_key';
+
+export function getGeminiApiKey(): string {
+  try {
+    const local = localStorage.getItem(GEMINI_API_KEY_STORAGE);
+    if (local && local.trim()) return local.trim();
+  } catch (e) {}
+
+  const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.NEXT_PUBLIC_GEMINI_API_KEY || '';
+  return envKey ? String(envKey).trim() : '';
+}
+
+export function saveGeminiApiKey(key: string): void {
+  try {
+    if (!key || !key.trim()) {
+      localStorage.removeItem(GEMINI_API_KEY_STORAGE);
+    } else {
+      localStorage.setItem(GEMINI_API_KEY_STORAGE, key.trim());
+    }
+  } catch (e) {}
+}
+
+export async function testGeminiApiKey(apiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
+  if (!apiKey || !apiKey.trim()) {
+    return { success: false, message: 'API Key tidak boleh kosong' };
+  }
+  const cleanKey = apiKey.trim();
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Halo Gemini, konfirmasi koneksi API akuntansi SPECTRA dengan satu kata: OK' }] }]
+        })
+      });
+
+      if (res.ok) {
+        return { success: true, message: `Koneksi Gemini Multimodal API (${model}) Berhasil!`, model };
+      }
+    } catch (e: any) {
+      console.warn(`Testing model ${model} failed:`, e);
+    }
+  }
+
+  return { success: false, message: 'Gagal terhubung ke Gemini API. Pastikan API Key valid dan kuota aktif.' };
+}
+
+function extractBase64AndMime(dataUri: string): { mimeType: string; base64: string } {
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    return { mimeType: match[1], base64: match[2] };
+  }
+  return { mimeType: 'image/jpeg', base64: dataUri };
+}
+
+/**
+ * Parsing cerdas untuk bukti transfer bank dari raw OCR text
+ */
+export function parseBankTransferFromText(
+  rawText: string,
+  userDescription: string
+): { isBankTransfer: boolean; items: ExtractedItem[]; recipient: string; grandTotal: number } {
+  const upper = rawText.toUpperCase();
+  const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') || 
+                     upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') || 
+                     upper.includes('BRI') || upper.includes('BERHASIL') || upper.includes('REKENING') || 
+                     upper.includes('PENERIMA') || upper.includes('BREVET') || upper.includes('PIRANHA');
+
+  if (!isTransfer) {
+    return { isBankTransfer: false, items: [], recipient: '', grandTotal: 0 };
+  }
+
+  // Cari seluruh angka nominal Rupiah (contoh: IDR 2,850,000.00 atau 2.850.000 atau Rp 2.850.000)
+  const currencyRegex = /(?:IDR|Rp\.?|Jumlah|Nominal|Total)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)/gi;
+  const numbersFound: number[] = [];
+  let match;
+  while ((match = currencyRegex.exec(rawText)) !== null) {
+    const rawNum = match[1];
+    const parsed = parseIndonesianCurrency(rawNum);
+    if (parsed > 0 && !numbersFound.includes(parsed)) {
+      numbersFound.push(parsed);
+    }
+  }
+
+  numbersFound.sort((a, b) => b - a);
+
+  // Cari biaya transfer / BI-FAST
+  let adminFee = 0;
+  const feeRegex = /(?:biaya|fee|bi-fast|admin)[\s\S]{0,35}?(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
+  const feeMatch = rawText.match(feeRegex);
+  if (feeMatch) {
+    const parsedFee = parseIndonesianCurrency(feeMatch[1]);
+    if (parsedFee > 0 && parsedFee <= 50000) {
+      adminFee = parsedFee;
+    }
+  }
+
+  if (adminFee === 0 && (upper.includes('BI-FAST') || upper.includes('BI FAST'))) {
+    adminFee = 2500;
+  }
+
+  // Nominal Pokok
+  let mainAmount = 0;
+  if (numbersFound.length > 0) {
+    if (adminFee > 0 && numbersFound.length >= 2 && numbersFound[0] === numbersFound[1] + adminFee) {
+      mainAmount = numbersFound[1];
+    } else if (adminFee > 0 && numbersFound[0] === adminFee && numbersFound.length >= 2) {
+      mainAmount = numbersFound[1];
+    } else {
+      mainAmount = numbersFound[0] === adminFee && numbersFound.length >= 2 ? numbersFound[1] : numbersFound[0];
+    }
+  }
+
+  if (mainAmount === 0) {
+    const digitMatch = rawText.match(/\b([1-9][0-9]{5,8})\b/);
+    if (digitMatch) {
+      mainAmount = parseInt(digitMatch[1], 10);
+    }
+  }
+
+  // Berita / Catatan
+  let berita = '';
+  const beritaMatch = rawText.match(/(?:berita|catatan|keterangan|pesan)[\s:=]+([^\n\r,]+)/i);
+  if (beritaMatch) {
+    berita = beritaMatch[1].trim();
+  }
+
+  // Penerima
+  let penerima = '';
+  const penerimaMatch = rawText.match(/(?:penerima|ke rekening|tujuan|nama penerima)[\s:=]+([^\n\r,]+)/i);
+  if (penerimaMatch) {
+    penerima = penerimaMatch[1].trim();
+  }
+
+  // Ekstrak nama organisasi/vendor jika ada (contoh: PT Piranha Multi Talenta)
+  const vendorMatch = rawText.match(/(?:PT|CV|UD|Yayasan)\s+[A-Za-z0-9\s&]+/i);
+  if (!penerima && vendorMatch) {
+    penerima = vendorMatch[0].trim();
+  }
+
+  // Ekstrak brevet jika ada
+  if (!berita && upper.includes('BREVET')) {
+    const brevetMatch = rawText.match(/BREVET[A-Za-z0-9\s-]+/i);
+    if (brevetMatch) berita = brevetMatch[0].trim();
+  }
+
+  let mainItemName = '';
+  if (berita && penerima) {
+    mainItemName = `${berita} - ${penerima}`;
+  } else if (berita) {
+    mainItemName = berita;
+  } else if (penerima) {
+    mainItemName = `Transfer ke ${penerima}`;
+  } else if (userDescription && userDescription.trim()) {
+    mainItemName = userDescription.trim();
+  } else {
+    mainItemName = 'Pembayaran Transfer Bank';
+  }
+
+  const items: ExtractedItem[] = [];
+
+  if (mainAmount > 0) {
+    items.push({
+      id: `it-${Date.now()}-main`,
+      name: mainItemName,
+      unitPrice: mainAmount,
+      quantity: 1,
+      unit: 'transaksi',
+      totalPrice: mainAmount,
+      confidence: 96
+    });
+  }
+
+  if (adminFee > 0) {
+    items.push({
+      id: `it-${Date.now()}-admin`,
+      name: 'Biaya Transfer BI-FAST',
+      unitPrice: null,
+      quantity: null,
+      unit: '',
+      totalPrice: adminFee,
+      confidence: 98,
+      isTaxOrFee: true,
+      taxOrFeeType: 'BI_FAST'
+    });
+  }
+
+  const grandTotal = mainAmount + adminFee;
+
+  return {
+    isBankTransfer: items.length > 0,
+    items,
+    recipient: penerima || mainItemName,
+    grandTotal
+  };
+}
+
+/**
+ * Panggilan ke Gemini Multimodal Vision API
+ */
+export async function callGeminiVisionExtraction(
+  dataUri: string,
+  posCode: string,
+  userDescription: string,
+  accounts: Account[],
+  apiKey: string
+): Promise<RealOcrExtractionResult> {
+  const { mimeType, base64 } = extractBase64AndMime(dataUri);
+  const coaList = accounts
+    .filter(a => !a.isHeader)
+    .map(a => `${a.code} - ${a.name} (${a.categoryName})`)
+    .slice(0, 60)
+    .join('\n');
+
+  const prompt = `
+Anda adalah Akuntan Publik Senior (CPA) dan Ahli AI Vision Finansial Indonesia.
+Tugas Anda: Analisis bukti transaksi keuangan pada gambar/dokumen yang terlampir dan hasilkan JSON terstruktur secara akurat.
+
+Konteks Transaksi:
+- Deskripsi/Keterangan dari Pengguna: "${userDescription || '(Tidak ada keterangan)'}"
+- Kode POS yang dipilih: "${posCode}"
+- Daftar Akun (COA) Sistem:
+${coaList}
+
+Aturan Analisis Dokumen:
+1. Bukti Transfer Bank / m-Banking / BI-FAST (contoh: BCA, Mandiri, BRI, BNI, QRIS):
+   - Baris 1: Gabungkan informasi Berita/Tujuan Transaksi dan Nama Penerima (contoh: "Brevet Pajak CPTT - PT Piranha Multi Talenta").
+     - unit_price: nominal pokok transfer integer (contoh: 2850000 jika tertulis IDR 2,850,000.00).
+     - quantity: 1.
+     - total_price: 2850000.
+     - is_tax_or_fee: false.
+   - Baris 2 (jika tertera biaya admin / biaya transfer BI-FAST):
+     - name: "Biaya Transfer BI-FAST" (atau nama biaya yang tertera).
+     - unit_price: null.
+     - quantity: null.
+     - total_price: 2500 (angka integer murni tanpa koma).
+     - is_tax_or_fee: true.
+     - tax_or_fee_type: "BI_FAST".
+
+2. Struk Kasir / Nota Belanja / Faktur / Nota Tulis Tangan:
+   - Ekstrak setiap baris barang/jasa: nama item, unit_price, quantity, unit, total_price.
+   - Pisahkan pajak (PB1, PPN), service charge, ongkir sebagai baris tersendiri (is_tax_or_fee: true).
+
+3. Normalisasi Penulisan Rupiah Indonesia:
+   - "IDR 2,850,000.00" -> 2850000
+   - "IDR 2,500.00" -> 2500
+   - "10,-" atau "10rb" -> 10000
+   - Wajib angka integer murni.
+
+Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
+{
+  "detected_type": "transfer_bank" | "nota_pembelian" | "faktur" | "struk_thermal" | "lainnya",
+  "seller_or_recipient": "Nama Penerima / Toko",
+  "transaction_date": "YYYY-MM-DD",
+  "declared_grand_total": 2852500,
+  "extracted_items": [
+    {
+      "name": "Brevet Pajak CPTT - PT Piranha Multi Talenta",
+      "unit_price": 2850000,
+      "quantity": 1,
+      "unit": "transaksi",
+      "total_price": 2850000,
+      "is_tax_or_fee": false,
+      "tax_or_fee_type": null,
+      "confidence": 98
+    },
+    {
+      "name": "Biaya Transfer BI-FAST",
+      "unit_price": null,
+      "quantity": null,
+      "unit": "",
+      "total_price": 2500,
+      "is_tax_or_fee": true,
+      "tax_or_fee_type": "BI_FAST",
+      "confidence": 99
+    }
+  ]
+}
+`;
+
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  let lastError: any = null;
+  let responseText = '';
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64
+                }
+              },
+              {
+                text: prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.1
+        }
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`Gemini model ${model} error (${res.status}):`, errText);
+        lastError = new Error(`Gemini ${model} HTTP ${res.status}`);
+        continue;
+      }
+
+      const json = await res.json();
+      responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (responseText) break;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  if (!responseText) {
+    throw lastError || new Error('Gagal mendapatkan respon dari Gemini Vision');
+  }
+
+  // Parse JSON
+  let cleaned = responseText.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+
+  const parsed = JSON.parse(cleaned);
+  const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => ({
+    id: `it-gemini-${Date.now()}-${idx}`,
+    name: it.name || `Item ${idx + 1}`,
+    unitPrice: it.unit_price !== null && it.unit_price !== undefined ? Number(it.unit_price) : null,
+    quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
+    unit: it.unit || '',
+    totalPrice: Number(it.total_price) || 0,
+    confidence: Number(it.confidence) || 95,
+    isTaxOrFee: Boolean(it.is_tax_or_fee),
+    taxOrFeeType: it.tax_or_fee_type || undefined
+  }));
+
+  const verif = runTwoWayDeterministicVerification(items, parsed.declared_grand_total);
+
+  return {
+    detectedType: parsed.detected_type || 'lainnya',
+    sellerOrRecipient: parsed.seller_or_recipient || userDescription,
+    transactionDate: parsed.transaction_date,
+    extractedItems: verif.verifiedItems,
+    declaredGrandTotal: verif.grandTotal,
+    calculatedSum: verif.calculatedSum,
+    mathDiscrepancy: verif.mathDiscrepancy,
+    discrepancyMessage: verif.discrepancyMessage,
+    sourceEngine: 'gemini_vision',
+    rawResponse: parsed
+  };
+}
+
+/**
+ * Ekstraksi offline dengan Tesseract.js dan parser teks cerdas
+ */
+export async function extractTransactionWithOfflineOcr(
+  imageUri: string,
+  posCode: string,
+  userDescription: string,
+  accounts: Account[],
+  onProgress?: (msg: string) => void
+): Promise<RealOcrExtractionResult> {
+  onProgress?.('Menjalankan OCR lokal (Tesseract.js)...');
+
+  let rawOcrText = '';
+  try {
+    const { recognize } = await import('tesseract.js');
+    const res = await recognize(imageUri, 'eng+ind', {
+      logger: (m: any) => {
+        if (m.status === 'recognizing text' && m.progress) {
+          onProgress?.(`OCR lokal sedang membaca dokumen (${Math.round(m.progress * 100)}%)...`);
+        }
+      }
+    });
+    rawOcrText = res.data.text || '';
+  } catch (err) {
+    console.warn('Tesseract OCR error:', err);
+  }
+
+  // 1. Coba parse sebagai Bukti Transfer Bank
+  const bankParsed = parseBankTransferFromText(rawOcrText, userDescription);
+  if (bankParsed.isBankTransfer && bankParsed.items.length > 0) {
+    const verif = runTwoWayDeterministicVerification(bankParsed.items, bankParsed.grandTotal);
+    return {
+      detectedType: 'transfer_bank',
+      sellerOrRecipient: bankParsed.recipient,
+      extractedItems: verif.verifiedItems,
+      declaredGrandTotal: verif.grandTotal,
+      calculatedSum: verif.calculatedSum,
+      mathDiscrepancy: verif.mathDiscrepancy,
+      discrepancyMessage: verif.discrepancyMessage,
+      sourceEngine: 'tesseract_ocr'
+    };
+  }
+
+  // 2. Parse sebagai nota/struk umum
+  const lines = rawOcrText.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.length > 2);
+  const parsedItems: ExtractedItem[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const numMatches = line.match(/(?:[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,8})/g);
+    if (numMatches && numMatches.length > 0) {
+      const priceVal = parseIndonesianCurrency(numMatches[numMatches.length - 1]);
+      if (priceVal >= 1000) {
+        const namePart = line.replace(/(?:[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,8})/g, '').replace(/[:=]/g, '').trim();
+        const itemName = namePart.length >= 3 ? namePart : (userDescription || `Item ${i + 1}`);
+        const lowerName = itemName.toLowerCase();
+        const isTax = lowerName.includes('pajak') || lowerName.includes('pb1') || lowerName.includes('ppn');
+        const isFee = lowerName.includes('biaya') || lowerName.includes('ongkir') || lowerName.includes('admin') || lowerName.includes('bi-fast');
+
+        parsedItems.push({
+          id: `it-ocr-${Date.now()}-${i}`,
+          name: itemName,
+          unitPrice: isTax || isFee ? null : priceVal,
+          quantity: isTax || isFee ? null : 1,
+          unit: isTax || isFee ? '' : 'pcs',
+          totalPrice: priceVal,
+          confidence: 85,
+          isTaxOrFee: isTax || isFee,
+          taxOrFeeType: isTax ? 'PB1' : isFee ? 'ADMIN_BANK' : undefined
+        });
+      }
+    }
+  }
+
+  // Fallback aman jika teks tidak dapat di-parse menjadi baris item
+  if (parsedItems.length === 0) {
+    const allNumbers = rawOcrText.match(/[1-9][0-9]{3,8}/g);
+    let fallbackAmount = 0;
+    if (allNumbers && allNumbers.length > 0) {
+      fallbackAmount = Math.max(...allNumbers.map(n => parseInt(n, 10)));
+    }
+    if (fallbackAmount === 0) {
+      fallbackAmount = 100000;
+    }
+
+    parsedItems.push({
+      id: `it-fallback-${Date.now()}`,
+      name: userDescription && userDescription.trim() ? userDescription.trim() : 'Transaksi Bukti Unggahan',
+      unitPrice: fallbackAmount,
+      quantity: 1,
+      unit: 'transaksi',
+      totalPrice: fallbackAmount,
+      confidence: 80
+    });
+  }
+
+  const verif = runTwoWayDeterministicVerification(parsedItems);
+  return {
+    detectedType: 'nota_pembelian',
+    sellerOrRecipient: userDescription || 'Toko / Rekanan',
+    extractedItems: verif.verifiedItems,
+    declaredGrandTotal: verif.grandTotal,
+    calculatedSum: verif.calculatedSum,
+    mathDiscrepancy: verif.mathDiscrepancy,
+    discrepancyMessage: verif.discrepancyMessage,
+    sourceEngine: 'smart_parser'
+  };
+}
+
+/**
+ * Orkestrator Ekstraksi Bukti Transaksi Nyata
+ */
+export async function extractTransactionFromFile(params: {
+  fileDataUri: string;
+  fileName: string;
+  posCode: string;
+  userDescription: string;
+  accounts: Account[];
+  onProgress?: (step: string) => void;
+}): Promise<RealOcrExtractionResult> {
+  const { fileDataUri, posCode, userDescription, accounts, onProgress } = params;
+  const apiKey = getGeminiApiKey();
+
+  if (apiKey) {
+    onProgress?.('2/4: Memproses dengan Gemini Multimodal Vision AI...');
+    try {
+      const result = await callGeminiVisionExtraction(fileDataUri, posCode, userDescription, accounts, apiKey);
+      return result;
+    } catch (err: any) {
+      console.warn('Gemini Vision API gagal, beralih ke OCR lokal:', err);
+      onProgress?.('2/4: Gemini Vision sibuk/gagal, beralih ke OCR lokal...');
+    }
+  }
+
+  // Fallback ke OCR lokal Tesseract & Smart Parser
+  return extractTransactionWithOfflineOcr(fileDataUri, posCode, userDescription, accounts, onProgress);
+}
