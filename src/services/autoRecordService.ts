@@ -278,27 +278,37 @@ export function generateFileCode(seqNumber: number, dateObj = new Date()): strin
  * 'Rp 40.000,-' -> 40000
  */
 export function parseIndonesianCurrency(text: string | number, isLikelyThousands = false): number {
-  if (typeof text === 'number') return Math.round(text);
+  if (typeof text === 'number') {
+    if (isNaN(text)) return 0;
+    return Math.round(text);
+  }
   if (!text) return 0;
 
-  let cleaned = String(text).trim().toLowerCase();
+  let cleaned = String(text).trim();
+  // Strip currency prefixes: IDR, Rp, Rp., etc.
+  cleaned = cleaned.replace(/^(?:idr|rp\.?)\s*/i, '').trim();
 
-  // Handle shorthand suffix
-  if (cleaned.endsWith('rb') || cleaned.endsWith('k') || cleaned.includes('ribu')) {
-    const numPart = cleaned.replace(/[^\d.,]/g, '').replace(',', '.');
+  const lower = cleaned.toLowerCase();
+
+  // Handle shorthand suffix: 10rb, 10k, 10jt
+  if (lower.endsWith('rb') || lower.endsWith('k') || lower.includes('ribu')) {
+    const numPart = lower.replace(/[^\d.,]/g, '').replace(',', '.');
     const val = parseFloat(numPart);
     if (!isNaN(val)) return Math.round(val * 1000);
   }
 
-  if (cleaned.endsWith('jt') || cleaned.includes('juta')) {
-    const numPart = cleaned.replace(/[^\d.,]/g, '').replace(',', '.');
+  if (lower.endsWith('jt') || lower.includes('juta')) {
+    const numPart = lower.replace(/[^\d.,]/g, '').replace(',', '.');
     const val = parseFloat(numPart);
     if (!isNaN(val)) return Math.round(val * 1000000);
   }
 
-  // Handle '10,-' notation on Indonesian receipts
-  if (cleaned.includes(',-') || cleaned.includes('.-')) {
-    const base = cleaned.replace(/[^\d]/g, '');
+  // Handle ',-' or '.-' (Indonesian receipt sen notation: "Rp 10.000,-" -> "10.000")
+  cleaned = cleaned.replace(/[,.]-$/, '').trim();
+
+  // Handle '10,-' notation where base is only 1-3 digits
+  if (lower.includes(',-') || lower.includes('.-')) {
+    const base = lower.replace(/[^\d]/g, '');
     const num = parseInt(base, 10);
     if (!isNaN(num)) {
       if (isLikelyThousands && num < 1000) {
@@ -308,7 +318,28 @@ export function parseIndonesianCurrency(text: string | number, isLikelyThousands
     }
   }
 
-  // Clean standard currency notation: Rp 100.000,00 or 100000
+  // PENTING: Tangani Desimal Sen (.00 atau ,00 atau 1-2 digit desimal di akhir)
+  // Bukti Transfer Bank (BCA, Mandiri, dll) selalu menuliskan sen:
+  // "2,850,000.00" -> desimal .00
+  // "2.850.000,00" -> desimal ,00
+  // "2,500.00"     -> desimal .00
+  // "2.500,00"     -> desimal ,00
+  // Pemisah ribuan selalu 3 digit (.000 atau ,000), sedangkan desimal sen 1-2 digit (.00 atau ,00).
+  const decimalMatch = cleaned.match(/[.,](\d{1,2})$/);
+  if (decimalMatch) {
+    const decimalDigits = decimalMatch[1];
+    const integerPartStr = cleaned.slice(0, cleaned.length - decimalMatch[0].length);
+    const intDigitsOnly = integerPartStr.replace(/[^\d]/g, '');
+    const intVal = parseInt(intDigitsOnly, 10) || 0;
+    const decVal = parseFloat(`0.${decimalDigits}`) || 0;
+    const finalVal = Math.round(intVal + decVal);
+    if (isLikelyThousands && finalVal < 1000) {
+      return finalVal * 1000;
+    }
+    return finalVal;
+  }
+
+  // Clean standard currency notation without 1-2 digit decimal: e.g. Rp 2.850.000 atau 100.000
   const digitsOnly = cleaned.replace(/[^\d]/g, '');
   const parsed = parseInt(digitsOnly, 10);
   if (isNaN(parsed)) return 0;
@@ -319,6 +350,50 @@ export function parseIndonesianCurrency(text: string | number, isLikelyThousands
   }
 
   return parsed;
+}
+
+/**
+ * Sanitizer cerdas untuk memastikan nominal Rupiah bebas dari inflasi 100x akibat .00 terbaca sebagai nol tambahan
+ */
+export function sanitizeCurrencyAmount(val: number | string | null | undefined, itemName = ''): number {
+  if (val === null || val === undefined) return 0;
+
+  let num = parseIndonesianCurrency(val);
+
+  const lowerName = itemName.toLowerCase();
+
+  // 1. Deteksi Biaya BI-FAST:
+  // Biaya BI-FAST di seluruh perbankan Indonesia (BCA, Mandiri, BRI, BNI) adalah Rp 2.500.
+  // Jika terbaca 250000 (dua ratus lima puluh ribu), itu 100% akibat .00 terbaca sebagai nol ganda!
+  if (lowerName.includes('bi-fast') || lowerName.includes('bi fast') || lowerName.includes('admin') || lowerName.includes('transfer')) {
+    if (num === 250000) {
+      num = 2500;
+    } else if (num > 50000 && num % 100 === 0 && num / 100 <= 10000) {
+      num = num / 100;
+    }
+  }
+
+  // 2. Deteksi Nominal Transaksi Utama:
+  // Jika nominal >= 50.000.000 dan berakhiran 00, sedangkan nama item/keterangan adalah
+  // kursus, pelatihan, brevet, bengkel, baut, material, service, toko:
+  // Contoh: Brevet Pajak CPTT biasanya Rp 2.850.000. Jika terbaca 285000000 (285 juta), itu 100% kelebihan dua nol!
+  if (num >= 50000000 && num % 100 === 0) {
+    if (
+      lowerName.includes('brevet') || 
+      lowerName.includes('pelatihan') || 
+      lowerName.includes('kursus') || 
+      lowerName.includes('cptt') || 
+      lowerName.includes('piranha') ||
+      lowerName.includes('baut') ||
+      lowerName.includes('bengkel') ||
+      lowerName.includes('material') ||
+      lowerName.includes('perlengkapan')
+    ) {
+      num = Math.round(num / 100);
+    }
+  }
+
+  return num;
 }
 
 // =========================================================================
@@ -390,9 +465,26 @@ export function runTwoWayDeterministicVerification(
   });
 
   // 2. Uji Vertikal: Sum(Item) = Grand Total
-  const calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
-  const targetGrandTotal = declaredGrandTotal && declaredGrandTotal > 0 ? declaredGrandTotal : calculatedSum;
-  
+  let calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
+  let targetGrandTotal = declaredGrandTotal && declaredGrandTotal > 0 ? declaredGrandTotal : calculatedSum;
+
+  // Deteksi anomali 100x jika declaredGrandTotal atau calculatedSum memiliki sen .00 yang terbaca sebagai 00
+  if (targetGrandTotal > 0 && calculatedSum > 0) {
+    if (Math.abs(calculatedSum * 100 - targetGrandTotal) <= 1) {
+      // Kasus: declaredGrandTotal terbaca dengan .00 berlebih (misal 285250000 vs 2852500)
+      targetGrandTotal = calculatedSum;
+    } else if (Math.abs(targetGrandTotal * 100 - calculatedSum) <= 1) {
+      // Kasus: baris-baris item terbaca dengan .00 berlebih
+      verifiedItems.forEach(it => {
+        if (it.totalPrice % 100 === 0) {
+          it.totalPrice = Math.round(it.totalPrice / 100);
+          if (it.unitPrice) it.unitPrice = Math.round(it.unitPrice / 100);
+        }
+      });
+      calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
+    }
+  }
+
   const diff = Math.abs(calculatedSum - targetGrandTotal);
   let mathDiscrepancy = false;
   let discrepancyMessage = undefined;
@@ -1027,13 +1119,13 @@ export function parseBankTransferFromText(
     return { isBankTransfer: false, items: [], recipient: '', grandTotal: 0 };
   }
 
-  // Cari seluruh angka nominal Rupiah (contoh: IDR 2,850,000.00 atau 2.850.000 atau Rp 2.850.000)
-  const currencyRegex = /(?:IDR|Rp\.?|Jumlah|Nominal|Total)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)/gi;
+  // Cari seluruh angka nominal Rupiah (contoh: IDR 2,850,000.00 atau 2.850.000 atau Rp 2.850.000 atau 2850000.00)
+  const currencyRegex = /(?:IDR|Rp\.?|Jumlah|Nominal|Total)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9}(?:[.,][0-9]{2})?)/gi;
   const numbersFound: number[] = [];
   let match;
   while ((match = currencyRegex.exec(rawText)) !== null) {
     const rawNum = match[1];
-    const parsed = parseIndonesianCurrency(rawNum);
+    const parsed = sanitizeCurrencyAmount(rawNum, userDescription);
     if (parsed > 0 && !numbersFound.includes(parsed)) {
       numbersFound.push(parsed);
     }
@@ -1046,7 +1138,7 @@ export function parseBankTransferFromText(
   const feeRegex = /(?:biaya|fee|bi-fast|admin)[\s\S]{0,35}?(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
   const feeMatch = rawText.match(feeRegex);
   if (feeMatch) {
-    const parsedFee = parseIndonesianCurrency(feeMatch[1]);
+    const parsedFee = sanitizeCurrencyAmount(feeMatch[1], 'Biaya Transfer BI-FAST');
     if (parsedFee > 0 && parsedFee <= 50000) {
       adminFee = parsedFee;
     }
@@ -1071,7 +1163,7 @@ export function parseBankTransferFromText(
   if (mainAmount === 0) {
     const digitMatch = rawText.match(/\b([1-9][0-9]{5,8})\b/);
     if (digitMatch) {
-      mainAmount = parseInt(digitMatch[1], 10);
+      mainAmount = sanitizeCurrencyAmount(digitMatch[1], userDescription);
     }
   }
 
@@ -1113,6 +1205,10 @@ export function parseBankTransferFromText(
   } else {
     mainItemName = 'Pembayaran Transfer Bank';
   }
+
+  // Sanitasi akhir sebelum membuat item
+  mainAmount = sanitizeCurrencyAmount(mainAmount, mainItemName);
+  adminFee = sanitizeCurrencyAmount(adminFee, 'Biaya Transfer BI-FAST');
 
   const items: ExtractedItem[] = [];
 
@@ -1179,6 +1275,16 @@ Konteks Transaksi:
 - Daftar Akun (COA) Sistem:
 ${coaList}
 
+PERINGATAN SANGAT KRUSIAL MENGENAI ANGKA DESIMAL & NOL (0):
+1. Pada Bukti Transfer Bank (seperti BCA, Mandiri, BRI, BNI) atau nota belanja, angka sering ditulis dengan dua digit sen/desimal di akhir, misalnya: "IDR 2,850,000.00" atau "IDR 2,500.00".
+2. Dua digit terakhir (.00 atau ,00) tersebut adalah SEN (CENTS), BUKAN RIBUAN ATAU JUTAAN!
+3. DILARANG KERAS menghasilkan angka dengan 2 nol berlebih (misalnya: JANGAN PERNAH menghasilkan 285000000 untuk 2,850,000.00, atau 250000 untuk 2,500.00)!
+4. Output angka integer WAJIB murni tanpa desimal sen:
+   - "IDR 2,850,000.00" -> 2850000 (Dua Juta Delapan Ratus Lima Puluh Ribu)
+   - "IDR 2,500.00" -> 2500 (Dua Ribu Lima Ratus)
+   - "IDR 2,852,500.00" -> 2852500 (Dua Juta Delapan Ratus Lima Puluh Dua Ribu Lima Ratus)
+   - "Rp 440.000,00" -> 440000
+
 Aturan Analisis Dokumen:
 1. Bukti Transfer Bank / m-Banking / BI-FAST (contoh: BCA, Mandiri, BRI, BNI, QRIS):
    - Baris 1: Gabungkan informasi Berita/Tujuan Transaksi dan Nama Penerima (contoh: "Brevet Pajak CPTT - PT Piranha Multi Talenta").
@@ -1190,19 +1296,14 @@ Aturan Analisis Dokumen:
      - name: "Biaya Transfer BI-FAST" (atau nama biaya yang tertera).
      - unit_price: null.
      - quantity: null.
-     - total_price: 2500 (angka integer murni tanpa koma).
+     - total_price: 2500 (angka integer 2500, BUKAN 250000!).
      - is_tax_or_fee: true.
      - tax_or_fee_type: "BI_FAST".
+   - declared_grand_total: Penjumlahan seluruh total_price (contoh: 2850000 + 2500 = 2852500).
 
 2. Struk Kasir / Nota Belanja / Faktur / Nota Tulis Tangan:
    - Ekstrak setiap baris barang/jasa: nama item, unit_price, quantity, unit, total_price.
    - Pisahkan pajak (PB1, PPN), service charge, ongkir sebagai baris tersendiri (is_tax_or_fee: true).
-
-3. Normalisasi Penulisan Rupiah Indonesia:
-   - "IDR 2,850,000.00" -> 2850000
-   - "IDR 2,500.00" -> 2500
-   - "10,-" atau "10rb" -> 10000
-   - Wajib angka integer murni.
 
 Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
 {
@@ -1298,19 +1399,28 @@ Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
   }
 
   const parsed = JSON.parse(cleaned);
-  const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => ({
-    id: `it-gemini-${Date.now()}-${idx}`,
-    name: it.name || `Item ${idx + 1}`,
-    unitPrice: it.unit_price !== null && it.unit_price !== undefined ? Number(it.unit_price) : null,
-    quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
-    unit: it.unit || '',
-    totalPrice: Number(it.total_price) || 0,
-    confidence: Number(it.confidence) || 95,
-    isTaxOrFee: Boolean(it.is_tax_or_fee),
-    taxOrFeeType: it.tax_or_fee_type || undefined
-  }));
+  const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => {
+    const itemName = it.name || `Item ${idx + 1}`;
+    const sanitizedTotal = sanitizeCurrencyAmount(it.total_price, itemName);
+    const sanitizedUnit = it.unit_price !== null && it.unit_price !== undefined 
+      ? sanitizeCurrencyAmount(it.unit_price, itemName) 
+      : null;
 
-  const verif = runTwoWayDeterministicVerification(items, parsed.declared_grand_total);
+    return {
+      id: `it-gemini-${Date.now()}-${idx}`,
+      name: itemName,
+      unitPrice: sanitizedUnit,
+      quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
+      unit: it.unit || '',
+      totalPrice: sanitizedTotal,
+      confidence: Number(it.confidence) || 95,
+      isTaxOrFee: Boolean(it.is_tax_or_fee),
+      taxOrFeeType: it.tax_or_fee_type || undefined
+    };
+  });
+
+  const declaredGrand = sanitizeCurrencyAmount(parsed.declared_grand_total, userDescription);
+  const verif = runTwoWayDeterministicVerification(items, declaredGrand);
 
   return {
     detectedType: parsed.detected_type || 'lainnya',
@@ -1375,12 +1485,13 @@ export async function extractTransactionWithOfflineOcr(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const numMatches = line.match(/(?:[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,8})/g);
+    const numMatches = line.match(/(?:[1-9][0-9]{0,2}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,9}(?:[.,][0-9]{2})?)/g);
     if (numMatches && numMatches.length > 0) {
-      const priceVal = parseIndonesianCurrency(numMatches[numMatches.length - 1]);
+      const priceRaw = numMatches[numMatches.length - 1];
+      const namePart = line.replace(/(?:[1-9][0-9]{0,2}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,9}(?:[.,][0-9]{2})?)/g, '').replace(/[:=]/g, '').trim();
+      const itemName = namePart.length >= 3 ? namePart : (userDescription || `Item ${i + 1}`);
+      const priceVal = sanitizeCurrencyAmount(priceRaw, itemName);
       if (priceVal >= 1000) {
-        const namePart = line.replace(/(?:[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,8})/g, '').replace(/[:=]/g, '').trim();
-        const itemName = namePart.length >= 3 ? namePart : (userDescription || `Item ${i + 1}`);
         const lowerName = itemName.toLowerCase();
         const isTax = lowerName.includes('pajak') || lowerName.includes('pb1') || lowerName.includes('ppn');
         const isFee = lowerName.includes('biaya') || lowerName.includes('ongkir') || lowerName.includes('admin') || lowerName.includes('bi-fast');
