@@ -73,6 +73,7 @@ export interface SuggestedJournalLine {
   memo: string;
   isNewAccount: boolean;
   suggestedNewCode?: string;
+  justCreated?: boolean;
   sourceItems?: string[];
 }
 
@@ -475,7 +476,8 @@ export function analyzeAndSuggestJournal(
   items: ExtractedItem[],
   posCode: string,
   accounts: Account[],
-  keterangan: string
+  keterangan: string,
+  addAccountFn?: (acc: Omit<Account, 'id'>) => Account
 ): SuggestedJournalLine[] {
   const selectedPos = getPosRules().find(p => p.code === posCode) || DEFAULT_POS_RULES[0];
   const suggestedLines: SuggestedJournalLine[] = [];
@@ -510,6 +512,26 @@ export function analyzeAndSuggestJournal(
         perlengkapanAcc = accounts.find(a => !a.isHeader && a.category === 'HARTA_LANCAR');
       }
 
+      let wasPhysCreated = false;
+      // Jika tidak ditemukan dan ada addAccountFn, langsung buat akun di COA
+      if (!perlengkapanAcc && addAccountFn) {
+        const nextCode = generateNextAccountCode('10000', accounts);
+        perlengkapanAcc = addAccountFn({
+          code: nextCode,
+          name: 'Perlengkapan Kantor',
+          category: 'HARTA_LANCAR',
+          categoryName: 'Harta Lancar',
+          pos: 'Nrc',
+          sn: 'Db',
+          debetAwal: 0,
+          kreditAwal: 0,
+          isHeader: false,
+          description: 'Dibuat otomatis oleh SPECTRA Auto Record OCR Engine'
+        });
+        accounts.push(perlengkapanAcc);
+        wasPhysCreated = true;
+      }
+
       const accCode = perlengkapanAcc?.code || '10006';
       const accName = perlengkapanAcc?.name || 'Perlengkapan Kantor';
 
@@ -523,7 +545,8 @@ export function analyzeAndSuggestJournal(
         debit: totalPhysical,
         credit: 0,
         memo: physicalItems.map(p => `${p.name} (${p.quantity || 1} @ ${p.unitPrice?.toLocaleString('id-ID') || p.totalPrice.toLocaleString('id-ID')})`).join(', '),
-        isNewAccount: !perlengkapanAcc,
+        isNewAccount: false,
+        justCreated: wasPhysCreated,
         sourceItems: physicalItems.map(p => p.name)
       });
     }
@@ -541,12 +564,35 @@ export function analyzeAndSuggestJournal(
       }
 
       // Cek apakah akun sudah terdaftar di COA
-      const existingAcc = accounts.find(a => 
-        !a.isHeader && a.name.toLowerCase() === targetAccName.toLowerCase()
+      let existingAcc = accounts.find(a => 
+        !a.isHeader && (a.name.toLowerCase() === targetAccName.toLowerCase() || (a.code === '50022' && targetAccName === 'Beban Pajak PB1'))
       );
 
-      const isNew = !existingAcc;
-      const finalCode = existingAcc ? existingAcc.code : generateNextAccountCode('50000', accounts);
+      let finalCode = existingAcc ? existingAcc.code : generateNextAccountCode('50000', accounts);
+      let wasTaxCreated = false;
+
+      // LANGSUNG KERJAKAN SARAN: Langsung buat akun di COA seketika tanpa menunda ke tahap approve
+      if (!existingAcc && addAccountFn) {
+        const isPpn = lower.includes('ppn');
+        const headerPrefix = isPpn ? '10000' : '50000';
+        const newCode = generateNextAccountCode(headerPrefix, accounts);
+        const newAcc = addAccountFn({
+          code: newCode,
+          name: targetAccName,
+          category: isPpn ? 'HARTA_LANCAR' : 'BEBAN_OPERASIONAL',
+          categoryName: isPpn ? 'Harta Lancar' : 'Beban Operasional',
+          pos: isPpn ? 'Nrc' : 'Lr',
+          sn: 'Db',
+          debetAwal: 0,
+          kreditAwal: 0,
+          isHeader: false,
+          description: 'Dibuat otomatis oleh SPECTRA Auto Record OCR Engine'
+        });
+        accounts.push(newAcc);
+        existingAcc = newAcc;
+        finalCode = newAcc.code;
+        wasTaxCreated = true;
+      }
 
       suggestedLines.push({
         id: `sug-${Date.now()}-tax-${idx}`,
@@ -558,8 +604,9 @@ export function analyzeAndSuggestJournal(
         debit: taxItem.totalPrice,
         credit: 0,
         memo: `${taxItem.name} dari bukti transaksi`,
-        isNewAccount: isNew,
+        isNewAccount: false,
         suggestedNewCode: finalCode,
+        justCreated: wasTaxCreated,
         sourceItems: [taxItem.name]
       });
     });
@@ -567,7 +614,25 @@ export function analyzeAndSuggestJournal(
     // 2. Akun Lawan Sisi Kredit berdasarkan POS
     const totalDebit = suggestedLines.reduce((acc, l) => acc + l.debit, 0);
     const creditAccCode = selectedPos.defaultCreditAccountCode || (posCode === 'A' ? '10001' : '20001');
-    const existingCredit = accounts.find(a => a.code === creditAccCode);
+    let existingCredit = accounts.find(a => a.code === creditAccCode);
+
+    if (!existingCredit && addAccountFn) {
+      const isKas = posCode === 'A';
+      existingCredit = addAccountFn({
+        code: creditAccCode,
+        name: selectedPos.defaultCreditAccountName || (isKas ? 'Kas' : 'Utang Usaha'),
+        category: isKas ? 'HARTA_LANCAR' : 'UTANG_LANCAR',
+        categoryName: isKas ? 'Harta Lancar' : 'Utang Lancar',
+        pos: 'Nrc',
+        sn: isKas ? 'Db' : 'Kr',
+        debetAwal: 0,
+        kreditAwal: 0,
+        isHeader: false,
+        description: 'Dibuat otomatis oleh SPECTRA Auto Record OCR Engine'
+      });
+      accounts.push(existingCredit);
+    }
+
     const creditAccName = existingCredit?.name || selectedPos.defaultCreditAccountName || (posCode === 'A' ? 'Kas' : 'Utang Usaha/Dagang');
 
     suggestedLines.push({

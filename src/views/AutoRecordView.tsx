@@ -201,8 +201,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, driveLink, selectedPosCode, verif.verifiedItems);
     setSpreadsheetRows(rows);
 
-    // Analyze SAK Journal
-    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+    // Analyze SAK Journal & langsung eksekusi pembuatan akun baru di COA seketika
+    const currentAccs = [...accounts];
+    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, currentAccs, keterangan, addAccount);
     setJournalLines(sug);
 
     await new Promise(r => setTimeout(r, 400));
@@ -235,7 +236,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, googleDriveLink, selectedPosCode, verif.verifiedItems);
     setSpreadsheetRows(rows);
 
-    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+    const currentAccs = [...accounts];
+    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, currentAccs, keterangan, addAccount);
     setJournalLines(sug);
   };
 
@@ -250,7 +252,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, googleDriveLink, selectedPosCode, verif.verifiedItems);
     setSpreadsheetRows(rows);
 
-    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+    const currentAccs = [...accounts];
+    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, currentAccs, keterangan, addAccount);
     setJournalLines(sug);
   };
 
@@ -275,7 +278,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, googleDriveLink, selectedPosCode, verif.verifiedItems);
     setSpreadsheetRows(rows);
 
-    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+    const currentAccs = [...accounts];
+    const sug = analyzeAndSuggestJournal(verif.verifiedItems, selectedPosCode, currentAccs, keterangan, addAccount);
     setJournalLines(sug);
   };
 
@@ -290,7 +294,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             accountCode: value,
             accountName: acc?.name || l.accountName,
             accountCategory: acc?.category || l.accountCategory,
-            isNewAccount: !acc
+            isNewAccount: false,
+            justCreated: false
           };
         }
         return { ...l, [field]: value };
@@ -892,10 +897,10 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                           </option>
                         ))}
                       </select>
-                      {line.isNewAccount && (
-                        <div className="text-[10px] font-bold text-amber-700 mt-0.5 flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-amber-500" />
-                          <span>+ Akun Baru Otomatis: {line.accountName} (Kode: {line.suggestedNewCode || line.accountCode})</span>
+                      {line.justCreated && (
+                        <div className="text-[10px] font-semibold text-emerald-700 mt-0.5 flex items-center gap-1 animate-fadeIn">
+                          <CheckCircle className="w-3 h-3 text-emerald-600" />
+                          <span>Akun otomatis dibuat &amp; terdaftar di COA (Kode: {line.accountCode})</span>
                         </div>
                       )}
                     </div>
@@ -982,7 +987,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             {/* ACTION APPROVE BUTTON (SECTION 5) */}
             <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
-                Menekan tombol <strong>"Approve"</strong> akan otomatis membuat akun baru di COA (jika belum ada) dan membukukan transaksi ke Jurnal Umum / Accurate Voucher.
+                Semua akun telah tervalidasi &amp; dibuat di COA. Menekan tombol <strong>"Approve"</strong> akan langsung membukukan voucher transaksi ke Jurnal Umum (JU).
               </div>
 
               <button
