@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Scan, 
   Upload, 
@@ -24,11 +24,19 @@ import {
   CheckCircle,
   X,
   Key,
-  EyeOff
+  EyeOff,
+  History,
+  Clock,
+  ListFilter,
+  Receipt,
+  Calendar,
+  Search,
+  ArrowUpRight,
+  Download
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { TransactionLine } from '../types/accounting';
-import { formatRupiah } from '../utils/accountingCalculations';
+import { TransactionLine, Transaction } from '../types/accounting';
+import { formatRupiah, exportTableToExcel } from '../utils/accountingCalculations';
 import { 
   getPosRules, 
   saveCustomPosRule, 
@@ -63,7 +71,7 @@ interface AutoRecordViewProps {
 }
 
 export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) => {
-  const { accounts, transactions, addAccount, addTransaction, settings, logActivity } = useAccounting();
+  const { accounts, transactions, addAccount, addTransaction, deleteTransaction, settings, logActivity } = useAccounting();
 
   // 1. Master Data & Upload States (CLEAN & NON-HARDCODED)
   const [posRules, setPosRules] = useState<PosRule[]>(getPosRules);
@@ -81,10 +89,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [apiTesting, setApiTesting] = useState<boolean>(false);
   const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Pipeline Status
+  // Pipeline Status & Stage (tahap1, tahap2, riwayat)
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [extractStep, setExtractStep] = useState<string>('');
-  const [currentStage, setCurrentStage] = useState<'tahap1' | 'tahap2'>('tahap1');
+  const [currentStage, setCurrentStage] = useState<'tahap1' | 'tahap2' | 'riwayat'>('tahap1');
+  const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'bt' | 'other'>('all');
+  const [riwayatSearch, setRiwayatSearch] = useState<string>('');
 
   // Tahap 2: Extraction & Verification States
   const [extractedItems, setExtractedItems] = useState<ExtractedItem[]>([]);
@@ -112,6 +122,104 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [newPosCreditRule, setNewPosCreditRule] = useState<string>('');
   const [newPosDebitAcc, setNewPosDebitAcc] = useState<string>('10001');
   const [newPosCreditAcc, setNewPosCreditAcc] = useState<string>('20001');
+
+  // Filter daftar transaksi terekam
+  const autoRecordTransactions = useMemo(() => {
+    return transactions.filter(t => t.refNumber && t.refNumber.startsWith('BT/'));
+  }, [transactions]);
+
+  const filteredHistoryTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      if (riwayatFilter === 'bt' && (!t.refNumber || !t.refNumber.startsWith('BT/'))) return false;
+      if (riwayatFilter === 'other' && t.refNumber && t.refNumber.startsWith('BT/')) return false;
+
+      if (riwayatSearch.trim()) {
+        const q = riwayatSearch.toLowerCase();
+        const matchRef = (t.refNumber || '').toLowerCase().includes(q);
+        const matchDesc = (t.description || '').toLowerCase().includes(q);
+        const matchLine = t.lines.some(l => (l.accountName || '').toLowerCase().includes(q) || (l.accountCode || '').includes(q));
+        if (!matchRef && !matchDesc && !matchLine) return false;
+      }
+      return true;
+    });
+  }, [transactions, riwayatFilter, riwayatSearch]);
+
+  const totalHistoryDebit = useMemo(() => {
+    return filteredHistoryTransactions.reduce((acc, t) => acc + (t.totalDebit || 0), 0);
+  }, [filteredHistoryTransactions]);
+
+  const handleExportHistoryExcel = () => {
+    const data: any[][] = [
+      ['TANGGAL', 'NOMOR BERKAS / REF', 'TIPE', 'KETERANGAN', 'KODE AKUN', 'NAMA AKUN', 'DEBIT (RP)', 'KREDIT (RP)']
+    ];
+
+    filteredHistoryTransactions.forEach(trx => {
+      trx.lines.forEach((line, idx) => {
+        data.push([
+          idx === 0 ? trx.date : '',
+          idx === 0 ? trx.refNumber : '',
+          idx === 0 ? (trx.type || 'general') : '',
+          idx === 0 ? trx.description : (line.memo || ''),
+          line.accountCode,
+          line.accountName,
+          line.debit,
+          line.credit
+        ]);
+      });
+    });
+
+    exportTableToExcel(data, `Riwayat_Transaksi_AutoRecord_${new Date().toISOString().split('T')[0]}`, 'Riwayat Transaksi');
+  };
+
+  const handleLoadSampleRecordedTransaction = () => {
+    const existing = transactions.find(t => t.refNumber && t.refNumber.startsWith('BT/0001'));
+    if (existing) {
+      alert('Transaksi BT/0001 sudah ada dalam daftar transaksi yang terekam.');
+      return;
+    }
+
+    addTransaction({
+      date: new Date().toISOString().slice(0, 10),
+      refNumber: 'BT/0001/26X26',
+      type: 'general',
+      description: 'Pembelian Baut dan Material Pemeliharaan Bengkel Operasional',
+      lines: [
+        {
+          id: 'line-bt1-1',
+          accountId: 'acc_10006',
+          accountCode: '10006',
+          accountName: 'Perlengkapan Kantor',
+          debit: 400000,
+          credit: 0,
+          memo: 'Baut Ukuran 12 & Baut Ukuran 15'
+        },
+        {
+          id: 'line-bt1-2',
+          accountId: 'acc_50022',
+          accountCode: '50022',
+          accountName: 'Pajak Pembelian PB1',
+          debit: 40000,
+          credit: 0,
+          memo: 'Pajak Pembelian PB1 (10%)'
+        },
+        {
+          id: 'line-bt1-3',
+          accountId: 'acc_10001',
+          accountCode: '10001',
+          accountName: 'Kas',
+          debit: 0,
+          credit: 440000,
+          memo: 'Pengeluaran kas pembelian tunai'
+        }
+      ],
+      totalDebit: 440000,
+      totalCredit: 440000,
+      partner: 'TOKO BAUT & MATERIAL JAYA'
+    });
+    commitDocumentSequence(2);
+    logActivity('Auto Record Sample', 'Menambahkan contoh transaksi BT/0001/26X26 ke database');
+    alert('Contoh transaksi BT/0001/26X26 berhasil ditambahkan ke daftar transaksi terekam!');
+  };
 
   // Update nomor berkas when seq or transactions change
   useEffect(() => {
@@ -577,12 +685,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           </div>
         </div>
 
-        {/* Tab Indicator: Tahap 1 vs Tahap 2 */}
-        <div className="relative z-10 flex border-t border-white/10 bg-black/20">
+        {/* Tab Indicator: Tahap 1 vs Tahap 2 vs Riwayat Transaksi */}
+        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto">
           <button
             type="button"
             onClick={() => setCurrentStage('tahap1')}
-            className={`flex-1 py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+            className={`flex-1 min-w-[200px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
               currentStage === 'tahap1'
                 ? 'border-blue-400 text-blue-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -594,14 +702,31 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           <button
             type="button"
             onClick={() => setCurrentStage('tahap2')}
-            className={`flex-1 py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+            className={`flex-1 min-w-[220px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
               currentStage === 'tahap2'
                 ? 'border-emerald-400 text-emerald-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
-            <span>Tahap 2: Koreksi Data, Analisis Jurnal &amp; Approval</span>
+            <span>Tahap 2: Koreksi Data &amp; Approval</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentStage('riwayat')}
+            className={`flex-1 min-w-[220px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+              currentStage === 'riwayat'
+                ? 'border-amber-400 text-amber-300 bg-white/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <History className="w-4 h-4 text-amber-400" />
+            <span>Daftar Transaksi Terekam ({transactions.length})</span>
+            {autoRecordTransactions.length > 0 && (
+              <span className="bg-amber-400/20 text-amber-300 text-[10px] px-1.5 py-0.5 rounded-full font-mono border border-amber-400/30">
+                {autoRecordTransactions.length} BT
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -790,6 +915,144 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Section: Daftar Transaksi yang Sebelumnya Sudah Terekam (Quick Preview) */}
+          <div className="lg:col-span-12 bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 border border-amber-200">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>Daftar Transaksi yang Sebelumnya Sudah Terekam</span>
+                    <span className="text-[11px] font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                      {transactions.length} Total Transaksi
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Dokumen bukti transaksi dan jurnal yang telah disetujui sebelumnya dalam database.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLoadSampleRecordedTransaction}
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Tambahkan contoh transaksi BT/0001 ke database"
+                >
+                  <Plus className="w-3.5 h-3.5 text-blue-600" />
+                  <span>+ Muat Contoh BT/0001</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStage('riwayat')}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <span>Buka Semua Riwayat ({transactions.length})</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {transactions.length === 0 ? (
+              <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-3">
+                <Receipt className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs text-slate-500">
+                  Belum ada transaksi yang terekam dalam sistem. Selesaikan proses Tahap 2 atau klik tombol di bawah untuk memuat transaksi contoh.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleLoadSampleRecordedTransaction}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambahkan Contoh Transaksi BT/0001/26X26</span>
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold">
+                      <th className="py-2.5 px-3 w-10 text-center">No</th>
+                      <th className="py-2.5 px-3 min-w-[110px]">Tanggal</th>
+                      <th className="py-2.5 px-3 min-w-[130px]">No. Berkas / Ref</th>
+                      <th className="py-2.5 px-3 min-w-[240px]">Keterangan Transaksi</th>
+                      <th className="py-2.5 px-3 min-w-[220px]">Rincian Akun Jurnal (Debit / Kredit)</th>
+                      <th className="py-2.5 px-3 text-right min-w-[120px]">Total Nominal</th>
+                      <th className="py-2.5 px-3 text-center w-20">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {transactions.slice(0, 5).map((trx, idx) => {
+                      const isAutoRecord = trx.refNumber && trx.refNumber.startsWith('BT/');
+                      return (
+                        <tr key={trx.id || idx} className="hover:bg-slate-50/70 transition">
+                          <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700 text-[11px] whitespace-nowrap">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              {trx.date}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-bold ${
+                              isAutoRecord 
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200' 
+                                : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {trx.refNumber || 'REF-GENERAL'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-800 text-xs">
+                            <div className="font-semibold">{trx.description}</div>
+                            {trx.partner && (
+                              <div className="text-[10px] text-slate-400">Pihak: {trx.partner}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px]">
+                            <div className="space-y-0.5">
+                              {trx.lines.slice(0, 3).map((l, lIdx) => (
+                                <div key={lIdx} className="flex items-center justify-between text-[10px] text-slate-600 gap-2">
+                                  <span className="truncate max-w-[140px]" title={l.accountName}>
+                                    {l.accountCode} - {l.accountName}
+                                  </span>
+                                  <span className="font-mono text-slate-700">
+                                    {l.debit > 0 ? `(D) Rp ${l.debit.toLocaleString('id-ID')}` : `(K) Rp ${l.credit.toLocaleString('id-ID')}`}
+                                  </span>
+                                </div>
+                              ))}
+                              {trx.lines.length > 3 && (
+                                <div className="text-[10px] text-blue-600 italic">+{trx.lines.length - 3} baris akun lainnya</div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono text-xs">
+                            Rp {(trx.totalDebit || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setCurrentStage('riwayat')}
+                              className="p-1 hover:bg-slate-100 text-slate-500 hover:text-blue-600 rounded transition cursor-pointer"
+                              title="Lihat Detail Transaksi"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
         </div>
@@ -1194,7 +1457,351 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 1: CUSTOM POS BUILDER */}
+      {/* TAHAP 3 / RIWAYAT: DAFTAR TRANSAKSI YANG SEBELUMNYA SUDAH TEREKAM */}
+      {/* ========================================================================= */}
+      {currentStage === 'riwayat' && (
+        <div className="space-y-6 animate-fadeIn">
+          
+          {/* Summary Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Transaksi</div>
+                <div className="text-xl font-black text-slate-900">{transactions.length} <span className="text-xs font-normal text-slate-500">dokumen</span></div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+                <Scan className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bukti Auto Record (BT)</div>
+                <div className="text-xl font-black text-amber-600">{autoRecordTransactions.length} <span className="text-xs font-normal text-slate-500">berkas</span></div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Nilai Transaksi</div>
+                <div className="text-lg font-black font-mono text-emerald-600">
+                  Rp {totalHistoryDebit.toLocaleString('id-ID')}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 shrink-0">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Keseimbangan SAK</div>
+                <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-emerald-700 font-extrabold">100% Balanced</span>
+                </div>
+                <div className="text-[10px] text-slate-400">Debit = Kredit (Selisih Rp 0)</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            
+            {/* Header & Filter Controls */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <History className="w-4 h-4 text-blue-600" />
+                  <span>Daftar Transaksi yang Sebelumnya Sudah Terekam</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Semua transaksi yang disetujui tersimpan permanen di database dan tersinkronisasi ke Jurnal Umum &amp; Spreadsheet.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLoadSampleRecordedTransaction}
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Tambahkan contoh transaksi BT/0001 ke database"
+                >
+                  <Plus className="w-3.5 h-3.5 text-blue-600" />
+                  <span>+ Muat Contoh BT/0001</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportHistoryExcel}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Unduh seluruh daftar transaksi ke format Excel"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Ekspor Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentStage('tahap1')}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Scan className="w-3.5 h-3.5" />
+                  <span>+ Rekam Transaksi Baru</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Pills & Search Input */}
+            <div className="p-3 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1 mr-1">
+                  <ListFilter className="w-3.5 h-3.5" />
+                  <span>Filter:</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRiwayatFilter('all')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    riwayatFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Semua ({transactions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiwayatFilter('bt')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    riwayatFilter === 'bt'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Khusus Auto Record BT ({autoRecordTransactions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiwayatFilter('other')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    riwayatFilter === 'other'
+                      ? 'bg-slate-700 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Jurnal Lainnya ({transactions.length - autoRecordTransactions.length})
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative min-w-[220px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Cari ref, keterangan, akun..."
+                  value={riwayatSearch}
+                  onChange={(e) => setRiwayatSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Table */}
+            {filteredHistoryTransactions.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <Receipt className="w-10 h-10 text-slate-300 mx-auto" />
+                <div className="text-sm font-bold text-slate-700">Tidak ada transaksi ditemukan</div>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  {riwayatSearch ? 'Coba ubah kata kunci pencarian Anda.' : 'Belum ada transaksi yang tersimpan. Mulai rekam bukti transaksi atau klik tombol muat contoh di bawah.'}
+                </p>
+                <div className="pt-2 flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadSampleRecordedTransaction}
+                    className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Muat Contoh BT/0001/26X26</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStage('tahap1')}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Scan className="w-3.5 h-3.5" />
+                    <span>Unggah Bukti Baru (Tahap 1)</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-700 font-bold">
+                      <th className="py-3 px-3.5 w-12 text-center">No</th>
+                      <th className="py-3 px-3.5 min-w-[100px]">Tanggal</th>
+                      <th className="py-3 px-3.5 min-w-[140px]">No. Berkas / Ref</th>
+                      <th className="py-3 px-3.5 min-w-[240px]">Keterangan Transaksi</th>
+                      <th className="py-3 px-3.5 min-w-[320px]">Rincian Jurnal Akun (Debit &amp; Kredit)</th>
+                      <th className="py-3 px-3.5 text-right min-w-[130px]">Total Nilai</th>
+                      <th className="py-3 px-3.5 text-center min-w-[100px]">Status SAK</th>
+                      <th className="py-3 px-3.5 text-center w-24">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {filteredHistoryTransactions.map((trx, idx) => {
+                      const isAutoRecord = trx.refNumber && trx.refNumber.startsWith('BT/');
+                      const isBalanced = (trx.totalDebit || 0) === (trx.totalCredit || 0);
+
+                      return (
+                        <tr key={trx.id || idx} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-3 px-3.5 text-slate-700 text-xs whitespace-nowrap">
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                              {trx.date}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3.5">
+                            <div className="space-y-1">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${
+                                isAutoRecord 
+                                  ? 'bg-amber-100/70 text-amber-900 border border-amber-300' 
+                                  : 'bg-slate-100 text-slate-800 border border-slate-200'
+                              }`}>
+                                {trx.refNumber || 'REF-GENERAL'}
+                              </span>
+                              {isAutoRecord && (
+                                <div className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>Auto Record Bukti</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3.5 text-slate-900 text-xs">
+                            <div className="font-bold text-slate-900 leading-snug">{trx.description}</div>
+                            {trx.partner && (
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                Mitra/Pihak: <strong className="text-slate-700">{trx.partner}</strong>
+                              </div>
+                            )}
+                            {trx.type && (
+                              <div className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wider">
+                                Tipe: {trx.type}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3.5 text-xs">
+                            <div className="space-y-1.5 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
+                              {trx.lines.map((l, lIdx) => (
+                                <div key={lIdx} className="flex items-center justify-between text-[11px] gap-3">
+                                  <div className="truncate min-w-0" title={l.accountName}>
+                                    <span className="font-mono text-slate-500 mr-1.5">{l.accountCode}</span>
+                                    <span className="font-medium text-slate-800">{l.accountName}</span>
+                                    {l.memo && (
+                                      <span className="text-[10px] text-slate-400 ml-1 italic">({l.memo})</span>
+                                    )}
+                                  </div>
+                                  <div className="font-mono whitespace-nowrap text-right shrink-0">
+                                    {l.debit > 0 ? (
+                                      <span className="text-blue-700 font-bold">(D) Rp {l.debit.toLocaleString('id-ID')}</span>
+                                    ) : (
+                                      <span className="text-slate-700 font-medium">(K) Rp {l.credit.toLocaleString('id-ID')}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3.5 text-right font-bold text-slate-900 font-mono text-xs">
+                            Rp {(trx.totalDebit || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3.5 text-center">
+                            {isBalanced ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <Check className="w-3 h-3" />
+                                <span>Seimbang</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                <AlertTriangle className="w-3 h-3" />
+                                <span>Selisih</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi "${trx.refNumber || trx.description}"?`)) {
+                                  deleteTransaction(trx.id);
+                                }
+                              }}
+                              className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"
+                              title="Hapus Transaksi"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Table Footer */}
+            <div className="p-4 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-600">
+              <div>
+                Menampilkan <strong className="text-slate-900">{filteredHistoryTransactions.length}</strong> dari <strong className="text-slate-900">{transactions.length}</strong> total transaksi
+              </div>
+              <div className="flex items-center gap-4">
+                <div>
+                  Total Akumulasi: <strong className="font-mono text-slate-900 font-bold">Rp {totalHistoryDebit.toLocaleString('id-ID')}</strong>
+                </div>
+                <a
+                  href={SPREADSHEET_CONFIG.publicUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-bold"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Lihat di Spreadsheet</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Sync Status Info Banner */}
+          <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-200/80 flex items-start gap-3 text-blue-900">
+            <FolderCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="space-y-1 text-xs">
+              <div className="font-bold text-blue-950">
+                Penyimpanan Data Terpadu &amp; Bebas Kuota Supabase
+              </div>
+              <p className="text-blue-800 leading-relaxed">
+                Setiap kali transaksi baru disetujui, jurnal akuntansi otomatis dicatat ke Buku Besar dan Jurnal Umum, 
+                data baris diekspor ke baris spreadsheet <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[11px]">datasheet_bukti_transaksi</code>, 
+                dan berkas fisik diarsipkan otomatis ke Google Drive folder <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[11px]">Data Hasil Transaksi</code> dengan kode berkas terstandarisasi.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      )}
       {/* ========================================================================= */}
       {isCustomPosModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
