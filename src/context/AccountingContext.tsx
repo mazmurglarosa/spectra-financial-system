@@ -25,6 +25,7 @@ import {
   syncPullAllFromSupabase,
   pushTransactionToSupabase,
   deleteTransactionFromSupabase,
+  deleteAllTransactionsFromSupabase,
   pushSettingsToSupabase,
   pushAccountToSupabase,
   pushMultipleAccountsToSupabase,
@@ -89,6 +90,7 @@ interface AccountingContextType {
   updateSettings: (newSettings: Partial<CompanySettings>) => void;
   resetToDefault: () => void;
   resetWithPin: (pin: string) => { success: boolean; message: string };
+  resetAllTransactions: () => Promise<{ success: boolean; message: string; driveFilesDeleted?: number }>;
   changePin: (oldPin: string, newPin: string) => { success: boolean; message: string };
   exportDatabaseJson: () => string;
   importDatabaseJson: (jsonStr: string) => { success: boolean; message: string };
@@ -925,6 +927,49 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [securityPin, accounts, contacts, settings, broadcastChange, logActivity]);
 
+  const resetAllTransactions = useCallback(async (): Promise<{ success: boolean; message: string; driveFilesDeleted?: number }> => {
+    // 1. Reset transactions in state & localStorage
+    setTransactions([]);
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
+    localStorage.setItem('sikeu_transactions', JSON.stringify([]));
+
+    // 2. Broadcast change to all open tabs
+    broadcastChange('TRANSACTIONS', []);
+
+    // 3. Wipe transactions from Supabase cloud
+    await deleteAllTransactionsFromSupabase();
+    syncPushAllToSupabase({
+      accounts,
+      transactions: [],
+      contacts,
+      settings
+    });
+
+    // 4. Reset Auto Record sequence counter, recorded receipts, and pending drafts
+    resetAutoRecordState();
+
+    // 5. Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
+    let driveCount = 0;
+    try {
+      const resetRes = await resetExternalSpreadsheetAndDrive();
+      if (resetRes?.deletedFilesCount) {
+        driveCount = resetRes.deletedFilesCount;
+      }
+    } catch (e) {
+      console.warn('External spreadsheet and drive reset error:', e);
+    }
+
+    // 6. Log activity
+    logActivity('RESET SELURUH TRANSAKSI', 'Seluruh transaksi dihapus bersih dari sistem (0 transaksi), Supabase disinkronkan, tabel spreadsheet A6:K dikosongkan, folder Data Hasil Transaksi dibersihkan, dan kode nomor berkas di-reset kembali ke BT/0001/.');
+
+    return {
+      success: true,
+      message: 'Seluruh data transaksi berhasil dihapus, spreadsheet dikosongkan, Google Drive dibersihkan, dan nomor berkas di-reset ke hitungan 1 (BT/0001/...).',
+      driveFilesDeleted: driveCount
+    };
+  }, [accounts, contacts, settings, broadcastChange, logActivity]);
+
   const changePin = useCallback((oldPin: string, newPin: string): { success: boolean; message: string } => {
     if (oldPin.trim() !== securityPin.trim()) {
       return { success: false, message: 'PIN Saat Ini salah! Gagal memperbarui PIN.' };
@@ -1328,6 +1373,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updateSettings,
         resetToDefault,
         resetWithPin,
+        resetAllTransactions,
         changePin,
         exportDatabaseJson,
         importDatabaseJson,

@@ -257,6 +257,8 @@ export function resetAutoRecordState(): void {
   try {
     localStorage.removeItem(STORAGE_DOC_SEQ_KEY);
     localStorage.removeItem('sikeu_auto_record_doc_seq');
+    localStorage.setItem(STORAGE_DOC_SEQ_KEY, '0');
+    localStorage.setItem('sikeu_auto_record_doc_seq', '0');
     localStorage.removeItem(SPECTRA_RECORDED_RECEIPTS_KEY);
     localStorage.removeItem('spectra_pending_journal_draft');
     if (typeof window !== 'undefined') {

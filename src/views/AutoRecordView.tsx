@@ -87,7 +87,7 @@ interface AutoRecordViewProps {
 }
 
 export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) => {
-  const { accounts, transactions, addAccount, addTransaction, deleteTransaction, settings, logActivity } = useAccounting();
+  const { accounts, transactions, addAccount, addTransaction, deleteTransaction, settings, logActivity, resetAllTransactions } = useAccounting();
 
   // 1. Master Data & Upload States (CLEAN & NON-HARDCODED)
   const [posRules, setPosRules] = useState<PosRule[]>(getPosRules);
@@ -139,6 +139,47 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [isSyncingSpreadsheet, setIsSyncingSpreadsheet] = useState<boolean>(false);
   const [syncSpreadsheetResult, setSyncSpreadsheetResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isCopiedBotCode, setIsCopiedBotCode] = useState<boolean>(false);
+
+  // Modal Reset Transaksi & Nomor Berkas
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [isResettingTransactions, setIsResettingTransactions] = useState<boolean>(false);
+  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleConfirmReset = async () => {
+    setIsResettingTransactions(true);
+    setResetFeedback(null);
+    try {
+      const res = await resetAllTransactions();
+      setSeqNumber(1);
+      setNomorBerkas(generateFileCode(1));
+      setSpreadsheetRows([]);
+      setExtractedItems([]);
+      setGrandTotal(0);
+      setCalculatedTotal(0);
+      setReceiptImage('');
+      setReceiptFileName('');
+      setGoogleDriveLink('');
+      setJournalLines([]);
+      setMathDiscrepancy(false);
+      setDiscrepancyMessage('');
+      setKeterangan('');
+      setResetFeedback({
+        type: 'success',
+        message: res?.message || 'Seluruh transaksi berhasil di-reset total dan nomor berkas dimulai kembali dari 1.'
+      });
+      setTimeout(() => {
+        setIsResetModalOpen(false);
+        setResetFeedback(null);
+      }, 1600);
+    } catch (err: any) {
+      setResetFeedback({
+        type: 'error',
+        message: err?.message || 'Gagal mengeksekusi reset transaksi.'
+      });
+    } finally {
+      setIsResettingTransactions(false);
+    }
+  };
 
   // Sinkronisasi otomatis nomor berkas dengan transactions & event reset
   useEffect(() => {
@@ -806,9 +847,25 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               <span>{getSpreadsheetWebhookUrl() ? 'Bot Sheet: Aktif' : 'Setel Bot Sheet'}</span>
             </button>
 
-            <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 text-right">
-              <div className="text-[10px] text-blue-200 font-bold uppercase tracking-wider">Kode Berkas Selanjutnya</div>
-              <div className="text-base font-mono font-black text-amber-300">{nomorBerkas}</div>
+            {/* Box Kode Berkas Selanjutnya dengan Tombol Reset ke 1 Terintegrasi */}
+            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/15 shadow-sm">
+              <div className="text-right">
+                <div className="text-[10px] text-blue-200 font-bold uppercase tracking-wider">Kode Berkas Selanjutnya</div>
+                <div className="text-base font-mono font-black text-amber-300 tracking-wide">{nomorBerkas}</div>
+              </div>
+              <div className="h-7 w-[1px] bg-white/20 ml-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  setResetFeedback(null);
+                  setIsResetModalOpen(true);
+                }}
+                className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 hover:text-white border border-rose-400/40 hover:border-rose-300/60 rounded-lg transition-all duration-150 flex flex-col items-center justify-center cursor-pointer shadow-sm group active:scale-95"
+                title="Reset Hitungan Berkas ke 1, Hapus Semua Transaksi & Bersihkan Google Drive/Spreadsheet"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-300 group-hover:-rotate-180 transition-transform duration-300" />
+                <span className="text-[9px] font-bold mt-0.5 tracking-tight text-rose-200">Reset ke 1</span>
+              </button>
             </div>
             <a 
               href={SPREADSHEET_CONFIG.publicUrl}
@@ -2421,6 +2478,140 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   Simpan URL Webhook
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL KONFIRMASI RESET SELURUH TRANSAKSI & NOMOR BERKAS KE 1 */}
+      {/* ========================================================================= */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Reset Seluruh Transaksi &amp; Nomor Berkas
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Mulai ulang nomor berkas dari hitungan 1 dan bersihkan database
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                disabled={isResettingTransactions}
+                onClick={() => {
+                  if (!isResettingTransactions) {
+                    setIsResetModalOpen(false);
+                    setResetFeedback(null);
+                  }
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer transition disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Target Reset Sequence Pill */}
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Urutan Berkas Selanjutnya</span>
+                <span className="text-xs text-slate-700">Kode saat ini: <strong className="font-mono text-slate-900">{nomorBerkas}</strong></span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Setelah Reset</span>
+                <span className="text-sm font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                  {generateFileCode(1)}
+                </span>
+              </div>
+            </div>
+
+            {/* Konsekuensi Tindakan */}
+            <div className="space-y-2.5 text-xs text-slate-600">
+              <p className="font-semibold text-slate-800">
+                Tindakan ini akan mengeksekusi pembersihan total pada 4 lapisan sistem:
+              </p>
+              <ul className="space-y-2 pl-1">
+                <li className="flex items-start gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</div>
+                  <div>
+                    <strong className="text-slate-800">Database Lokal &amp; Supabase Cloud:</strong> Seluruh transaksi jurnal akuntansi dihapus total (0 transaksi).
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</div>
+                  <div>
+                    <strong className="text-slate-800">Google Spreadsheet ("datasheet_bukti_transaksi"):</strong> Baris data transaksi dari sel <strong>A6</strong> ke bawah dikosongkan bersih. Header resmi baris 1 s.d. 5 tetap terlindungi.
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</div>
+                  <div>
+                    <strong className="text-slate-800">Google Drive ("Data Hasil Transaksi"):</strong> Berkas bukti transfer &amp; nota transaksi di folder khusus (<code>1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9</code>) dipindahkan ke Sampah (Trash).
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">4</div>
+                  <div>
+                    <strong className="text-slate-800">Generator Nomor Bukti:</strong> Direset kembali ke hitungan awal <strong>1</strong> (<span className="font-mono text-slate-800 font-semibold">{generateFileCode(1)}</span>).
+                  </div>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feedback / Alert */}
+            {resetFeedback && (
+              <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+                resetFeedback.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border-rose-200'
+              }`}>
+                {resetFeedback.type === 'success' ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{resetFeedback.message}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isResettingTransactions}
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  setResetFeedback(null);
+                }}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResettingTransactions}
+                onClick={handleConfirmReset}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isResettingTransactions ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Mengeksekusi Reset...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Ya, Hapus &amp; Reset ke Hitungan 1</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

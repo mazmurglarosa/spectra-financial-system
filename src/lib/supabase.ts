@@ -448,6 +448,16 @@ export async function deleteTransactionFromSupabase(id: string): Promise<void> {
   }
 }
 
+export async function deleteAllTransactionsFromSupabase(): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('transactions').delete().neq('id', '___non_existent___');
+  } catch (e) {
+    console.warn('Auto delete all transactions from Supabase failed:', e);
+  }
+}
+
 export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {
   const client = getSupabaseClient();
   if (!client) return;
