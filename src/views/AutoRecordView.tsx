@@ -783,8 +783,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       {/* 1. Header Banner & Navigasi Tahap */}
       <div className="relative rounded-2xl overflow-hidden bg-slate-900 text-white shadow-xl border border-slate-800">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-900/90 via-slate-900/95 to-indigo-950/90 z-0" />
-        <div className="relative z-10 p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5 max-w-2xl">
+        <div className="relative z-10 p-6 md:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-1.5 max-w-xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/40 text-blue-300 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               <span>SPECTRA Auto Record &amp; Intelligent Accounting OCR/HTR</span>
@@ -797,86 +797,97 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            {/* Tombol Buka Jurnal Otomatis Terpisah */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('auto-journal')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition shadow-sm cursor-pointer"
-              title="Buka Jurnal Otomatis untuk pembentukan SAK"
-            >
-              <Sparkles className="w-4 h-4 text-purple-200" />
-              <span>Jurnal Otomatis</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          {/* Cluster Kontrol Header (Actions & Integrasi) */}
+          <div className="flex flex-col items-start lg:items-end gap-2.5 shrink-0">
+            {/* Baris 1: Aksi Utama & Indikator Kode Berkas */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Tombol Buka Jurnal Otomatis Terpisah */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('auto-journal')}
+                className="h-10 inline-flex items-center gap-2 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow cursor-pointer active:scale-95"
+                title="Buka Jurnal Otomatis untuk pembentukan SAK"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+                <span>Jurnal Otomatis</span>
+                <ArrowRight className="w-3 h-3 text-indigo-200" />
+              </button>
 
-            {/* Tombol Konfigurasi Gemini Vision API Key */}
-            <button
-              type="button"
-              onClick={() => {
-                setApiKeyInput(getGeminiApiKey());
-                setApiTestResult(null);
-                setIsApiKeyModalOpen(true);
-              }}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl border transition cursor-pointer shadow-sm ${
-                getGeminiApiKey()
-                  ? 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border-emerald-400/50'
-                  : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-400/50'
-              }`}
-            >
-              <Key className={`w-3.5 h-3.5 ${getGeminiApiKey() ? 'text-emerald-400' : 'text-amber-400'}`} />
-              <span>{getGeminiApiKey() ? 'AI Vision: Terhubung' : 'Setel Gemini API Key'}</span>
-            </button>
-
-            {/* Tombol Bot Apps Script */}
-            <button
-              type="button"
-              onClick={() => {
-                setWebhookInput(getSpreadsheetWebhookUrl());
-                setWebhookTestResult(null);
-                setIsWebhookModalOpen(true);
-              }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold rounded-xl border transition cursor-pointer shadow-sm ${
-                getSpreadsheetWebhookUrl()
-                  ? 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border-emerald-400/50'
-                  : 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-400/50'
-              }`}
-              title="Konfigurasi Bot Apps Script untuk pengisian tabel spreadsheet"
-            >
-              <Bot className={`w-3.5 h-3.5 ${getSpreadsheetWebhookUrl() ? 'text-emerald-400' : 'text-indigo-400'}`} />
-              <span>{getSpreadsheetWebhookUrl() ? 'Bot Sheet: Aktif' : 'Setel Bot Sheet'}</span>
-            </button>
-
-            {/* Box Kode Berkas Selanjutnya dengan Tombol Reset ke 1 Terintegrasi */}
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/15 shadow-sm">
-              <div className="text-right">
-                <div className="text-[10px] text-blue-200 font-bold uppercase tracking-wider">Kode Berkas Selanjutnya</div>
-                <div className="text-base font-mono font-black text-amber-300 tracking-wide">{nomorBerkas}</div>
+              {/* Box Kode Berkas Selanjutnya dengan Tombol Reset Terpadu */}
+              <div className="h-10 flex items-center bg-slate-800/90 backdrop-blur-md rounded-xl border border-slate-700/80 shadow-sm overflow-hidden divide-x divide-slate-700/80">
+                <div className="px-3.5 py-1 flex flex-col justify-center text-left">
+                  <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider leading-none">Kode Berkas</span>
+                  <span className="text-xs font-mono font-bold text-amber-300 leading-tight mt-0.5">{nomorBerkas}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetFeedback(null);
+                    setIsResetModalOpen(true);
+                  }}
+                  className="h-full px-2.5 bg-slate-800/40 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 transition-colors flex items-center gap-1.5 cursor-pointer group"
+                  title="Reset hitungan nomor berkas kembali ke 1 dan bersihkan database transaksi"
+                >
+                  <RotateCcw className="w-3 h-3 group-hover:-rotate-180 transition-transform duration-300" />
+                  <span className="text-[10px] font-medium tracking-tight">Reset</span>
+                </button>
               </div>
-              <div className="h-7 w-[1px] bg-white/20 ml-1" />
+
+              {/* Tombol Buka Spreadsheet */}
+              <a 
+                href={SPREADSHEET_CONFIG.publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="h-10 inline-flex items-center gap-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow cursor-pointer active:scale-95"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                <span>Buka Sheet</span>
+                <ExternalLink className="w-3 h-3 text-emerald-200" />
+              </a>
+            </div>
+
+            {/* Baris 2: Status Integrasi Sistem (AI Vision & Bot Google Sheet) */}
+            <div className="flex items-center gap-2">
+              {/* Status Gemini Vision AI */}
               <button
                 type="button"
                 onClick={() => {
-                  setResetFeedback(null);
-                  setIsResetModalOpen(true);
+                  setApiKeyInput(getGeminiApiKey());
+                  setApiTestResult(null);
+                  setIsApiKeyModalOpen(true);
                 }}
-                className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 hover:text-white border border-rose-400/40 hover:border-rose-300/60 rounded-lg transition-all duration-150 flex flex-col items-center justify-center cursor-pointer shadow-sm group active:scale-95"
-                title="Reset Hitungan Berkas ke 1, Hapus Semua Transaksi & Bersihkan Google Drive/Spreadsheet"
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer whitespace-nowrap ${
+                  getGeminiApiKey()
+                    ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:border-slate-600'
+                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                }`}
+                title={getGeminiApiKey() ? 'API Key Gemini terhubung. Klik untuk konfigurasi.' : 'Klik untuk menyetel API Key Gemini.'}
               >
-                <RotateCcw className="w-3.5 h-3.5 text-rose-300 group-hover:-rotate-180 transition-transform duration-300" />
-                <span className="text-[9px] font-bold mt-0.5 tracking-tight text-rose-200">Reset ke 1</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${getGeminiApiKey() ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-amber-400 animate-pulse'}`} />
+                <Key className="w-3 h-3 text-slate-400" />
+                <span>{getGeminiApiKey() ? 'AI Vision: Terhubung' : 'Setel Gemini Key'}</span>
+              </button>
+
+              {/* Status Bot Apps Script */}
+              <button
+                type="button"
+                onClick={() => {
+                  setWebhookInput(getSpreadsheetWebhookUrl());
+                  setWebhookTestResult(null);
+                  setIsWebhookModalOpen(true);
+                }}
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer whitespace-nowrap ${
+                  getSpreadsheetWebhookUrl()
+                    ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:border-slate-600'
+                    : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                }`}
+                title={getSpreadsheetWebhookUrl() ? 'Webhook Apps Script aktif. Klik untuk konfigurasi.' : 'Klik untuk menyetel Webhook Apps Script.'}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${getSpreadsheetWebhookUrl() ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-indigo-400 animate-pulse'}`} />
+                <Bot className="w-3 h-3 text-slate-400" />
+                <span>{getSpreadsheetWebhookUrl() ? 'Bot Sheet: Aktif' : 'Setel Bot Sheet'}</span>
               </button>
             </div>
-            <a 
-              href={SPREADSHEET_CONFIG.publicUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-sm"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Buka Spreadsheet</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
           </div>
         </div>
 
