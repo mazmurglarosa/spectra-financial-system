@@ -2,6 +2,7 @@
  * =========================================================================================
  * SPECTRA AUTOMATION BOT - GOOGLE APPS SCRIPT
  * SINKRONISASI BUKTI TRANSAKSI KE SPREADSHEET (datasheet_bukti_transaksi)
+ * & MANAJEMEN FOLDER GOOGLE DRIVE (Data Hasil Transaksi)
  * =========================================================================================
  * 
  * Target Tabel:
@@ -21,29 +22,22 @@
  * Kolom J (10): Link Berkas
  * Kolom K (11): POS
  * 
- * PANDUAN PEMASANGAN (HANYA 1 MENIT):
- * 1. Buka file Google Spreadsheet Anda (datasheet_bukti_transaksi).
- * 2. Di menu atas, klik "Ekstensi" (Extensions) > "Apps Script".
- * 3. Hapus semua kode default di dalam editor (myFunction), lalu TEMPEL (PASTE) seluruh isi file ini.
- * 4. Klik ikon "Simpan" (Save / Ctrl+S).
- * 5. Klik tombol "Terapkan" (Deploy) di pojok kanan atas > pilih "Penerapan baru" (New deployment).
- * 6. Pada ikon gerigi "Pilih jenis", pilih "Aplikasi web" (Web app).
- * 7. Isi konfigurasi:
- *    - Deskripsi: SPECTRA Spreadsheet Bot
- *    - Jalankan sebagai (Execute as): Saya (email Anda)
- *    - Siapa yang memiliki akses (Who has access): Siapa saja (Anyone) -> SANGAT PENTING!
- * 8. Klik "Terapkan" (Deploy).
- * 9. Berikan izin akses Google (Klik Lanjutan / Advanced > Buka project (tidak aman) > Izinkan).
- * 10. Salin "URL Aplikasi Web" (akhiran /exec) dan simpan di aplikasi SPECTRA SIKEU2!
+ * PEMISAHAN FOLDER GOOGLE DRIVE:
+ * 1. Folder "data_web" (1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn):
+ *    KHUSUS untuk aset web, foto background, logo perusahaan, settings.
+ * 2. Folder "Data Hasil Transaksi" (1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9):
+ *    KHUSUS untuk seluruh berkas fisik bukti transaksi (BT/...) dari Auto Record.
  * =========================================================================================
  */
 
 // Konfigurasi Tabel Sesuai Format Resmi PT. Nirwana Bhumi Energy
 var CONFIG = {
-  TARGET_SHEET_NAME: 'main', // Nama Sheet / Tab yang dituju
-  START_ROW: 6,              // Baris pertama pengisian data (A6 s.d. K6)
-  START_COL: 1,              // Kolom A (Kolom ke-1)
-  TOTAL_COLS: 11             // Kolom A s.d. K (11 kolom)
+  TARGET_SHEET_NAME: 'main',                                            // Nama Sheet / Tab yang dituju
+  START_ROW: 6,                                                         // Baris pertama pengisian data (A6 s.d. K6)
+  START_COL: 1,                                                         // Kolom A (Kolom ke-1)
+  TOTAL_COLS: 11,                                                       // Kolom A s.d. K (11 kolom)
+  TRANSACTIONS_FOLDER_ID: '1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9',         // Folder Data Hasil Transaksi
+  WEB_DATA_FOLDER_ID: '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn'              // Folder data_web (khusus web assets)
 };
 
 /**
@@ -55,7 +49,9 @@ function onOpen() {
     .addItem('📥 Isi Contoh Transaksi Resmi (Mulai Baris A6)', 'isiContohTransaksiResmi')
     .addItem('🎨 Rapikan Format Tabel (A6:K)', 'rapikanFormatTabel')
     .addSeparator()
-    .addItem('🗑️ Bersihkan Baris Data (Reset Baris 6+)', 'bersihkanBarisData')
+    .addItem('📦 Pindahkan Berkas BT Lama ke Folder Data Hasil Transaksi', 'pindahkanBuktiTransaksiKeDataHasil')
+    .addSeparator()
+    .addItem('🗑️ Reset Total: Kosongkan Tabel (A6:K) & Folder Hasil Transaksi', 'eksekusiResetTotalDenganKonfirmasi')
     .addToUi();
 }
 
@@ -70,15 +66,16 @@ function doGet(e) {
 
     var response = {
       status: 'online',
-      bot: 'SPECTRA Spreadsheet Automation Bot',
+      bot: 'SPECTRA Spreadsheet & Drive Automation Bot',
       sheetName: sheet.getName(),
       startRow: CONFIG.START_ROW,
       startCol: 'A (Kolom 1)',
       endCol: 'K (Kolom 11)',
       currentLastRow: lastRow,
       totalDataRows: dataCount,
+      transactionsFolderId: CONFIG.TRANSACTIONS_FOLDER_ID,
       timestamp: new Date().toISOString(),
-      message: 'Bot Google Apps Script aktif! Siap mengisi data transaksi mulai dari baris A6 s.d. K6 ke bawah.'
+      message: 'Bot Google Apps Script aktif! Siap mengisi data transaksi (A6:K) dan mengelola Google Drive Data Hasil Transaksi.'
     };
 
     return ContentService.createTextOutput(JSON.stringify(response))
@@ -102,6 +99,39 @@ function doPost(e) {
     }
 
     var payload = JSON.parse(rawContent);
+
+    // =========================================================================
+    // ACTION: Reset Total Sistem (Administrator Reset)
+    // =========================================================================
+    if (payload.action === 'resetSystem' || payload.action === 'wipeData' || payload.action === 'clearAll') {
+      var resetResult = eksekusiResetTotal();
+      var resetResponse = {
+        status: 'success',
+        message: 'SUKSES RESET: Tabel Spreadsheet (A6:K) telah dikosongkan dan ' + resetResult.deletedFilesCount + ' berkas transaksi di Google Drive telah dibersihkan.',
+        deletedFilesCount: resetResult.deletedFilesCount,
+        timestamp: new Date().toISOString()
+      };
+      return ContentService.createTextOutput(JSON.stringify(resetResponse))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // ACTION: Migrasi / Pindahkan Berkas Transaksi Lama ke Data Hasil Transaksi
+    // =========================================================================
+    if (payload.action === 'moveOldReceipts' || payload.action === 'migrateReceipts') {
+      var moveResult = pindahkanBuktiTransaksiKeDataHasilInternal();
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        message: 'Berhasil memindahkan ' + moveResult.movedCount + ' berkas ke folder Data Hasil Transaksi.',
+        movedCount: moveResult.movedCount,
+        files: moveResult.movedNames,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // ACTION DEFAULT: Append Rows Transaksi
+    // =========================================================================
     var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
 
     if (!rows || rows.length === 0) {
@@ -153,7 +183,6 @@ function getTargetSheet() {
     }
   }
 
-  // Fallback ke sheet pertama jika tab 'main' tidak ditemukan
   if (!sheet) {
     sheet = ss.getSheets()[0];
   }
@@ -170,7 +199,6 @@ function findNextEmptyRow(sheet) {
     return CONFIG.START_ROW;
   }
 
-  // Cek Kolom A (No) dan Kolom E (Nama Transaksi) dari baris 6 ke bawah
   var numRowsToCheck = lastRow - CONFIG.START_ROW + 1;
   var rangeA = sheet.getRange(CONFIG.START_ROW, 1, numRowsToCheck, 1).getValues();
   var rangeE = sheet.getRange(CONFIG.START_ROW, 5, numRowsToCheck, 1).getValues();
@@ -210,24 +238,11 @@ function insertTransactionRows(sheet, rows) {
     var linkBerkas = r.linkBerkas || '';
     var pos = r.pos || 'A';
 
-    // Kolom J (Kolom 10): Tautan berkas Google Drive
     var linkVal = linkBerkas;
     if (linkBerkas && (linkBerkas.startsWith('http://') || linkBerkas.startsWith('https://'))) {
       linkVal = '=HYPERLINK("' + linkBerkas + '"; "Lihat Berkas")';
     }
 
-    // Urutan Kolom A s.d. K:
-    // A: No
-    // B: Tanggal
-    // C: Bulan
-    // D: Tahun
-    // E: Nama Transaksi (apa yang dibeli/terjadi)
-    // F: Harga satuan
-    // G: kuantitas
-    // H: Harga total
-    // I: Nomor Berkas
-    // J: Link Berkas
-    // K: POS
     values.push([
       no,
       tanggal,
@@ -243,11 +258,9 @@ function insertTransactionRows(sheet, rows) {
     ]);
   }
 
-  // Tulis ke range Kolom A s.d. K (Kolom 1 s.d. 11)
   var range = sheet.getRange(targetRow, CONFIG.START_COL, numRows, CONFIG.TOTAL_COLS);
   range.setValues(values);
 
-  // Format & Styling tabel A6:K
   formatTableRange(sheet, targetRow, numRows);
 
   return {
@@ -262,98 +275,199 @@ function insertTransactionRows(sheet, rows) {
 function formatTableRange(sheet, startRow, numRows) {
   var fullRange = sheet.getRange(startRow, CONFIG.START_COL, numRows, CONFIG.TOTAL_COLS);
   
-  // Font & Warna Teks
   fullRange.setFontFamily('Arial');
   fullRange.setFontSize(10);
   fullRange.setFontColor('#000000');
   fullRange.setVerticalAlignment('middle');
-
-  // Border kotak tipis hitam sesuai tabel fisik
   fullRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
 
-  // Format spesifik per kolom:
   // Kolom A (No) -> Center
   sheet.getRange(startRow, 1, numRows, 1).setHorizontalAlignment('center').setNumberFormat('0');
-  
   // Kolom B, C, D (Tanggal, Bulan, Tahun) -> Center
   sheet.getRange(startRow, 2, numRows, 3).setHorizontalAlignment('center').setNumberFormat('0');
-  
   // Kolom E (Nama Transaksi) -> Left & Wrap
   sheet.getRange(startRow, 5, numRows, 1).setHorizontalAlignment('left').setWrap(true);
-  
-  // Kolom F (Harga satuan) -> Right & Format Ribuan
+  // Kolom F (Harga satuan) -> Right & Ribuan
   sheet.getRange(startRow, 6, numRows, 1).setHorizontalAlignment('right').setNumberFormat('#,##0');
-  
   // Kolom G (kuantitas) -> Center
   sheet.getRange(startRow, 7, numRows, 1).setHorizontalAlignment('center').setNumberFormat('#,##0');
-  
-  // Kolom H (Harga total) -> Right & Format Ribuan
+  // Kolom H (Harga total) -> Right & Ribuan
   sheet.getRange(startRow, 8, numRows, 1).setHorizontalAlignment('right').setNumberFormat('#,##0');
-  
   // Kolom I (Nomor Berkas) -> Center & Text
   sheet.getRange(startRow, 9, numRows, 1).setHorizontalAlignment('center').setNumberFormat('@');
-  
   // Kolom J (Link Berkas) -> Center
   sheet.getRange(startRow, 10, numRows, 1).setHorizontalAlignment('center');
-  
   // Kolom K (POS) -> Center & Bold
   sheet.getRange(startRow, 11, numRows, 1).setHorizontalAlignment('center').setFontWeight('bold');
 }
 
 /**
- * FUNGSI MENU: Isi contoh transaksi resmi (Baut 12, Baut 15, Pajak PB1) mulai A6:K6
+ * FUNGSI INTI: Eksekusi Reset Total (Tabel A6:K & Folder Google Drive)
+ */
+function eksekusiResetTotal() {
+  var sheet = getTargetSheet();
+  var lastRow = sheet.getLastRow();
+  
+  // 1. Kosongkan tabel Spreadsheet mulai dari baris A6 ke bawah
+  if (lastRow >= CONFIG.START_ROW) {
+    sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, lastRow - CONFIG.START_ROW + 1, CONFIG.TOTAL_COLS).clearContent().clearFormat();
+  }
+
+  var deletedFilesCount = 0;
+
+  // 2. Kosongkan semua berkas di folder "Data Hasil Transaksi"
+  try {
+    var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+    var transFiles = transFolder.getFiles();
+    while (transFiles.hasNext()) {
+      var f = transFiles.next();
+      f.setTrashed(true);
+      deletedFilesCount++;
+    }
+  } catch (e1) {
+    Logger.log('Error cleaning trans folder: ' + e1);
+  }
+
+  // 3. Bersihkan berkas transaksi (BT/...) yang tersisa di folder "data_web"
+  // Berkas web (background, logo, settings) TETAP AMAN tidak dihapus!
+  try {
+    var webFolder = DriveApp.getFolderById(CONFIG.WEB_DATA_FOLDER_ID);
+    var webFiles = webFolder.getFiles();
+    while (webFiles.hasNext()) {
+      var wf = webFiles.next();
+      var name = wf.getName();
+      var isTransactionFile = name.indexOf('BT') !== -1 || 
+                              name.indexOf('Bukti Transfer') !== -1 ||
+                              name.indexOf('Nota') !== -1 ||
+                              name.indexOf('Struk') !== -1;
+      
+      var isWebAsset = name.indexOf('SPECTRA-SETTINGS') !== -1 || 
+                       name.indexOf('SPECTRA-STORAGE') !== -1 || 
+                       name.indexOf('SPECTRA-OFFLOAD-TEST') !== -1 ||
+                       name.indexOf('spectra_test_sync') !== -1 ||
+                       name.indexOf('background') !== -1 ||
+                       name.indexOf('corporate') !== -1 ||
+                       name.indexOf('booting') !== -1 ||
+                       name.indexOf('login') !== -1;
+
+      if (isTransactionFile && !isWebAsset) {
+        wf.setTrashed(true);
+        deletedFilesCount++;
+      }
+    }
+  } catch (e2) {
+    Logger.log('Error cleaning misplaced files in web folder: ' + e2);
+  }
+
+  return { success: true, deletedFilesCount: deletedFilesCount };
+}
+
+/**
+ * FUNGSI MENU: Eksekusi Reset Total dengan Konfirmasi Dialog
+ */
+function eksekusiResetTotalDenganKonfirmasi() {
+  var ui = SpreadsheetApp.getUi();
+  var confirm = ui.alert(
+    'Konfirmasi Reset Total',
+    'PERINGATAN: Apakah Anda yakin ingin melakukan RESET TOTAL?\n\n' +
+    '1. Seluruh data transaksi di tabel (A6 s.d. K) akan dikosongkan.\n' +
+    '2. Seluruh file bukti transaksi di folder "Data Hasil Transaksi" akan dihapus ke Sampah.\n' +
+    '3. Header resmi baris 1 s.d. 5 dan aset web di folder "data_web" akan tetap aman.',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirm === ui.Button.YES) {
+    var res = eksekusiResetTotal();
+    ui.alert(
+      'Reset Total Selesai',
+      'Tabel Spreadsheet telah dikosongkan mulai dari baris A6, dan ' + res.deletedFilesCount + ' berkas transaksi di Google Drive telah dihapus bersih ke Sampah.',
+      ui.ButtonSet.OK
+    );
+  }
+}
+
+/**
+ * FUNGSI PEMINDAHAN: Pindahkan berkas transaksi lama dari data_web ke Data Hasil Transaksi
+ */
+function pindahkanBuktiTransaksiKeDataHasilInternal() {
+  var webFolder = DriveApp.getFolderById(CONFIG.WEB_DATA_FOLDER_ID);
+  var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+  
+  var files = webFolder.getFiles();
+  var movedCount = 0;
+  var movedNames = [];
+
+  while (files.hasNext()) {
+    var file = files.next();
+    var name = file.getName();
+    
+    var isTransactionFile = name.indexOf('BT') !== -1 || 
+                            name.indexOf('Bukti Transfer') !== -1;
+    var isWebAsset = name.indexOf('SPECTRA-SETTINGS') !== -1 || 
+                     name.indexOf('SPECTRA-STORAGE') !== -1 || 
+                     name.indexOf('SPECTRA-OFFLOAD-TEST') !== -1 ||
+                     name.indexOf('spectra_test_sync') !== -1 ||
+                     name.indexOf('background') !== -1 ||
+                     name.indexOf('corporate') !== -1 ||
+                     name.indexOf('booting') !== -1 ||
+                     name.indexOf('login') !== -1;
+
+    if (isTransactionFile && !isWebAsset) {
+      file.moveTo(transFolder);
+      movedCount++;
+      movedNames.push(name);
+    }
+  }
+
+  return { movedCount: movedCount, movedNames: movedNames };
+}
+
+function pindahkanBuktiTransaksiKeDataHasil() {
+  var res = pindahkanBuktiTransaksiKeDataHasilInternal();
+  var ui = SpreadsheetApp.getUi();
+  var msg = 'Berhasil memindahkan ' + res.movedCount + ' berkas bukti transaksi ke folder "Data Hasil Transaksi"!\n\nBerkas web (gambar 2) tetap aman di folder data_web.';
+  if (res.movedNames.length > 0) {
+    msg += '\n\nDaftar berkas yang dipindahkan:\n- ' + res.movedNames.slice(0, 5).join('\n- ');
+    if (res.movedNames.length > 5) msg += '\n... dan ' + (res.movedNames.length - 5) + ' lainnya.';
+  }
+  ui.alert('Sukses Migrasi Berkas', msg, ui.ButtonSet.OK);
+}
+
+/**
+ * FUNGSI MENU: Isi contoh transaksi resmi mulai A6:K6
  */
 function isiContohTransaksiResmi() {
   var sheet = getTargetSheet();
-  
   var sampleRows = [
     {
-      no: 1,
-      tanggal: 26,
-      bulan: 10,
-      tahun: 2026,
-      namaTransaksi: 'Baut Ukuran 12',
-      hargaSatuan: 10000,
-      kuantitas: 10,
-      hargaTotal: 100000,
+      no: 1, tanggal: 26, bulan: 10, tahun: 2026,
+      namaTransaksi: 'Baut Ukuran 12', hargaSatuan: 10000, kuantitas: 10, hargaTotal: 100000,
       nomorBerkas: 'BT/0001/26X26',
-      linkBerkas: 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing',
+      linkBerkas: 'https://drive.google.com/drive/folders/1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9?usp=sharing',
       pos: 'A'
     },
     {
-      no: 1,
-      tanggal: 26,
-      bulan: 10,
-      tahun: 2026,
-      namaTransaksi: 'Baut Ukuran 15',
-      hargaSatuan: 15000,
-      kuantitas: 20,
-      hargaTotal: 300000,
+      no: 1, tanggal: 26, bulan: 10, tahun: 2026,
+      namaTransaksi: 'Baut Ukuran 15', hargaSatuan: 15000, kuantitas: 20, hargaTotal: 300000,
       nomorBerkas: 'BT/0001/26X26',
-      linkBerkas: 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing',
+      linkBerkas: 'https://drive.google.com/drive/folders/1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9?usp=sharing',
       pos: 'A'
     },
     {
-      no: 1,
-      tanggal: 26,
-      bulan: 10,
-      tahun: 2026,
-      namaTransaksi: 'Pajak Pembelian PB1 (10%)',
-      hargaSatuan: null,
-      kuantitas: null,
-      hargaTotal: 40000,
+      no: 1, tanggal: 26, bulan: 10, tahun: 2026,
+      namaTransaksi: 'Pajak Pembelian PB1 (10%)', hargaSatuan: null, kuantitas: null, hargaTotal: 40000,
       nomorBerkas: 'BT/0001/26X26',
-      linkBerkas: 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing',
+      linkBerkas: 'https://drive.google.com/drive/folders/1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9?usp=sharing',
       pos: 'A'
     }
   ];
 
   var res = insertTransactionRows(sheet, sampleRows);
-  SpreadsheetApp.getUi().alert('Sukses! 3 baris contoh transaksi resmi berhasil dimasukkan pada sel A' + res.startRow + ' s.d. K' + res.endRow + '.');
+  SpreadsheetApp.getUi().alert('Sukses! 3 baris contoh transaksi resmi dimasukkan pada sel A' + res.startRow + ' s.d. K' + res.endRow + '.');
 }
 
 /**
- * FUNGSI MENU: Rapikan format seluruh tabel mulai baris A6
+ * FUNGSI MENU: Rapikan format tabel A6:K
  */
 function rapikanFormatTabel() {
   var sheet = getTargetSheet();
@@ -363,24 +477,5 @@ function rapikanFormatTabel() {
     SpreadsheetApp.getUi().alert('Format tabel (A6:K' + lastRow + ') berhasil dirapikan!');
   } else {
     SpreadsheetApp.getUi().alert('Belum ada data pada baris 6 ke bawah.');
-  }
-}
-
-/**
- * FUNGSI MENU: Bersihkan data transaksi (Baris 6 ke bawah, Header Baris 1-5 Aman)
- */
-function bersihkanBarisData() {
-  var ui = SpreadsheetApp.getUi();
-  var confirm = ui.alert('Konfirmasi Reset', 'Apakah Anda yakin ingin menghapus seluruh baris data dari baris A6 ke bawah? Header resmi baris 1 s.d. 5 akan tetap aman.', ui.ButtonSet.YES_NO);
-  
-  if (confirm === ui.Button.YES) {
-    var sheet = getTargetSheet();
-    var lastRow = sheet.getLastRow();
-    if (lastRow >= CONFIG.START_ROW) {
-      sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, lastRow - CONFIG.START_ROW + 1, CONFIG.TOTAL_COLS).clearContent().clearFormat();
-      ui.alert('Seluruh data transaksi pada baris A6 ke bawah berhasil dibersihkan.');
-    } else {
-      ui.alert('Tabel sudah dalam keadaan kosong mulai dari baris 6.');
-    }
   }
 }

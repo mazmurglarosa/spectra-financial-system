@@ -140,6 +140,32 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [syncSpreadsheetResult, setSyncSpreadsheetResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isCopiedBotCode, setIsCopiedBotCode] = useState<boolean>(false);
 
+  // Sinkronisasi otomatis nomor berkas dengan transactions & event reset
+  useEffect(() => {
+    const nextSeq = getNextDocumentSequence(transactions);
+    setSeqNumber(nextSeq);
+    setNomorBerkas(generateFileCode(nextSeq));
+  }, [transactions]);
+
+  useEffect(() => {
+    const handleReset = () => {
+      setSeqNumber(1);
+      setNomorBerkas(generateFileCode(1));
+      setSpreadsheetRows([]);
+      setExtractedItems([]);
+      setGrandTotal(0);
+      setCalculatedTotal(0);
+      setReceiptImage('');
+      setReceiptFileName('');
+      setGoogleDriveLink('');
+      setJournalLines([]);
+      setMathDiscrepancy(false);
+      setDiscrepancyMessage('');
+    };
+    window.addEventListener('spectra:reset-auto-record', handleReset);
+    return () => window.removeEventListener('spectra:reset-auto-record', handleReset);
+  }, []);
+
   // Custom POS Form State
   const [newPosName, setNewPosName] = useState<string>('');
   const [newPosCode, setNewPosCode] = useState<string>('');

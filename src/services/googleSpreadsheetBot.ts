@@ -464,3 +464,57 @@ export async function syncRowsToGoogleSpreadsheet(
     };
   }
 }
+
+/**
+ * Mengirim perintah Reset Total ke Bot Google Apps Script:
+ * 1. Mengosongkan tabel Spreadsheet mulai dari baris A6 ke bawah.
+ * 2. Menghapus seluruh berkas bukti transaksi di folder "Data Hasil Transaksi".
+ */
+export async function resetExternalSpreadsheetAndDrive(
+  webhookUrl?: string
+): Promise<{ success: boolean; message: string; deletedFilesCount?: number }> {
+  const targetUrl = webhookUrl || getSpreadsheetWebhookUrl();
+  if (!targetUrl) {
+    return {
+      success: false,
+      message: 'URL Webhook Google Apps Script belum disetel.'
+    };
+  }
+
+  try {
+    const payload = {
+      action: 'resetSystem',
+      timestamp: new Date().toISOString()
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+      redirect: 'follow'
+    });
+    clearTimeout(timeoutId);
+
+    const result = await res.json().catch(() => null);
+    if (result && (result.status === 'success' || result.success)) {
+      return {
+        success: true,
+        message: result.message || 'Tabel Spreadsheet A6:K dan Folder Data Hasil Transaksi berhasil dibersihkan total.',
+        deletedFilesCount: result.deletedFilesCount
+      };
+    }
+    return {
+      success: false,
+      message: result?.message || 'Bot Apps Script merespon gagal saat melakukan reset.'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Gagal mengirim sinyal reset ke Google Spreadsheet Bot: ${err?.message || err}`
+    };
+  }
+}

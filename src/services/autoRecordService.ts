@@ -253,6 +253,20 @@ export function commitDocumentSequence(seq: number): void {
   } catch (e) {}
 }
 
+export function resetAutoRecordState(): void {
+  try {
+    localStorage.removeItem(STORAGE_DOC_SEQ_KEY);
+    localStorage.removeItem('sikeu_auto_record_doc_seq');
+    localStorage.removeItem(SPECTRA_RECORDED_RECEIPTS_KEY);
+    localStorage.removeItem('spectra_pending_journal_draft');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spectra:reset-auto-record'));
+    }
+  } catch (e) {
+    console.error('Failed to reset auto record state:', e);
+  }
+}
+
 /**
  * Menghasilkan Kode Nomor Berkas resmi dengan format:
  * BT/XXXX/DDMYY

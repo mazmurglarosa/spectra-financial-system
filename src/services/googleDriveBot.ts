@@ -11,8 +11,19 @@
  * 3. Kapasitas database Supabase dijamin jauh di bawah ambang batas gratis (500 MB)
  */
 
-export const SPECTRA_DRIVE_FOLDER_ID = '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn';
-export const SPECTRA_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing';
+// FOLDER 1: WEB ASSETS & SYSTEM SETTINGS ONLY (data_web)
+// Digunakan HANYA untuk aset website, background login, background booting, corporate logo, dll.
+export const SPECTRA_WEB_DRIVE_FOLDER_ID = '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn';
+export const SPECTRA_WEB_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing';
+
+// FOLDER 2: DATA HASIL TRANSAKSI RESMI (AUTO RECORD TRANSACTIONS)
+// Digunakan KHUSUS untuk seluruh bukti fisik transaksi dari modul Auto Record (BT/...)
+export const SPECTRA_TRANSACTIONS_DRIVE_FOLDER_ID = '1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9';
+export const SPECTRA_TRANSACTIONS_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9?usp=sharing';
+
+// Default alias untuk aset web (backward compatibility)
+export const SPECTRA_DRIVE_FOLDER_ID = SPECTRA_WEB_DRIVE_FOLDER_ID;
+export const SPECTRA_DRIVE_FOLDER_URL = SPECTRA_WEB_DRIVE_FOLDER_URL;
 export const GDRIVE_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT/exec';
 
 export interface DriveUploadResponse {
@@ -51,6 +62,7 @@ export async function uploadHeavyFileToDrive(
     documentCode?: string;
     title?: string;
     uploadedBy?: string;
+    folderId?: string;
   }
 ): Promise<DriveUploadResponse> {
   try {
@@ -58,8 +70,10 @@ export async function uploadHeavyFileToDrive(
       ? base64OrDataUri.split(',')[1]
       : base64OrDataUri;
 
+    const targetFolderId = options?.folderId || SPECTRA_DRIVE_FOLDER_ID;
+
     const payload = {
-      folderId: SPECTRA_DRIVE_FOLDER_ID,
+      folderId: targetFolderId,
       fileName: fileName,
       mimeType: mimeType,
       base64: cleanBase64,

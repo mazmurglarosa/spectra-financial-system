@@ -14,6 +14,8 @@ import {
   NormalBalance
 } from '../types/accounting';
 import { defaultAccounts, defaultTransactions, initialCompanySettings } from '../data/defaultAccounts';
+import { resetAutoRecordState } from '../services/autoRecordService';
+import { resetExternalSpreadsheetAndDrive } from '../services/googleSpreadsheetBot';
 import { 
   SupabaseConfig, 
   getSupabaseConfig, 
@@ -853,7 +855,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings: initialCompanySettings 
     });
 
-    logActivity('Reset Sistem', 'Mengosongkan seluruh jurnal (0 transaksi) dan menolkan seluruh saldo perkiraan akun.');
+    // Reset Auto Record sequence counter, recorded receipts, and pending drafts
+    resetAutoRecordState();
+
+    // Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
+    resetExternalSpreadsheetAndDrive().catch(console.error);
+
+    logActivity('Reset Sistem', 'Mengosongkan seluruh jurnal (0 transaksi), menolkan seluruh saldo perkiraan akun, dan me-reset kode bukti transaksi ke BT/0001/.');
   }, [broadcastChange, logActivity]);
 
   const resetWithPin = useCallback((pin: string): { success: boolean; message: string } => {
@@ -902,12 +910,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings 
     });
 
+    // Reset Auto Record sequence counter, recorded receipts, and pending drafts
+    resetAutoRecordState();
+
+    // Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
+    resetExternalSpreadsheetAndDrive().catch(console.error);
+
     // 6. Activity log
-    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi) dan seluruh saldo nominal akun dinol-kan (Rp 0) dengan otorisasi PIN.');
+    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi), saldo nominal akun dinol-kan (Rp 0), tabel spreadsheet A6:K & folder transaksi dibersihkan, dan nomor berkas di-reset ke BT/0001/.');
 
     return { 
       success: true, 
-      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dan jurnal telah dihapus (0 transaksi), dan seluruh saldo akun telah dinol-kan (Rp 0).' 
+      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dihapus (0 transaksi), saldo akun dinol-kan (Rp 0), dan kode nomor berkas di-reset ke BT/0001/.' 
     };
   }, [securityPin, accounts, contacts, settings, broadcastChange, logActivity]);
 

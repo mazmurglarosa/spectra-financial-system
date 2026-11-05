@@ -117,6 +117,18 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
+                <span><b>BT/0001/...</b> (Nomor berkas transaksi Auto Record di-reset mulai dari 1)</span>
+              </div>
+              <div className="flex items-center space-x-2 text-slate-800">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <span><b>Spreadsheet &amp; Drive</b> (Tabel baris A6:K &amp; folder Data Hasil Transaksi dikosongkan)</span>
+              </div>
+              <div className="flex items-center space-x-2 text-slate-800">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
                 <span><b>Laporan PSAK & Neraca</b> siap menerima data pembukuan baru</span>
               </div>
             </div>
