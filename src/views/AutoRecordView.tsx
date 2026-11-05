@@ -32,7 +32,11 @@ import {
   Calendar,
   Search,
   ArrowUpRight,
-  Download
+  Download,
+  Camera,
+  Bot,
+  Copy,
+  RefreshCw
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { TransactionLine, Transaction } from '../types/accounting';
@@ -55,6 +59,11 @@ import {
   exportSpreadsheetRowsToCsv, 
   analyzeAndSuggestJournal, 
   autoCreateMissingCoaAccount, 
+  ensureSuggestedJournalWithAutoCreatedAccounts,
+  saveRecordedReceipt,
+  getRecordedReceipts,
+  setPendingJournalDraft,
+  RecordedReceipt,
   SAMPLE_RECEIPT_DATA, 
   SPREADSHEET_CONFIG,
   extractTransactionFromFile,
@@ -64,6 +73,13 @@ import {
   RealOcrExtractionResult
 } from '../services/autoRecordService';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
+import { 
+  getSpreadsheetWebhookUrl, 
+  saveSpreadsheetWebhookUrl, 
+  testSpreadsheetWebhook, 
+  syncRowsToGoogleSpreadsheet,
+  GOOGLE_APPS_SCRIPT_BOT_CODE
+} from '../services/googleSpreadsheetBot';
 
 interface AutoRecordViewProps {
   setActiveTab: (tab: any) => void;
@@ -114,6 +130,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [isCustomPosModalOpen, setIsCustomPosModalOpen] = useState<boolean>(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
   const [approvedTxId, setApprovedTxId] = useState<string>('');
+
+  // Google Spreadsheet Apps Script Bot State
+  const [isWebhookModalOpen, setIsWebhookModalOpen] = useState<boolean>(false);
+  const [webhookInput, setWebhookInput] = useState<string>(() => getSpreadsheetWebhookUrl());
+  const [isTestingWebhook, setIsTestingWebhook] = useState<boolean>(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSyncingSpreadsheet, setIsSyncingSpreadsheet] = useState<boolean>(false);
+  const [syncSpreadsheetResult, setSyncSpreadsheetResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isCopiedBotCode, setIsCopiedBotCode] = useState<boolean>(false);
 
   // Custom POS Form State
   const [newPosName, setNewPosName] = useState<string>('');
@@ -537,66 +562,122 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setTimeout(() => setSaveSuccessMsg(''), 4000);
   };
 
-  // APPROVE WORKFLOW (Section 5)
-  const handleApprove = async () => {
-    const totalDebit = journalLines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
-    const totalCredit = journalLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
-    const diff = Math.abs(totalDebit - totalCredit);
-
-    if (diff !== 0) {
-      alert(`Gagal Approve: Jurnal belum seimbang! Selisih: Rp ${diff.toLocaleString('id-ID')}. Pastikan Total Debit dan Total Kredit sama.`);
+  // SYNC ROWS DIRECTLY TO GOOGLE SPREADSHEET VIA APPS SCRIPT BOT
+  const handleSyncSpreadsheet = async () => {
+    if (spreadsheetRows.length === 0) {
+      alert('Tabel data transaksi masih kosong. Silakan jalankan ekstraksi terlebih dahulu.');
       return;
     }
-
-    // 1. Cek & Auto-Create Akun Baru di COA
-    const finalLines: TransactionLine[] = [];
-    let currentAccounts = [...accounts];
-
-    for (let i = 0; i < journalLines.length; i++) {
-      const line = journalLines[i];
-      let existingAcc = currentAccounts.find(a => a.code === line.accountCode || a.name.toLowerCase() === line.accountName.toLowerCase());
-
-      if (!existingAcc || line.isNewAccount) {
-        // Auto-create missing account in COA
-        const createdAcc = autoCreateMissingCoaAccount(line, currentAccounts, addAccount);
-        currentAccounts.push(createdAcc);
-        existingAcc = createdAcc;
-      }
-
-      finalLines.push({
-        id: `line-${nomorBerkas.replace(/\//g, '_')}-${i + 1}`,
-        accountId: existingAcc.id || `acc-${existingAcc.code}`,
-        accountCode: existingAcc.code,
-        accountName: existingAcc.name,
-        debit: Number(line.debit) || 0,
-        credit: Number(line.credit) || 0,
-        memo: line.memo || keterangan
-      });
+    const webhookUrl = getSpreadsheetWebhookUrl();
+    if (!webhookUrl) {
+      setWebhookInput('');
+      setWebhookTestResult(null);
+      setIsWebhookModalOpen(true);
+      return;
     }
+    setIsSyncingSpreadsheet(true);
+    setSyncSpreadsheetResult(null);
+    const res = await syncRowsToGoogleSpreadsheet(spreadsheetRows, webhookUrl);
+    setIsSyncingSpreadsheet(false);
+    setSyncSpreadsheetResult(res);
+    if (res.success) {
+      logActivity(
+        'Spreadsheet Bot Sync',
+        `Bot berhasil mengisi ${spreadsheetRows.length} baris ke Google Spreadsheet main (${nomorBerkas})`
+      );
+    }
+  };
 
-    // 2. Auto-Submit ke Input Jurnal Transaksi (Accurate Voucher)
-    const today = new Date().toISOString().slice(0, 10);
-    const createdTx = addTransaction({
-      date: today,
-      refNumber: nomorBerkas,
-      type: 'general',
-      description: keterangan,
-      lines: finalLines,
-      totalDebit,
-      totalCredit,
-      partner: ''
+  // PROCEED TO AUTO JOURNAL & SAVE RECEIPT
+  const handleProceedToAutoJournal = () => {
+    const recordPayload: RecordedReceipt = {
+      id: `rec-${Date.now()}`,
+      nomorBerkas,
+      seqNumber,
+      date: new Date().toISOString().slice(0, 10),
+      keterangan,
+      posCode: selectedPosCode,
+      grandTotal,
+      extractedItems,
+      spreadsheetRows,
+      receiptFileName,
+      receiptImage,
+      googleDriveLink,
+      status: 'pending_journal',
+      createdAt: new Date().toISOString()
+    };
+    saveRecordedReceipt(recordPayload);
+
+    setPendingJournalDraft({
+      nomorBerkas,
+      seqNumber,
+      keterangan,
+      posCode: selectedPosCode,
+      extractedItems,
+      grandTotal,
+      receiptFileName,
+      receiptImage,
+      googleDriveLink,
+      date: new Date().toISOString().slice(0, 10)
     });
 
-    // 3. Commit Sequence Number
     commitDocumentSequence(seqNumber);
 
+    // Auto-sync ke Google Spreadsheet jika webhook sudah disetel
+    const webhookUrl = getSpreadsheetWebhookUrl();
+    if (webhookUrl && spreadsheetRows.length > 0) {
+      syncRowsToGoogleSpreadsheet(spreadsheetRows, webhookUrl).then(res => {
+        if (res.success) {
+          logActivity('Spreadsheet Bot Auto Sync', `Otomatis mengirim ${spreadsheetRows.length} baris ${nomorBerkas} ke Google Spreadsheet`);
+        }
+      }).catch(console.error);
+    }
+
     logActivity(
-      'Auto Record Approval',
-      `Menyetujui & membukukan otomatis Bukti Transaksi ${nomorBerkas} (${keterangan}) - Total Rp ${totalDebit.toLocaleString('id-ID')}`
+      'Auto Record Save',
+      `Menyimpan bukti transaksi ${nomorBerkas} (${keterangan}) dan meneruskan ke modul Jurnal Otomatis`
     );
 
-    setApprovedTxId(createdTx.id);
-    setIsSuccessModalOpen(true);
+    setActiveTab('auto-journal');
+  };
+
+  const handleSaveRecordedReceiptOnly = () => {
+    const recordPayload: RecordedReceipt = {
+      id: `rec-${Date.now()}`,
+      nomorBerkas,
+      seqNumber,
+      date: new Date().toISOString().slice(0, 10),
+      keterangan,
+      posCode: selectedPosCode,
+      grandTotal,
+      extractedItems,
+      spreadsheetRows,
+      receiptFileName,
+      receiptImage,
+      googleDriveLink,
+      status: 'pending_journal',
+      createdAt: new Date().toISOString()
+    };
+    saveRecordedReceipt(recordPayload);
+    commitDocumentSequence(seqNumber);
+
+    // Auto-sync ke Google Spreadsheet jika webhook sudah disetel
+    const webhookUrl = getSpreadsheetWebhookUrl();
+    if (webhookUrl && spreadsheetRows.length > 0) {
+      syncRowsToGoogleSpreadsheet(spreadsheetRows, webhookUrl).then(res => {
+        if (res.success) {
+          logActivity('Spreadsheet Bot Auto Sync', `Otomatis mengirim ${spreadsheetRows.length} baris ${nomorBerkas} ke Google Spreadsheet`);
+        }
+      }).catch(console.error);
+    }
+
+    logActivity(
+      'Auto Record Save',
+      `Menyimpan bukti transaksi ${nomorBerkas} (${keterangan}) ke arsip rekaman bukti`
+    );
+
+    alert(`Bukti transaksi ${nomorBerkas} berhasil disimpan ke arsip rekaman! Anda dapat memproses jurnalnya kapan saja di menu Jurnal Otomatis.`);
+    setCurrentStage('riwayat');
   };
 
   // Custom POS Save
@@ -645,11 +726,23 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               Otomasi Perekaman Bukti Transaksi
             </h1>
             <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-              Mengekstrak nota cetak, struk thermal, &amp; nota tulis tangan (HTR), sinkronisasi spreadsheet, serta membentuk jurnal akuntansi otomatis sesuai Standar Akuntansi Keuangan (SAK).
+              Mengekstrak nota cetak, struk thermal, &amp; nota tulis tangan (HTR), verifikasi kuantitas &amp; harga, serta sinkronisasi format spreadsheet datasheet_bukti_transaksi.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            {/* Tombol Buka Jurnal Otomatis Terpisah */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('auto-journal')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition shadow-sm cursor-pointer"
+              title="Buka Jurnal Otomatis untuk pembentukan SAK"
+            >
+              <Sparkles className="w-4 h-4 text-purple-200" />
+              <span>Jurnal Otomatis</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+
             {/* Tombol Konfigurasi Gemini Vision API Key */}
             <button
               type="button"
@@ -666,6 +759,25 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             >
               <Key className={`w-3.5 h-3.5 ${getGeminiApiKey() ? 'text-emerald-400' : 'text-amber-400'}`} />
               <span>{getGeminiApiKey() ? 'AI Vision: Terhubung' : 'Setel Gemini API Key'}</span>
+            </button>
+
+            {/* Tombol Bot Apps Script */}
+            <button
+              type="button"
+              onClick={() => {
+                setWebhookInput(getSpreadsheetWebhookUrl());
+                setWebhookTestResult(null);
+                setIsWebhookModalOpen(true);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold rounded-xl border transition cursor-pointer shadow-sm ${
+                getSpreadsheetWebhookUrl()
+                  ? 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border-emerald-400/50'
+                  : 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-400/50'
+              }`}
+              title="Konfigurasi Bot Apps Script untuk pengisian tabel spreadsheet"
+            >
+              <Bot className={`w-3.5 h-3.5 ${getSpreadsheetWebhookUrl() ? 'text-emerald-400' : 'text-indigo-400'}`} />
+              <span>{getSpreadsheetWebhookUrl() ? 'Bot Sheet: Aktif' : 'Setel Bot Sheet'}</span>
             </button>
 
             <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 text-right">
@@ -709,7 +821,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             }`}
           >
             <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
-            <span>Tahap 2: Koreksi Data &amp; Approval</span>
+            <span>Tahap 2: Koreksi Data &amp; Spreadsheet</span>
           </button>
           <button
             type="button"
@@ -815,12 +927,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   <span className="text-slate-400 font-normal ml-1">(Struk thermal, nota tulis tangan, faktur PDF)</span>
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl cursor-pointer transition text-center space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <label className="flex flex-col items-center justify-center p-3.5 border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl cursor-pointer transition text-center space-y-1.5">
                     <Upload className="w-5 h-5 text-blue-600" />
                     <div>
-                      <div className="text-xs font-bold text-slate-700">Pilih Berkas / Foto Baru</div>
-                      <div className="text-[10px] text-slate-400">JPG, PNG, WEBP, PDF</div>
+                      <div className="text-xs font-bold text-slate-700">Pilih Berkas</div>
+                      <div className="text-[10px] text-slate-400">JPG, PNG, PDF</div>
                     </div>
                     <input 
                       type="file" 
@@ -830,15 +942,30 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                     />
                   </label>
 
+                  <label className="flex flex-col items-center justify-center p-3.5 border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-xl cursor-pointer transition text-center space-y-1.5">
+                    <Camera className="w-5 h-5 text-emerald-600" />
+                    <div>
+                      <div className="text-xs font-bold text-emerald-850">Kamera HP (GCam)</div>
+                      <div className="text-[10px] text-slate-500">Jepret Langsung Bukti</div>
+                    </div>
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      capture="environment" 
+                      onChange={handleFileUpload} 
+                      className="hidden" 
+                    />
+                  </label>
+
                   <button
                     type="button"
                     onClick={loadSampleData}
-                    className="flex flex-col items-center justify-center p-4 border border-amber-300 bg-amber-50/50 hover:bg-amber-100/70 rounded-xl transition text-center space-y-2 cursor-pointer"
+                    className="flex flex-col items-center justify-center p-3.5 border border-amber-300 bg-amber-50/50 hover:bg-amber-100/70 rounded-xl transition text-center space-y-1.5 cursor-pointer"
                   >
                     <Zap className="w-5 h-5 text-amber-600" />
                     <div>
-                      <div className="text-xs font-bold text-amber-900">Gunakan Contoh Bukti Resmi</div>
-                      <div className="text-[10px] text-amber-700">Nota Baut 12, Baut 15 &amp; Pajak PB1</div>
+                      <div className="text-xs font-bold text-amber-900">Contoh Resmi</div>
+                      <div className="text-[10px] text-amber-700">Nota Baut &amp; PB1</div>
                     </div>
                   </button>
                 </div>
@@ -1205,188 +1332,88 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             </div>
           </div>
 
-          {/* Bagian 4.2: Mesin Analisis Akuntansi SAK & Saran Jurnal Umum */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-indigo-600" />
-                  <span>4.2. Saran Jurnal Umum Akuntansi (Prinsip SAK)</span>
+          {/* Bagian 4.2: Pemisahan Modul - Teruskan ke Jurnal Otomatis */}
+          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 rounded-2xl border border-purple-200 shadow-sm p-6 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[11px] font-bold">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Modul Jurnal Otomatis Terpisah</span>
+                </div>
+                <h3 className="text-sm font-extrabold text-slate-950">
+                  Data Bukti Transaksi Siap Diproses ke Jurnal Akuntansi SAK
                 </h3>
-                <p className="text-[11px] text-slate-500">
-                  Agregasi akun sejenis (contoh: Baut 12 &amp; Baut 15 &rarr; Perlengkapan), pemisahan beban pajak berdiri sendiri, dan penentuan akun lawan POS "{selectedPosCode}".
+                <p className="text-xs text-slate-600 max-w-2xl">
+                  Nomor berkas <strong className="text-purple-700">{nomorBerkas}</strong> dengan total nilai <strong className="text-purple-700">{formatRupiah(grandTotal)}</strong> telah terverifikasi. Teruskan ke menu <strong>Jurnal Otomatis</strong> untuk analisis akun debit/kredit dan pembukuan ke Jurnal Umum, atau simpan bukti ini ke arsip rekaman bukti.
                 </p>
               </div>
 
-              {/* Status Balance Jurnal */}
-              <div className="flex items-center gap-2">
-                <div className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                  selisihJurnal === 0 
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
-                    : 'bg-rose-50 text-rose-800 border-rose-300'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${selisihJurnal === 0 ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'}`} />
-                  <span>{selisihJurnal === 0 ? 'Status: Seimbang (Selisih Rp 0)' : `Selisih: ${formatRupiah(selisihJurnal)}`}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* List of Journal Lines */}
-            <div className="space-y-2.5">
-              {journalLines.map((line, index) => (
-                <div 
-                  key={line.id} 
-                  className={`p-3 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition ${
-                    line.credit > 0 ? 'bg-slate-50/70 border-slate-200' : 'bg-blue-50/30 border-blue-200/60'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span className="font-mono text-xs font-bold text-slate-400 w-6">
-                      #{index + 1}
-                    </span>
-
-                    {/* D/K Badge */}
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider ${
-                      line.debit > 0 ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white'
-                    }`}>
-                      {line.debit > 0 ? 'DEBIT' : 'KREDIT'}
-                    </span>
-
-                      {/* Account Selector */}
-                    <div className="flex-1 min-w-[200px]">
-                      <select
-                        value={line.accountCode}
-                        onChange={(e) => handleUpdateJournalLine(line.id, 'accountCode', e.target.value)}
-                        className="w-full px-2.5 py-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500"
-                      >
-                        {/* Fallback option agar select TIDAK PERNAH salah memilih opsi pertama (Kas) jika state belum re-render */}
-                        {!accounts.some(a => a.code === line.accountCode) && (
-                          <option value={line.accountCode}>
-                            {line.accountCode} - {line.accountName} ({line.accountCategory || 'Beban Operasional'})
-                          </option>
-                        )}
-                        {accounts.filter(a => !a.isHeader).map((a) => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} - {a.name} ({a.categoryName})
-                          </option>
-                        ))}
-                      </select>
-                      {line.isNewAccount && (
-                        <div className="text-[10px] font-bold text-amber-700 mt-0.5 flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-amber-500" />
-                          <span>+ Akun Baru Otomatis: {line.accountName} (Kode: {line.suggestedNewCode || line.accountCode})</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Nominal Inputs */}
-                  <div className="flex items-center gap-2">
-                    <div>
-                      <span className="text-[9px] text-slate-400 block text-right font-semibold">Debit (Rp)</span>
-                      <input 
-                        type="number"
-                        value={line.debit}
-                        onChange={(e) => handleUpdateJournalLine(line.id, 'debit', Number(e.target.value))}
-                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block text-right font-semibold">Kredit (Rp)</span>
-                      <input 
-                        type="number"
-                        value={line.credit}
-                        onChange={(e) => handleUpdateJournalLine(line.id, 'credit', Number(e.target.value))}
-                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteJournalLine(line.id)}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer mt-3"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Total Balance Summary Bar */}
-            <div className="bg-slate-900 text-white p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-4">
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase">Total Debit:</span>
-                  <div className="font-mono font-bold text-blue-300">{formatRupiah(totalDebitJurnal)}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase">Total Kredit:</span>
-                  <div className="font-mono font-bold text-emerald-300">{formatRupiah(totalCreditJurnal)}</div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                 <button
                   type="button"
-                  onClick={() => handleAddJournalLine('debit')}
-                  className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                  onClick={handleSaveRecordedReceiptOnly}
+                  className="px-4 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
-                  + Tambah Baris Debit
+                  <Save className="w-4 h-4 text-slate-500" />
+                  <span>Simpan Rekaman Saja</span>
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => handleAddJournalLine('credit')}
-                  className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                  onClick={handleProceedToAutoJournal}
+                  className="px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer shadow-md"
                 >
-                  + Tambah Baris Kredit
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveJournalEdits}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Jurnal</span>
+                  <span>Lanjutkan ke Jurnal Otomatis</span>
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
-            </div>
-
-            {saveSuccessMsg && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-1.5 animate-fadeIn">
-                <Check className="w-4 h-4 text-emerald-600" />
-                <span>{saveSuccessMsg}</span>
-              </div>
-            )}
-
-            {/* ACTION APPROVE BUTTON (SECTION 5) */}
-            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="text-xs text-slate-500">
-                Menekan tombol <strong>"Approve"</strong> akan otomatis membuat akun baru di COA (jika belum ada) dan membukukan transaksi ke Jurnal Umum / Accurate Voucher.
-              </div>
-
-              <button
-                type="button"
-                disabled={selisihJurnal !== 0}
-                onClick={handleApprove}
-                className="py-3 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
-              >
-                <CheckCircle className="w-4 h-4 text-emerald-200" />
-                <span>Approve &amp; Simpan ke Jurnal Umum</span>
-              </button>
             </div>
           </div>
+          
 
           {/* Bagian 3.3: Pratinjau Google Spreadsheet Format (datasheet_bukti_transaksi) */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                 <span className="text-xs font-bold text-slate-800">
-                  Pratinjau Format Spreadsheet "datasheet_bukti_transaksi" (Sheet: Main, Baris 4+)
+                  Pratinjau Format Spreadsheet "datasheet_bukti_transaksi" (Sheet: Main, Baris 6+)
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                  Kolom A s.d. K (Mulai A6)
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsWebhookModalOpen(true)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-slate-200"
+                  title="Konfigurasi Google Apps Script Bot & Webhook URL"
+                >
+                  <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Setel Bot Apps Script</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSyncingSpreadsheet || spreadsheetRows.length === 0}
+                  onClick={handleSyncSpreadsheet}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSyncingSpreadsheet ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <span>Mengisi ke Sheet...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                      <span>Kirim ke Spreadsheet ⚡</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1399,7 +1426,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition"
+                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition"
                 >
                   Unduh CSV
                 </button>
@@ -1407,7 +1434,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   href={SPREADSHEET_CONFIG.publicUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg border border-emerald-200 flex items-center gap-1 transition"
+                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg border border-emerald-200 flex items-center gap-1 transition"
                 >
                   <span>Buka Sheet Main</span>
                   <ExternalLink className="w-3 h-3" />
@@ -1415,21 +1442,46 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               </div>
             </div>
 
+            {syncSpreadsheetResult && (
+              <div className={`p-3 rounded-xl text-xs font-medium border flex items-start justify-between gap-2 ${
+                syncSpreadsheetResult.success ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300'
+              }`}>
+                <div className="flex items-start gap-2">
+                  {syncSpreadsheetResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <div className="font-bold">{syncSpreadsheetResult.success ? 'Berhasil Terkirim ke Spreadsheet!' : 'Gagal Mengirim ke Spreadsheet'}</div>
+                    <div className="text-[11px] mt-0.5">{syncSpreadsheetResult.message}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSyncSpreadsheetResult(null)}
+                  className="text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[11px] border-collapse font-mono">
                 <thead>
                   <tr className="bg-slate-100/80 text-slate-600 border-b border-slate-200">
-                    <th className="py-2 px-2.5 text-center">B (No)</th>
-                    <th className="py-2 px-2.5 text-center">C (Tgl)</th>
-                    <th className="py-2 px-2.5 text-center">D (Bln)</th>
-                    <th className="py-2 px-2.5 text-center">E (Thn)</th>
-                    <th className="py-2 px-3 font-sans">F (Nama Transaksi)</th>
-                    <th className="py-2 px-2.5 text-right">G (Harga satuan)</th>
-                    <th className="py-2 px-2.5 text-center">H (kuantitas)</th>
-                    <th className="py-2 px-2.5 text-right">I (Harga total)</th>
-                    <th className="py-2 px-2.5">J (Nomor Berkas)</th>
-                    <th className="py-2 px-2.5">K (Link Berkas)</th>
-                    <th className="py-2 px-2.5 text-center">L (POS)</th>
+                    <th className="py-2 px-2.5 text-center">A (No)</th>
+                    <th className="py-2 px-2.5 text-center">B (Tgl)</th>
+                    <th className="py-2 px-2.5 text-center">C (Bln)</th>
+                    <th className="py-2 px-2.5 text-center">D (Thn)</th>
+                    <th className="py-2 px-3 font-sans">E (Nama Transaksi)</th>
+                    <th className="py-2 px-2.5 text-right">F (Harga satuan)</th>
+                    <th className="py-2 px-2.5 text-center">G (kuantitas)</th>
+                    <th className="py-2 px-2.5 text-right">H (Harga total)</th>
+                    <th className="py-2 px-2.5">I (Nomor Berkas)</th>
+                    <th className="py-2 px-2.5">J (Link Berkas)</th>
+                    <th className="py-2 px-2.5 text-center">K (POS)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2017,15 +2069,22 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             </div>
 
             <div className="space-y-4 text-xs">
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-relaxed space-y-1">
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-relaxed space-y-1.5">
                 <div className="font-bold flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Ekstraksi Visioner Berbasis Gemini 2.5 Flash</span>
+                  <span>Ekstraksi Visioner Multimodal Berbasis Gemini AI</span>
                 </div>
                 <p>
-                  API Key memungkinkan sistem membaca struk kasir, nota tulis tangan, dan <strong>Bukti Transfer Bank (BCA, Mandiri, BI-FAST, dll)</strong> secara cerdas dan akurat.
+                  Gemini Vision bertindak sebagai otak analitis akuntansi: membaca struk kasir, nota tulis tangan (HTR), dan <strong>Bukti Transfer Bank (BCA, Mandiri, BI-FAST, dll)</strong> secara cerdas untuk membentuk jurnal debit-kredit SAK secara otomatis.
                 </p>
-                <p className="text-[10px] text-blue-700 pt-1">
+                
+                <div className="bg-white/80 rounded-lg p-2 border border-blue-100 text-[10.5px] space-y-1 text-slate-700">
+                  <div><strong className="text-blue-900">• Free Tier (Gratis):</strong> Batas 15 request/menit &amp; 1.500 transaksi/hari (sangat memadai untuk operasional harian kantor).</div>
+                  <div><strong className="text-emerald-800">• Tanpa Batasan (Pay-as-you-go):</strong> Cukup hubungkan tagihan di Google AI Studio untuk pemakaian tanpa batas (biaya sangat hemat: rata-rata ~Rp 1 s.d. Rp 5 per lembar struk).</div>
+                  <div><strong className="text-purple-800">• Tips Hasil 100% Jelas:</strong> Gunakan aplikasi kamera HP (seperti Google Camera / Document Mode) dengan pencahayaan terang saat memotret bukti fisik.</div>
+                </div>
+
+                <p className="text-[10px] text-blue-700 pt-0.5">
                   Belum punya key? Dapatkan secara gratis di:{' '}
                   <a 
                     href="https://aistudio.google.com/app/apikey" 
@@ -2121,6 +2180,219 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
                 >
                   Simpan API Key
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL KONFIGURASI BOT GOOGLE APPS SCRIPT SPREADSHEET */}
+      {/* ========================================================================= */}
+      {isWebhookModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl border border-slate-200 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Konfigurasi Bot Google Apps Script</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Otomatis mengisi tabel Spreadsheet <span className="font-semibold text-emerald-700">"datasheet_bukti_transaksi"</span> (Sheet: main, Baris A6 s.d. K6 ke bawah)
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsWebhookModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl text-emerald-950 text-[11px] leading-relaxed space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Format Resmi PT. Nirwana Bhumi Energy (A6 s.d. K6)</span>
+                </div>
+                <p>
+                  Bot Google Apps Script dikonfigurasi presisi sesuai tabel resmi: Header dokumen berada di baris 1 s.d. 5, dan <strong>pengisian data transaksi dimulai tepat dari baris A6 hingga K6</strong> ke bawah secara berurutan dan aman tanpa menimpa header atau data sebelumnya.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10.5px] pt-1">
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                    <div className="font-bold text-slate-800 mb-0.5">📍 Target Kolom (A s.d. K):</div>
+                    <div className="text-slate-600">A: No, B: Tgl, C: Bln, D: Thn, E: Nama Transaksi, F: Harga Satuan, G: Qty, H: Total, I: No Berkas, J: Link Berkas, K: POS.</div>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                    <div className="font-bold text-slate-800 mb-0.5">📌 Posisi Pengisian:</div>
+                    <div className="text-slate-600">Mulai dari baris ke-6 (sel A6:K6), otomatis mendeteksi baris kosong berikutnya (A7, A8, dst.) dan menerapkan border hitam solid &amp; format Rupiah.</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* URL Webhook Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  URL Web App / Webhook Apps Script:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={webhookInput}
+                    onChange={(e) => setWebhookInput(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="flex-1 px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    disabled={isTestingWebhook || !webhookInput.trim()}
+                    onClick={async () => {
+                      setIsTestingWebhook(true);
+                      setWebhookTestResult(null);
+                      const res = await testSpreadsheetWebhook(webhookInput.trim());
+                      setIsTestingWebhook(false);
+                      setWebhookTestResult(res);
+                    }}
+                    className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+                  >
+                    {isTestingWebhook ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
+                        <span>Menguji...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Uji Koneksi</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {webhookTestResult && (
+                <div className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
+                  webhookTestResult.success ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'
+                }`}>
+                  {webhookTestResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
+                  <div>{webhookTestResult.message}</div>
+                </div>
+              )}
+
+              {/* Panduan 3 Langkah Memasang Bot di Google Sheets */}
+              <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">!</span>
+                    <span>Cara Pasang Bot di Google Sheets (Hanya Sekali Setup):</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_BOT_CODE);
+                      setIsCopiedBotCode(true);
+                      setTimeout(() => setIsCopiedBotCode(false), 2500);
+                    }}
+                    className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] rounded-lg transition flex items-center gap-1 cursor-pointer border border-indigo-200"
+                  >
+                    {isCopiedBotCode ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">Kode Berhasil Disalin!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Salin Kode Apps Script</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-700 pl-1 leading-relaxed">
+                  <li>
+                    Buka Google Spreadsheet:{' '}
+                    <a
+                      href={SPREADSHEET_CONFIG.publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-bold text-emerald-700 underline inline-flex items-center gap-0.5"
+                    >
+                      Buka datasheet_bukti_transaksi <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </li>
+                  <li>
+                    Di bilah menu atas Google Sheets, klik <strong>Ekstensi (Extensions)</strong> &gt; <strong>Apps Script</strong>.
+                  </li>
+                  <li>
+                    Hapus semua tulisan di editor kode, lalu <strong>Paste (Tempel)</strong> kode bot yang telah disalin.
+                  </li>
+                  <li>
+                    Klik tombol <strong>Terapkan (Deploy)</strong> &gt; <strong>Penerapan Baru (New Deployment)</strong>:
+                    <div className="ml-5 mt-1 text-[10.5px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200 space-y-0.5">
+                      <div>• Pilih jenis: <strong>Aplikasi Web (Web App)</strong> (ikon roda gigi).</div>
+                      <div>• Deskripsi: <code>SPECTRA Spreadsheet Bot</code></div>
+                      <div>• Jalankan sebagai (Execute as): <strong>Saya (email Anda)</strong></div>
+                      <div>• Yang memiliki akses (Who has access): <strong>Siapa saja (Anyone)</strong></div>
+                    </div>
+                  </li>
+                  <li>
+                    Klik <strong>Terapkan (Deploy)</strong>, izinkan akses akun (Review permissions &gt; Advanced &gt; Go to script), lalu salin <strong>URL Aplikasi Web (berakhiran /exec)</strong> dan simpan ke formulir di atas.
+                  </li>
+                </ol>
+
+                {/* Preview Kode Apps Script */}
+                <details className="mt-2 text-[11px] text-slate-600">
+                  <summary className="font-semibold text-indigo-700 cursor-pointer hover:underline select-none">
+                    Tampilkan Cuplikan Kode Apps Script (google_apps_script_bot.js)
+                  </summary>
+                  <pre className="mt-2 p-3 bg-slate-900 text-slate-100 rounded-xl font-mono text-[10px] overflow-x-auto max-h-48 leading-relaxed">
+                    {GOOGLE_APPS_SCRIPT_BOT_CODE}
+                  </pre>
+                </details>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <a
+                href={SPREADSHEET_CONFIG.publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+              >
+                <span>Buka Spreadsheet Google</span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+              </a>
+
+              <div className="flex items-center gap-2">
+                {webhookInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      saveSpreadsheetWebhookUrl('');
+                      setWebhookInput('');
+                      setWebhookTestResult({ success: true, message: 'URL Webhook berhasil dihapus dari browser.' });
+                    }}
+                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    Hapus
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveSpreadsheetWebhookUrl(webhookInput.trim());
+                    setIsWebhookModalOpen(false);
+                    alert(webhookInput.trim() ? 'URL Webhook Google Apps Script berhasil disimpan!' : 'URL Webhook dikosongkan.');
+                  }}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                >
+                  Simpan URL Webhook
                 </button>
               </div>
             </div>

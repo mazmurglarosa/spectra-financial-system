@@ -18,6 +18,7 @@ import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
 import { PsakReportView } from './views/PsakReportView';
 import { AutoRecordView } from './views/AutoRecordView';
+import { AutoJournalView } from './views/AutoJournalView';
 
 // Modals
 import { TransactionModal } from './components/modals/TransactionModal';
@@ -93,6 +94,13 @@ const MainContent: React.FC = () => {
       case 'auto-record':
         return (
           <AutoRecordView 
+            setActiveTab={setActiveTab} 
+            openNewTransactionModal={handleOpenNewTransaction} 
+          />
+        );
+      case 'auto-journal':
+        return (
+          <AutoJournalView 
             setActiveTab={setActiveTab} 
             openNewTransactionModal={handleOpenNewTransaction} 
           />

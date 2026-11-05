@@ -994,6 +994,140 @@ export function autoCreateMissingCoaAccount(
   return addAccountFn(newAccountPayload);
 }
 
+/**
+ * Helper terpadu: Analisis Jurnal dan buat akun baru ke COA jika ada akun yang belum terdaftar (misal: Pajak Pembelian PB1)
+ */
+export function ensureSuggestedJournalWithAutoCreatedAccounts(
+  items: ExtractedItem[],
+  posCode: string,
+  currentAccounts: Account[],
+  txKeterangan: string,
+  addAccountFn?: (acc: Omit<Account, 'id'>) => Account
+): SuggestedJournalLine[] {
+  const sug = analyzeAndSuggestJournal(items, posCode, currentAccounts, txKeterangan);
+  let workingAccounts = [...currentAccounts];
+
+  const finalLines = sug.map(line => {
+    if (line.isNewAccount) {
+      let existing = workingAccounts.find(a => 
+        !a.isHeader && (
+          a.code === line.accountCode || 
+          a.name.toLowerCase() === line.accountName.toLowerCase() ||
+          (line.accountName.toLowerCase().includes('pb1') && a.name.toLowerCase().includes('pb1'))
+        )
+      );
+
+      if (!existing && addAccountFn) {
+        const created = autoCreateMissingCoaAccount(line, workingAccounts, addAccountFn);
+        workingAccounts.push(created);
+        existing = created;
+      }
+
+      return {
+        ...line,
+        accountCode: existing ? existing.code : line.accountCode,
+        accountName: existing ? existing.name : line.accountName,
+        accountCategory: existing ? existing.category : line.accountCategory,
+        isNewAccount: true,
+        suggestedNewCode: existing ? existing.code : line.suggestedNewCode
+      };
+    }
+    return line;
+  });
+
+  return finalLines;
+}
+
+// =========================================================================
+// 7.1. REKAMAN BUKTI & MANAJEMEN DRAFT JURNAL OTOMATIS
+// =========================================================================
+
+export interface RecordedReceipt {
+  id: string;
+  nomorBerkas: string;
+  seqNumber: number;
+  date: string;
+  keterangan: string;
+  posCode: string;
+  grandTotal: number;
+  extractedItems: ExtractedItem[];
+  spreadsheetRows: SpreadsheetRowData[];
+  receiptFileName?: string;
+  receiptImage?: string;
+  googleDriveLink?: string;
+  status: 'pending_journal' | 'journalized';
+  createdAt: string;
+  journalTxId?: string;
+}
+
+export const SPECTRA_RECORDED_RECEIPTS_KEY = 'spectra_recorded_receipts_list';
+export const SPECTRA_PENDING_JOURNAL_KEY = 'spectra_pending_journal_draft';
+
+export function getRecordedReceipts(): RecordedReceipt[] {
+  try {
+    const raw = localStorage.getItem(SPECTRA_RECORDED_RECEIPTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+export function saveRecordedReceipt(receipt: RecordedReceipt): void {
+  try {
+    const list = getRecordedReceipts();
+    const idx = list.findIndex(r => r.nomorBerkas === receipt.nomorBerkas || r.id === receipt.id);
+    if (idx >= 0) {
+      list[idx] = receipt;
+    } else {
+      list.unshift(receipt);
+    }
+    localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pending_journal' | 'journalized', journalTxId?: string): void {
+  try {
+    const list = getRecordedReceipts();
+    const updated = list.map(r => {
+      if (r.nomorBerkas === nomorBerkas) {
+        return { ...r, status, journalTxId };
+      }
+      return r;
+    });
+    localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(updated));
+  } catch (e) {}
+}
+
+export function deleteRecordedReceipt(id: string): void {
+  try {
+    const list = getRecordedReceipts().filter(r => r.id !== id && r.nomorBerkas !== id);
+    localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+export function setPendingJournalDraft(draft: any): void {
+  try {
+    if (!draft) {
+      localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
+    } else {
+      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(draft));
+    }
+  } catch (e) {}
+}
+
+export function getPendingJournalDraft(): any | null {
+  try {
+    const raw = localStorage.getItem(SPECTRA_PENDING_JOURNAL_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
+export function clearPendingJournalDraft(): void {
+  try {
+    localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
+  } catch (e) {}
+}
+
 // =========================================================================
 // 8. CONTOH BUKTI TRANSAKSI (SAMPLE DATA RESMI SESUAI PROMPT)
 // =========================================================================
@@ -1070,7 +1204,8 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
     return { success: false, message: 'API Key tidak boleh kosong' };
   }
   const cleanKey = apiKey.trim();
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let quotaExceeded = false;
 
   for (const model of models) {
     try {
@@ -1085,10 +1220,19 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
 
       if (res.ok) {
         return { success: true, message: `Koneksi Gemini Multimodal API (${model}) Berhasil!`, model };
+      } else if (res.status === 429) {
+        quotaExceeded = true;
       }
     } catch (e: any) {
       console.warn(`Testing model ${model} failed:`, e);
     }
+  }
+
+  if (quotaExceeded) {
+    return { 
+      success: false, 
+      message: 'Batas kuota/laju gratis (Rate Limit 15 req/menit) tercapai. Tunggu 1 menit atau aktifkan Pay-as-you-go di Google AI Studio untuk akses tanpa batas.' 
+    };
   }
 
   return { success: false, message: 'Gagal terhubung ke Gemini API. Pastikan API Key valid dan kuota aktif.' };
@@ -1336,7 +1480,7 @@ Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
 }
 `;
 
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: any = null;
   let responseText = '';
 
