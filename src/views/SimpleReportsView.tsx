@@ -29,7 +29,7 @@ export type SimpleReportSubTab =
 
 interface SimpleReportsViewProps {
   initialTab?: SimpleReportSubTab;
-  onTabChange?: (tab: SimpleReportSubTab) => void;
+  onTabChange?: (tab: any) => void;
 }
 
 export const SimpleReportsView: React.FC<SimpleReportsViewProps> = ({
@@ -59,7 +59,7 @@ export const SimpleReportsView: React.FC<SimpleReportsViewProps> = ({
       case 'worksheet':
         return <WorksheetView embedded={true} />;
       case 'profit-loss':
-        return <IncomeStatementView embedded={true} />;
+        return <IncomeStatementView embedded={true} onNavigateTab={onTabChange} />;
       case 'balance-sheet':
         return <BalanceSheetView embedded={true} />;
       case 'capital-changes':

@@ -16,6 +16,15 @@ import {
 import { defaultAccounts, defaultTransactions, initialCompanySettings } from '../data/defaultAccounts';
 import { resetAutoRecordState } from '../services/autoRecordService';
 import { resetExternalSpreadsheetAndDrive } from '../services/googleSpreadsheetBot';
+import { TaxRegimeType } from '../data/fiscalTaxRules';
+import {
+  buildFiscalReconciliation,
+  calculateCorporateTax,
+  CorporateTaxCalculation,
+  CustomFiscalAdjustment,
+  FiscalAccountOverride,
+  FiscalReconciliationSummary
+} from '../utils/fiscalReconciliation';
 import { 
   SupabaseConfig, 
   getSupabaseConfig, 
@@ -41,6 +50,22 @@ export interface SyncStatus {
   supabaseConnected: boolean;
   supabaseUrl?: string;
 }
+
+export interface FiscalState {
+  overrides: Record<string, FiscalAccountOverride>;
+  customAdjustments: CustomFiscalAdjustment[];
+  regime: TaxRegimeType;
+  lossCarryForward: number;
+  prepaidTaxCredits: number;
+}
+
+export const DEFAULT_FISCAL_STATE: FiscalState = {
+  overrides: {},
+  customAdjustments: [],
+  regime: 'pasal31e',
+  lossCarryForward: 0,
+  prepaidTaxCredits: 0
+};
 
 export const DEFAULT_SUPERADMIN: User = {
   id: "usr-admin-master",
@@ -116,6 +141,13 @@ interface AccountingContextType {
   logActivity: (action: string, detail: string) => void;
   submitComplaint: (subject: string, message: string) => void;
   respondComplaint: (complaintId: string, response: string) => void;
+
+  // Fiscal Reconciliation (Rekonsiliasi & Laporan Keuangan Fiskal)
+  fiscalState: FiscalState;
+  fiscalSummary: FiscalReconciliationSummary;
+  fiscalTaxCalc: CorporateTaxCalculation;
+  updateFiscalState: (updater: Partial<FiscalState> | ((prev: FiscalState) => FiscalState)) => void;
+  resetFiscalState: () => void;
 }
 
 const STORAGE_KEYS = {
@@ -127,7 +159,8 @@ const STORAGE_KEYS = {
   PIN: 'spectra_security_pin_v1',
   LOGS: 'spectra_activity_logs_v1',
   COMPLAINTS: 'spectra_complaints_v1',
-  CONTACTS: 'spectra_contacts_v1'
+  CONTACTS: 'spectra_contacts_v1',
+  FISCAL: 'spectra_fiscal_reconciliation_v1'
 };
 
 const BROADCAST_CHANNEL_NAME = 'spectra_realtime_sync_channel';
@@ -403,6 +436,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return [];
   });
 
+  const [fiscalState, setFiscalState] = useState<FiscalState>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.FISCAL);
+      if (saved && saved !== 'null' && saved !== 'undefined') {
+        const parsed = JSON.parse(saved);
+        return {
+          overrides: parsed.overrides || {},
+          customAdjustments: Array.isArray(parsed.customAdjustments) ? parsed.customAdjustments : [],
+          regime: parsed.regime || 'pasal31e',
+          lossCarryForward: Number(parsed.lossCarryForward) || 0,
+          prepaidTaxCredits: Number(parsed.prepaidTaxCredits) || 0
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to load fiscal reconciliation state:', e);
+    }
+    return DEFAULT_FISCAL_STATE;
+  });
+
   const [supabaseConfig, setSupabaseConfigState] = useState<SupabaseConfig>(() => getSupabaseConfig());
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => {
@@ -472,6 +524,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } else if (type === 'CONTACTS' && Array.isArray(payload)) {
         setContacts(payload);
         localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(payload));
+      } else if (type === 'FISCAL_STATE' && payload) {
+        setFiscalState(payload);
+        localStorage.setItem(STORAGE_KEYS.FISCAL, JSON.stringify(payload));
       } else if (type === 'ALL' && payload) {
         if (payload.accounts) {
           setAccounts(payload.accounts);
@@ -857,8 +912,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings: initialCompanySettings 
     });
 
-    // Reset Auto Record sequence counter, recorded receipts, and pending drafts
+    // Reset Auto Record sequence counter, recorded receipts, pending drafts, and fiscal adjustments
     resetAutoRecordState();
+    setFiscalState(DEFAULT_FISCAL_STATE);
+    localStorage.removeItem(STORAGE_KEYS.FISCAL);
 
     // Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
     resetExternalSpreadsheetAndDrive().catch(console.error);
@@ -912,8 +969,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings 
     });
 
-    // Reset Auto Record sequence counter, recorded receipts, and pending drafts
+    // Reset Auto Record sequence counter, recorded receipts, pending drafts, and fiscal adjustments
     resetAutoRecordState();
+    setFiscalState(DEFAULT_FISCAL_STATE);
+    localStorage.removeItem(STORAGE_KEYS.FISCAL);
 
     // Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
     resetExternalSpreadsheetAndDrive().catch(console.error);
@@ -948,6 +1007,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // 4. Reset Auto Record sequence counter, recorded receipts, and pending drafts
     resetAutoRecordState();
+    setFiscalState(DEFAULT_FISCAL_STATE);
+    localStorage.removeItem(STORAGE_KEYS.FISCAL);
 
     // 5. Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
     let driveCount = 0;
@@ -1126,6 +1187,69 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     logActivity('Tanggapi Keluhan', `Administrator menanggapi keluhan ID: ${complaintId}`);
   }, [broadcastChange, logActivity]);
+
+  // Shared Fiscal Reconciliation State & Live Calculations
+  const updateFiscalState = useCallback(
+    (updater: Partial<FiscalState> | ((prev: FiscalState) => FiscalState)) => {
+      setFiscalState(prev => {
+        const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+        try {
+          localStorage.setItem(STORAGE_KEYS.FISCAL, JSON.stringify(next));
+        } catch (e) {
+          console.warn('Failed to persist fiscal reconciliation state:', e);
+        }
+        broadcastChange('FISCAL_STATE', next);
+        return next;
+      });
+    },
+    [broadcastChange]
+  );
+
+  const resetFiscalState = useCallback(() => {
+    const next: FiscalState = {
+      ...fiscalState,
+      overrides: {},
+      customAdjustments: []
+    };
+    setFiscalState(next);
+    try {
+      localStorage.setItem(STORAGE_KEYS.FISCAL, JSON.stringify(next));
+    } catch (e) {
+      console.warn('Failed to reset fiscal overrides:', e);
+    }
+    broadcastChange('FISCAL_STATE', next);
+    logActivity('Reset Koreksi Fiskal', 'Mengembalikan penyesuaian rekonsiliasi fiskal ke deteksi otomatis COA.');
+  }, [fiscalState, broadcastChange, logActivity]);
+
+  const fiscalSummary = useMemo(
+    () =>
+      buildFiscalReconciliation(
+        accounts,
+        transactions,
+        fiscalState.overrides,
+        fiscalState.customAdjustments,
+        false
+      ),
+    [accounts, transactions, fiscalState.overrides, fiscalState.customAdjustments]
+  );
+
+  const fiscalTaxCalc = useMemo(
+    () =>
+      calculateCorporateTax(
+        fiscalSummary.fiscalNetProfit,
+        fiscalSummary.totalRevenueCommercial,
+        fiscalState.regime,
+        fiscalState.lossCarryForward,
+        fiscalState.prepaidTaxCredits
+      ),
+    [
+      fiscalSummary.fiscalNetProfit,
+      fiscalSummary.totalRevenueCommercial,
+      fiscalState.regime,
+      fiscalState.lossCarryForward,
+      fiscalState.prepaidTaxCredits
+    ]
+  );
 
   // JSON Database Export/Import
   const exportDatabaseJson = useCallback((): string => {
@@ -1387,7 +1511,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         toggleAuthority,
         logActivity,
         submitComplaint,
-        respondComplaint
+        respondComplaint,
+        fiscalState,
+        fiscalSummary,
+        fiscalTaxCalc,
+        updateFiscalState,
+        resetFiscalState
       }}
     >
       {children}

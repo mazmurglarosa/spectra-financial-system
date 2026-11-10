@@ -18,7 +18,8 @@ import {
   LogOut,
   Scan,
   Sparkles,
-  Landmark
+  Landmark,
+  FileCheck2
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useSystemHealth } from '../../hooks/useSystemHealth';
@@ -45,6 +46,7 @@ export type ActiveTab =
   | 'ratios'
   | 'psak-report'
   | 'fiscal-reconciliation'
+  | 'fiscal-reports'
   | 'settings'
   | 'admin-panel'
   | 'authority-panel'
@@ -293,6 +295,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               1771
             </span>
             {activeTab === 'fiscal-reconciliation' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('fiscal-reports')}
+            className={`nav-item ${activeTab === 'fiscal-reports' ? 'active' : ''}`}
+          >
+            <FileCheck2 className={`w-4 h-4 shrink-0 ${activeTab === 'fiscal-reports' ? 'text-white' : 'text-emerald-600'}`} />
+            <span className="font-medium text-xs">Lap. Keuangan Fiskal</span>
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'fiscal-reports' ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+              PASCA KOREKSI
+            </span>
+            {activeTab === 'fiscal-reports' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
           </div>
 
           {/* Akses Khusus Otoritas & Administrator */}

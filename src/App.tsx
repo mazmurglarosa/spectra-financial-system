@@ -18,6 +18,7 @@ import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
 import { PsakReportView } from './views/PsakReportView';
 import { FiscalReconciliationView } from './views/FiscalReconciliationView';
+import { FiscalOfficialReportView } from './views/FiscalOfficialReportView';
 import { AutoRecordView } from './views/AutoRecordView';
 import { AutoJournalView } from './views/AutoJournalView';
 
@@ -133,9 +134,11 @@ const MainContent: React.FC = () => {
       case 'ratios':
         return <FinancialRatiosView />;
       case 'psak-report':
-        return <PsakReportView />;
+        return <PsakReportView setActiveTab={setActiveTab} />;
       case 'fiscal-reconciliation':
-        return <FiscalReconciliationView />;
+        return <FiscalReconciliationView setActiveTab={setActiveTab} />;
+      case 'fiscal-reports':
+        return <FiscalOfficialReportView setActiveTab={setActiveTab} />;
       case 'settings':
         return <SettingsView />;
       case 'admin-panel':

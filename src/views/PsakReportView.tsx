@@ -14,16 +14,21 @@ import {
   TrendingUp,
   PieChart,
   RefreshCw,
-  DollarSign
+  DollarSign,
+  Landmark,
+  ArrowUpRight
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { generatePsakReportData, exportFullPsakWorkbook, PsakLineItem } from '../utils/psakReportGenerator';
+import { generatePsakReportData, exportFullPsakWorkbook } from '../utils/psakReportGenerator';
 import { formatRupiah } from '../utils/accountingCalculations';
 
 export type PsakSubTab = 'all' | 'balance-sheet' | 'income' | 'equity' | 'cash-flow';
 
-export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initialSubTab = 'all' }) => {
-  const { accounts, transactions, settings } = useAccounting();
+export const PsakReportView: React.FC<{
+  initialSubTab?: PsakSubTab;
+  setActiveTab?: (tab: any) => void;
+}> = ({ initialSubTab = 'all', setActiveTab }) => {
+  const { accounts, transactions, settings, fiscalSummary, fiscalTaxCalc } = useAccounting();
   const [activeSubTab, setActiveSubTab] = useState<PsakSubTab>(initialSubTab);
   const [bilingual, setBilingual] = useState<boolean>(true);
 
@@ -169,6 +174,41 @@ export const PsakReportView: React.FC<{ initialSubTab?: PsakSubTab }> = ({ initi
               <span>Format Bilingual (ID / EN)</span>
             </label>
           </div>
+        </div>
+
+        {/* Live Bridge ke Koreksi Fiskal & Laporan Keuangan Fiskal */}
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <Landmark className="w-4 h-4 text-[#0284c7] shrink-0" />
+            <span className="font-bold text-slate-800">Sinkronisasi Rekonsiliasi Fiskal (1771-I):</span>
+            <span className="font-mono text-[11px] text-slate-600">
+              Laba Komersial <strong className="text-slate-900">{formatRupiah(data.incomeStatement.netIncome.current)}</strong>
+              {' '}→ Positif <strong className="text-rose-700">+{formatRupiah(fiscalSummary.totalPositiveCorrection)}</strong>
+              {' '}→ Negatif <strong className="text-emerald-700">-{formatRupiah(fiscalSummary.totalNegativeCorrection)}</strong>
+              {' '}→ Neto Fiskal <strong className="text-sky-700">{formatRupiah(fiscalSummary.fiscalNetProfit)}</strong>
+              {' '}(Est. PPh <strong className="text-slate-900">{formatRupiah(fiscalTaxCalc.totalIncomeTax)}</strong>)
+            </span>
+          </div>
+          {setActiveTab && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab('fiscal-reconciliation')}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <span>Edit Koreksi Fiskal</span>
+                <ArrowUpRight className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('fiscal-reports')}
+                className="px-3 py-1.5 bg-[#0a192f] hover:bg-[#11243e] text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <span>Lihat Laporan Resmi Fiskal</span>
+                <ArrowUpRight className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

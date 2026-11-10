@@ -14,11 +14,15 @@ import {
   Calculator,
   Scale,
   Edit3,
-  X
+  X,
+  FileCheck2,
+  ArrowUpRight
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { formatRupiah } from '../utils/accountingCalculations';
+import { formatRupiah, generateIncomeStatement } from '../utils/accountingCalculations';
+import { generatePsakReportData } from '../utils/psakReportGenerator';
 import { formatPeriodDisplay } from '../utils/formatPeriod';
+import { ActiveTab } from '../components/layout/Sidebar';
 import {
   FISCAL_RULE_CODES,
   OFFICIAL_TAX_SOURCES,
@@ -29,57 +33,32 @@ import {
   buildFiscalReconciliation,
   calculateCorporateTax,
   exportFiscalReconciliationWorkbook,
-  FiscalAccountOverride,
   CustomFiscalAdjustment,
   FiscalReconciliationRow
 } from '../utils/fiscalReconciliation';
 
-const STORAGE_FISCAL_STATE_KEY = 'spectra_fiscal_reconciliation_v1';
-
-interface StoredFiscalState {
-  overrides: Record<string, FiscalAccountOverride>;
-  customAdjustments: CustomFiscalAdjustment[];
-  regime: TaxRegimeType;
-  lossCarryForward: number;
-  prepaidTaxCredits: number;
-}
-
-function loadStoredFiscalState(): StoredFiscalState {
-  try {
-    const raw = localStorage.getItem(STORAGE_FISCAL_STATE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        overrides: parsed.overrides || {},
-        customAdjustments: Array.isArray(parsed.customAdjustments) ? parsed.customAdjustments : [],
-        regime: parsed.regime || 'pasal31e',
-        lossCarryForward: Number(parsed.lossCarryForward) || 0,
-        prepaidTaxCredits: Number(parsed.prepaidTaxCredits) || 0
-      };
-    }
-  } catch (e) {
-    console.warn('Gagal memuat state rekonsiliasi fiskal:', e);
-  }
-  return {
-    overrides: {},
-    customAdjustments: [],
-    regime: 'pasal31e',
-    lossCarryForward: 0,
-    prepaidTaxCredits: 0
-  };
-}
-
 type FiscalSubTab = 'worksheet' | 'tax-sim' | 'reference';
 
-export const FiscalReconciliationView: React.FC = () => {
-  const { accounts, transactions, settings, logActivity } = useAccounting();
+interface FiscalReconciliationViewProps {
+  setActiveTab?: (tab: ActiveTab) => void;
+}
 
-  const initialState = useMemo(() => loadStoredFiscalState(), []);
-  const [overrides, setOverrides] = useState<Record<string, FiscalAccountOverride>>(initialState.overrides);
-  const [customAdjustments, setCustomAdjustments] = useState<CustomFiscalAdjustment[]>(initialState.customAdjustments);
-  const [regime, setRegime] = useState<TaxRegimeType>(initialState.regime);
-  const [lossCarryForward, setLossCarryForward] = useState<number>(initialState.lossCarryForward);
-  const [prepaidTaxCredits, setPrepaidTaxCredits] = useState<number>(initialState.prepaidTaxCredits);
+export const FiscalReconciliationView: React.FC<FiscalReconciliationViewProps> = ({ setActiveTab }) => {
+  const {
+    accounts,
+    transactions,
+    settings,
+    logActivity,
+    fiscalState,
+    updateFiscalState,
+    resetFiscalState
+  } = useAccounting();
+
+  const { overrides, customAdjustments, regime, lossCarryForward, prepaidTaxCredits } = fiscalState;
+
+  const setRegime = (next: TaxRegimeType) => updateFiscalState({ regime: next });
+  const setLossCarryForward = (val: number) => updateFiscalState({ lossCarryForward: val });
+  const setPrepaidTaxCredits = (val: number) => updateFiscalState({ prepaidTaxCredits: val });
 
   const [activeSubTab, setActiveSubTab] = useState<FiscalSubTab>('worksheet');
   const [includeZeroAccounts, setIncludeZeroAccounts] = useState<boolean>(false);
@@ -99,35 +78,6 @@ export const FiscalReconciliationView: React.FC = () => {
   const [refSearch, setRefSearch] = useState<string>('');
   const [refFilter, setRefFilter] = useState<'ALL' | 'FPO' | 'FNE' | 'TETAP' | 'WAKTU'>('ALL');
 
-  // Persistensi state rekonsiliasi ke localStorage
-  useEffect(() => {
-    try {
-      const payload: StoredFiscalState = {
-        overrides,
-        customAdjustments,
-        regime,
-        lossCarryForward,
-        prepaidTaxCredits
-      };
-      localStorage.setItem(STORAGE_FISCAL_STATE_KEY, JSON.stringify(payload));
-    } catch (e) {
-      console.warn('Gagal menyimpan state rekonsiliasi fiskal:', e);
-    }
-  }, [overrides, customAdjustments, regime, lossCarryForward, prepaidTaxCredits]);
-
-  // Sinkronkan ketika sistem direset
-  useEffect(() => {
-    const handleSystemReset = () => {
-      setOverrides({});
-      setCustomAdjustments([]);
-      setLossCarryForward(0);
-      setPrepaidTaxCredits(0);
-      localStorage.removeItem(STORAGE_FISCAL_STATE_KEY);
-    };
-    window.addEventListener('spectra:reset-auto-record', handleSystemReset);
-    return () => window.removeEventListener('spectra:reset-auto-record', handleSystemReset);
-  }, []);
-
   // Keyboard Escape handler untuk modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -143,6 +93,16 @@ export const FiscalReconciliationView: React.FC = () => {
   const summary = useMemo(
     () => buildFiscalReconciliation(accounts, transactions, overrides, customAdjustments, includeZeroAccounts),
     [accounts, transactions, overrides, customAdjustments, includeZeroAccounts]
+  );
+
+  // Sinkronisasi langsung dengan Laporan Sederhana (Laba Rugi) & Laporan Resmi (PSAK)
+  const simpleIncomeStatement = useMemo(
+    () => generateIncomeStatement(accounts, transactions),
+    [accounts, transactions]
+  );
+  const officialPsakData = useMemo(
+    () => generatePsakReportData(accounts, transactions, settings),
+    [accounts, transactions, settings]
   );
 
   const taxCalc = useMemo(
@@ -165,15 +125,18 @@ export const FiscalReconciliationView: React.FC = () => {
 
   const handleRuleChange = (row: FiscalReconciliationRow, newRuleCode: string) => {
     if (!newRuleCode) {
-      setOverrides(prev => ({
+      updateFiscalState(prev => ({
         ...prev,
-        [row.accountCode]: {
-          ruleCode: '',
-          positiveAmount: 0,
-          negativeAmount: 0,
-          nature: 'NONE',
-          note: row.note,
-          isManualOverride: true
+        overrides: {
+          ...prev.overrides,
+          [row.accountCode]: {
+            ruleCode: '',
+            positiveAmount: 0,
+            negativeAmount: 0,
+            nature: 'NONE',
+            note: row.note,
+            isManualOverride: true
+          }
         }
       }));
       return;
@@ -188,15 +151,18 @@ export const FiscalReconciliationView: React.FC = () => {
         ? row.negativeCorrection
         : defaultAmount;
 
-    setOverrides(prev => ({
+    updateFiscalState(prev => ({
       ...prev,
-      [row.accountCode]: {
-        ruleCode: newRuleCode,
-        positiveAmount: ruleMeta?.direction === 'FPO' ? currentAmount : 0,
-        negativeAmount: ruleMeta?.direction === 'FNE' ? currentAmount : 0,
-        nature: ruleMeta?.nature || 'TETAP',
-        note: prev[row.accountCode]?.note || ruleMeta?.description || '',
-        isManualOverride: true
+      overrides: {
+        ...prev.overrides,
+        [row.accountCode]: {
+          ruleCode: newRuleCode,
+          positiveAmount: ruleMeta?.direction === 'FPO' ? currentAmount : 0,
+          negativeAmount: ruleMeta?.direction === 'FNE' ? currentAmount : 0,
+          nature: ruleMeta?.nature || 'TETAP',
+          note: prev.overrides[row.accountCode]?.note || ruleMeta?.description || '',
+          isManualOverride: true
+        }
       }
     }));
   };
@@ -218,39 +184,43 @@ export const FiscalReconciliationView: React.FC = () => {
 
     const ruleMeta = FISCAL_RULE_CODES.find(r => r.code === fallbackRule);
 
-    setOverrides(prev => ({
+    updateFiscalState(prev => ({
       ...prev,
-      [row.accountCode]: {
-        ruleCode: num === 0 && (type === 'positive' ? row.negativeCorrection === 0 : row.positiveCorrection === 0) ? '' : fallbackRule,
-        positiveAmount: type === 'positive' ? num : 0,
-        negativeAmount: type === 'negative' ? num : 0,
-        nature: prev[row.accountCode]?.nature && prev[row.accountCode].nature !== 'NONE'
-          ? prev[row.accountCode].nature
-          : ruleMeta?.nature || 'TETAP',
-        note: prev[row.accountCode]?.note || row.note,
-        isManualOverride: true
+      overrides: {
+        ...prev.overrides,
+        [row.accountCode]: {
+          ruleCode: num === 0 && (type === 'positive' ? row.negativeCorrection === 0 : row.positiveCorrection === 0) ? '' : fallbackRule,
+          positiveAmount: type === 'positive' ? num : 0,
+          negativeAmount: type === 'negative' ? num : 0,
+          nature: prev.overrides[row.accountCode]?.nature && prev.overrides[row.accountCode].nature !== 'NONE'
+            ? prev.overrides[row.accountCode].nature
+            : ruleMeta?.nature || 'TETAP',
+          note: prev.overrides[row.accountCode]?.note || row.note,
+          isManualOverride: true
+        }
       }
     }));
   };
 
   const handleNatureChange = (row: FiscalReconciliationRow, newNature: DifferenceNature) => {
-    setOverrides(prev => ({
+    updateFiscalState(prev => ({
       ...prev,
-      [row.accountCode]: {
-        ruleCode: row.ruleCode,
-        positiveAmount: row.positiveCorrection,
-        negativeAmount: row.negativeCorrection,
-        nature: newNature,
-        note: prev[row.accountCode]?.note || row.note,
-        isManualOverride: true
+      overrides: {
+        ...prev.overrides,
+        [row.accountCode]: {
+          ruleCode: row.ruleCode,
+          positiveAmount: row.positiveCorrection,
+          negativeAmount: row.negativeCorrection,
+          nature: newNature,
+          note: prev.overrides[row.accountCode]?.note || row.note,
+          isManualOverride: true
+        }
       }
     }));
   };
 
   const handleResetToAuto = () => {
-    setOverrides({});
-    setCustomAdjustments([]);
-    logActivity('Reset Koreksi Fiskal', 'Mengembalikan seluruh penyesuaian rekonsiliasi fiskal ke deteksi otomatis COA.');
+    resetFiscalState();
   };
 
   const handleAddCustomAdjustment = (e: React.FormEvent) => {
@@ -269,7 +239,10 @@ export const FiscalReconciliationView: React.FC = () => {
       amount: num,
       note: customNote.trim() || ruleMeta?.legalBasis || ''
     };
-    setCustomAdjustments(prev => [...prev, newItem]);
+    updateFiscalState(prev => ({
+      ...prev,
+      customAdjustments: [...prev.customAdjustments, newItem]
+    }));
     setCustomDesc('');
     setCustomAmount('');
     setCustomNote('');
@@ -280,15 +253,18 @@ export const FiscalReconciliationView: React.FC = () => {
   const handleSaveRowNote = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingNoteRow) return;
-    setOverrides(prev => ({
+    updateFiscalState(prev => ({
       ...prev,
-      [editingNoteRow.accountCode]: {
-        ruleCode: editingNoteRow.ruleCode,
-        positiveAmount: editingNoteRow.positiveCorrection,
-        negativeAmount: editingNoteRow.negativeCorrection,
-        nature: editingNoteRow.nature,
-        note: noteInput.trim(),
-        isManualOverride: true
+      overrides: {
+        ...prev.overrides,
+        [editingNoteRow.accountCode]: {
+          ruleCode: editingNoteRow.ruleCode,
+          positiveAmount: editingNoteRow.positiveCorrection,
+          negativeAmount: editingNoteRow.negativeCorrection,
+          nature: editingNoteRow.nature,
+          note: noteInput.trim(),
+          isManualOverride: true
+        }
       }
     }));
     setEditingNoteRow(null);
@@ -363,7 +339,64 @@ export const FiscalReconciliationView: React.FC = () => {
             <Printer className="w-4 h-4" />
             <span>Cetak 1771-I</span>
           </button>
+
+          {setActiveTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('fiscal-reports')}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer focus-visible:ring-2 focus-visible:ring-sky-600 outline-none"
+            >
+              <FileCheck2 className="w-4 h-4" />
+              <span>Buka Laporan Resmi Fiskal</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Bar Bukti Keterhubungan Laba Rugi (Sederhana ↔ Resmi PSAK ↔ Koreksi Fiskal) */}
+      <div className="no-print bg-white rounded-xl border border-slate-200/90 shadow-xs px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-bold text-slate-800 flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Terhubung Langsung dengan Laba Rugi Komersial:</span>
+          </span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-slate-600">
+            <span>
+              Lap. Sederhana:{' '}
+              <strong className="text-slate-900">{formatRupiah(simpleIncomeStatement.labaBersih)}</strong>
+            </span>
+            <span>
+              Lap. Resmi PSAK:{' '}
+              <strong className="text-slate-900">{formatRupiah(officialPsakData.incomeStatement.netIncome.current)}</strong>
+            </span>
+            <span className="text-emerald-700 font-semibold">
+              {simpleIncomeStatement.labaBersih === officialPsakData.incomeStatement.netIncome.current &&
+              simpleIncomeStatement.labaBersih === summary.commercialNetProfit
+                ? '(Sinkron 100% — Selisih Rp 0)'
+                : '(Tersinkronisasi)'}
+            </span>
+          </div>
+        </div>
+        {setActiveTab && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('profit-loss')}
+              className="text-[11px] font-bold text-sky-700 hover:text-sky-800 underline cursor-pointer"
+            >
+              Cek Laba Rugi Sederhana
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              onClick={() => setActiveTab('psak-report')}
+              className="text-[11px] font-bold text-sky-700 hover:text-sky-800 underline cursor-pointer"
+            >
+              Cek Laporan Resmi PSAK
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Persamaan Utama Formulir 1771-I (Reconciliation Bridge) */}
@@ -544,7 +577,7 @@ export const FiscalReconciliationView: React.FC = () => {
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                     <th className="py-3 px-4 w-64">Akun / Uraian Pos</th>
                     <th className="py-3 px-3 text-right w-36">Komersial (Rp)</th>
-                    <th className="py-3 px-3 w-56">Kode Coretax (PER-11)</th>
+                    <th className="py-3 px-3 w-64 min-w-[240px]">Kode Coretax (PER-11)</th>
                     <th className="py-3 px-2 w-24">Beda</th>
                     <th className="py-3 px-3 text-right w-36 text-rose-700">Koreksi (+) Positif</th>
                     <th className="py-3 px-3 text-right w-36 text-emerald-700">Koreksi (-) Negatif</th>
@@ -654,7 +687,12 @@ export const FiscalReconciliationView: React.FC = () => {
                               <span className="text-[11px] text-slate-600 line-clamp-2">{item.note}</span>
                               <button
                                 type="button"
-                                onClick={() => setCustomAdjustments(prev => prev.filter(c => c.id !== item.id))}
+                                onClick={() =>
+                                  updateFiscalState(prev => ({
+                                    ...prev,
+                                    customAdjustments: prev.customAdjustments.filter(c => c.id !== item.id)
+                                  }))
+                                }
                                 className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
                                 title="Hapus baris manual"
                               >
@@ -1276,9 +1314,9 @@ const FiscalTableRow: React.FC<FiscalTableRowProps> = ({
           aria-label={`Kode penyesuaian fiskal untuk ${row.accountName}`}
           value={row.ruleCode}
           onChange={e => onRuleChange(row, e.target.value)}
-          className="w-full px-2 py-1.5 text-[11px] font-medium border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-600 focus:border-sky-600 outline-none"
+          className="w-full min-w-[230px] px-2.5 py-1.5 text-[11px] font-medium border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-600 focus:border-sky-600 outline-none"
         >
-          <option value="">Sesuai Fiskal (Tanpa Koreksi)</option>
+          <option value="">Sesuai Fiskal (0)</option>
           <optgroup label="Koreksi Positif (FPO — Menambah PKP)">
             {FISCAL_RULE_CODES.filter(r => r.direction === 'FPO').map(r => (
               <option key={r.code} value={r.code}>
@@ -1371,3 +1409,4 @@ const FiscalTableRow: React.FC<FiscalTableRowProps> = ({
     </tr>
   );
 };
+
