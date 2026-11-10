@@ -17,6 +17,7 @@ import { AdminPanelView } from './views/AdminPanelView';
 import { AuthorityPanelView } from './views/AuthorityPanelView';
 import { ActivityLogsView } from './views/ActivityLogsView';
 import { PsakReportView } from './views/PsakReportView';
+import { FiscalReconciliationView } from './views/FiscalReconciliationView';
 import { AutoRecordView } from './views/AutoRecordView';
 import { AutoJournalView } from './views/AutoJournalView';
 
@@ -133,6 +134,8 @@ const MainContent: React.FC = () => {
         return <FinancialRatiosView />;
       case 'psak-report':
         return <PsakReportView />;
+      case 'fiscal-reconciliation':
+        return <FiscalReconciliationView />;
       case 'settings':
         return <SettingsView />;
       case 'admin-panel':

@@ -17,7 +17,8 @@ import {
   ChevronRight, 
   LogOut,
   Scan,
-  Sparkles
+  Sparkles,
+  Landmark
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useSystemHealth } from '../../hooks/useSystemHealth';
@@ -43,6 +44,7 @@ export type ActiveTab =
   | 'cash-flow'
   | 'ratios'
   | 'psak-report'
+  | 'fiscal-reconciliation'
   | 'settings'
   | 'admin-panel'
   | 'authority-panel'
@@ -279,6 +281,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Gauge className={`w-4 h-4 shrink-0 ${activeTab === 'ratios' ? 'text-white' : 'text-sky-600'}`} />
             <span className="font-medium text-xs">Analisis Rasio & Status</span>
             {activeTab === 'ratios' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('fiscal-reconciliation')}
+            className={`nav-item ${activeTab === 'fiscal-reconciliation' ? 'active' : ''}`}
+          >
+            <Landmark className={`w-4 h-4 shrink-0 ${activeTab === 'fiscal-reconciliation' ? 'text-white' : 'text-sky-600'}`} />
+            <span className="font-medium text-xs">Koreksi Fiskal Pajak</span>
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'fiscal-reconciliation' ? 'bg-white/20 text-white' : 'bg-sky-50 text-sky-700 border border-sky-200'}`}>
+              1771
+            </span>
+            {activeTab === 'fiscal-reconciliation' && <ChevronRight className="w-3.5 h-3.5 ml-1 text-white/90" />}
           </div>
 
           {/* Akses Khusus Otoritas & Administrator */}
