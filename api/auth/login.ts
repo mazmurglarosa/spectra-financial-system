@@ -1,7 +1,7 @@
-import { verifyPassword, hashPassword } from '../lib/hash';
-import { createSessionToken, buildSessionCookie, generateCsrfToken } from '../lib/auth';
-import { checkRateLimitCentralized, getClientIp } from '../lib/rateLimit';
-import { getSupabaseServerClient, DbUserRecord } from '../lib/supabaseServer';
+import { verifyPassword, hashPassword } from "../_lib/hash.js";
+import { createSessionToken, buildSessionCookie, generateCsrfToken } from "../_lib/auth.js";
+import { checkRateLimitCentralized, getClientIp } from "../_lib/rateLimit.js";
+import { getSupabaseServerClient, DbUserRecord } from "../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');

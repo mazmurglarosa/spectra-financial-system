@@ -1,5 +1,5 @@
-import { verifySessionToken, parseCookies } from '../../lib/auth';
-import { getSupabaseServerClient } from '../../lib/supabaseServer';
+import { verifySessionToken, parseCookies } from "../../_lib/auth.js";
+import { getSupabaseServerClient } from "../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');

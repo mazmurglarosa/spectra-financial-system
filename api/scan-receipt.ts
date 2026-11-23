@@ -1,12 +1,12 @@
-import { verifySessionToken, parseCookies } from './lib/auth';
-import { checkRateLimitCentralized, getClientIp } from './lib/rateLimit';
-import { getSupabaseServerClient } from './lib/supabaseServer';
+import { verifySessionToken, parseCookies } from "./_lib/auth.js";
+import { checkRateLimitCentralized, getClientIp } from "./_lib/rateLimit.js";
+import { getSupabaseServerClient } from "./_lib/supabaseServer.js";
 import {
   sanitizeCurrencyAmount,
   runTwoWayDeterministicVerification,
   ExtractedItem,
   RealOcrExtractionResult
-} from './lib/ocrSanitizer';
+} from "./_lib/ocrSanitizer.js";
 
 // Batas ukuran payload: 10MB (base64 string max ~13.5MB chars)
 const MAX_BASE64_LENGTH = 10 * 1024 * 1024 * 1.37;
