@@ -424,8 +424,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="table-accurate">
+        <div className="overflow-x-auto touch-scroll-x">
+          <table className="table-accurate min-w-[650px]">
             <thead>
               <tr className="bg-slate-50/70 text-slate-600">
                 <th className="w-24">Tanggal</th>

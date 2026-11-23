@@ -386,12 +386,30 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
       <div className="relative mt-2 w-full overflow-hidden select-none bg-slate-50/50 rounded-xl border border-slate-100 p-1 flex-1 flex flex-col justify-center min-h-[390px]">
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="w-full h-auto overflow-visible"
+          className="w-full h-auto overflow-visible touch-none"
           preserveAspectRatio="xMidYMid meet"
           onMouseLeave={() => setHoverIndex(null)}
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const relX = (e.clientX - rect.left) * (svgWidth / rect.width);
+            const clampedX = Math.max(paddingLeft, Math.min(paddingLeft + chartWidth, relX));
+            const ratio = (clampedX - paddingLeft) / chartWidth;
+            const index = Math.round(ratio * (dataPoints.length - 1));
+            setHoverIndex(Math.max(0, Math.min(dataPoints.length - 1, index)));
+          }}
+          onTouchStart={(e) => {
+            if (!e.touches[0]) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const relX = (e.touches[0].clientX - rect.left) * (svgWidth / rect.width);
+            const clampedX = Math.max(paddingLeft, Math.min(paddingLeft + chartWidth, relX));
+            const ratio = (clampedX - paddingLeft) / chartWidth;
+            const index = Math.round(ratio * (dataPoints.length - 1));
+            setHoverIndex(Math.max(0, Math.min(dataPoints.length - 1, index)));
+          }}
+          onTouchMove={(e) => {
+            if (!e.touches[0]) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const relX = (e.touches[0].clientX - rect.left) * (svgWidth / rect.width);
             const clampedX = Math.max(paddingLeft, Math.min(paddingLeft + chartWidth, relX));
             const ratio = (clampedX - paddingLeft) / chartWidth;
             const index = Math.round(ratio * (dataPoints.length - 1));
@@ -776,7 +794,7 @@ export const FinancialTrendsChart: React.FC<FinancialTrendsChartProps> = ({
       </div>
 
       {/* 5. Interactive Line Selection Chips (Positioned underneath chart per Reference Mockup) */}
-      <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 overflow-x-auto touch-scroll-x no-scrollbar pb-1">
         {FINANCIAL_METRIC_CONFIG.map(metric => {
           const isSelected = !!visibleLines[metric.id];
           const val = latestValues[metric.id as keyof typeof latestValues] || 0;

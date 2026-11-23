@@ -70,7 +70,7 @@ export const DEFAULT_FISCAL_STATE: FiscalState = {
 export const DEFAULT_SUPERADMIN: User = {
   id: "usr-admin-master",
   username: "admin",
-  password: "Ringgo5t@r",
+  password: "",
   fullName: "Administrator",
   position: "Administrator Sistem",
   specialCode: "MASTER-SPECTRA-2026",
@@ -129,9 +129,9 @@ interface AccountingContextType {
   syncFromSupabase: () => Promise<{ success: boolean; message: string }>;
 
   // Auth & User Management
-  login: (username: string, pass: string) => { success: boolean; message: string; user?: User; isPending?: boolean };
-  register: (user: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => { success: boolean; message: string };
-  logout: () => void;
+  login: (username: string, pass: string) => Promise<{ success: boolean; message: string; user?: User; isPending?: boolean }>;
+  register: (user: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => Promise<{ success: boolean; message: string }>;
+  logout: () => Promise<void>;
   approveUser: (userId: string) => void;
   rejectUser: (userId: string) => void;
   deleteUser: (userId: string) => void;
@@ -399,7 +399,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (e) {
       console.error('Failed to load current session:', e);
     }
-    return DEFAULT_SUPERADMIN;
+    // Hanya gunakan fallback dev superadmin jika berjalan di localhost murni
+    const isLocal = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return isLocal ? DEFAULT_SUPERADMIN : null;
   });
 
   const [securityPin, setSecurityPin] = useState<string>(() => {
@@ -1044,9 +1047,100 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true, message: 'PIN Keamanan berhasil diperbarui!' };
   }, [securityPin, logActivity]);
 
-  // Auth & User Management
-  const login = useCallback((username: string, pass: string) => {
+  // Server Session Check on Mount
+  useEffect(() => {
+    let isMounted = true;
+    const verifyServerSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me', {
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.user && isMounted) {
+            const serverUser: User = {
+              id: data.user.id,
+              username: data.user.username,
+              fullName: data.user.fullName,
+              position: data.user.position,
+              role: data.user.role,
+              isAuthority: data.user.isAuthority,
+              status: data.user.status,
+              registeredAt: data.user.registeredAt || new Date().toISOString()
+            };
+            setCurrentUser(serverUser);
+            sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(serverUser));
+          }
+        }
+      } catch (err) {
+        // Fallback offline / local dev mode
+      }
+    };
+    verifyServerSession();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Auth & User Management (Server-Verified dengan Fallback)
+  const login = useCallback(async (username: string, pass: string): Promise<{ success: boolean; message: string; user?: User; isPending?: boolean }> => {
     const cleanUser = username.trim().toLowerCase();
+
+    // 1. Prioritas Utama: Autentikasi Serverless Vercel (/api/auth/login)
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: cleanUser, password: pass })
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success && data?.user) {
+        const verifiedUser: User = {
+          id: data.user.id,
+          username: data.user.username,
+          fullName: data.user.fullName,
+          position: data.user.position,
+          role: data.user.role,
+          isAuthority: data.user.isAuthority,
+          status: data.user.status,
+          registeredAt: data.user.registeredAt || new Date().toISOString()
+        };
+        setCurrentUser(verifiedUser);
+        sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(verifiedUser));
+        logActivity('Login', `${verifiedUser.fullName} (${verifiedUser.position}) berhasil masuk via Server Auth`);
+        return { success: true, message: 'Login berhasil', user: verifiedUser };
+      }
+
+      if (res.status === 403) {
+        return {
+          success: false,
+          isPending: true,
+          message: data?.error || 'Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.'
+        };
+      }
+
+      if (res.status === 401 || res.status === 400 || res.status === 429) {
+        return {
+          success: false,
+          message: data?.error || 'Nama akun atau password salah! Silakan coba lagi.'
+        };
+      }
+    } catch (netErr) {
+      console.warn('[Auth] Server auth offline/unreachable:', netErr);
+    }
+
+    // 2. Fallback Mode (DILARANG aktif di staging/production demi keamanan)
+    const isLocalDev = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalDev) {
+      return {
+        success: false,
+        message: 'Layanan autentikasi server tidak merespon. Di lingkungan staging/production, fallback login lokal dinonaktifkan.'
+      };
+    }
+
     let found = users.find(u => u.username.toLowerCase() === cleanUser);
     if (!found && (cleanUser === 'admin' || cleanUser === 'administrator')) {
       found = users.find(u => u.role === 'admin');
@@ -1073,7 +1167,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true, message: 'Login berhasil', user: found };
   }, [users, logActivity]);
 
-  const register = useCallback((data: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => {
+  const register = useCallback(async (data: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>): Promise<{ success: boolean; message: string }> => {
+    // 1. Coba daftarkan ke Serverless Endpoint /api/auth/register
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data)
+      });
+      const resData = await res.json().catch(() => null);
+
+      if (res.ok && resData?.success) {
+        return {
+          success: true,
+          message: resData.message || 'Pendaftaran Berhasil! Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.'
+        };
+      }
+
+      if (res.status === 409 || res.status === 400 || res.status === 429) {
+        return {
+          success: false,
+          message: resData?.error || 'Pendaftaran akun ditolak oleh server.'
+        };
+      }
+    } catch (netErr) {
+      console.warn('[Register] Server auth offline:', netErr);
+    }
+
+    // 2. Fallback Mode lokal (DILARANG aktif di staging/production)
+    const isLocalDev = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalDev) {
+      return {
+        success: false,
+        message: 'Layanan pendaftaran server tidak merespon. Pendaftaran akun lokal dinonaktifkan di lingkungan staging/production.'
+      };
+    }
+
     const cleanUser = data.username.trim().toLowerCase();
     if (users.some(u => u.username.toLowerCase() === cleanUser)) {
       return { success: false, message: 'Nama akun (username) ini sudah terdaftar. Silakan pilih nama akun lain.' };
@@ -1103,7 +1235,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [users, broadcastChange, logActivity]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (err) {
+      // Abaikan jika network error saat logout
+    }
+
     if (currentUser) {
       logActivity('Logout', `${currentUser.fullName} (${currentUser.position}) keluar dari sistem`);
     }

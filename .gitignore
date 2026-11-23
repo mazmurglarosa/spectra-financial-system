@@ -39,3 +39,5 @@ Sikeu lama/
 
 .vercel
 supabase/.temp/
+supabase/migrations/*staging*.sql
+supabase/migrations/*bootstrap*.sql

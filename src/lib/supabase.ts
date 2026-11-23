@@ -17,8 +17,10 @@ const STORAGE_KEYS = {
 };
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+  const isProd = import.meta.env.PROD;
+  // Di lingkungan Production/Preview, cegah fallback otomatis ke URL produksi jika variabel env tidak diatur
+  const envUrl = import.meta.env.VITE_SUPABASE_URL || (isProd ? '' : DEFAULT_SUPABASE_URL);
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || (isProd ? '' : DEFAULT_SUPABASE_ANON_KEY);
 
   const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.URL) || '' : '';
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.KEY) || '' : '';

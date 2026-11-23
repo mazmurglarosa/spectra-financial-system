@@ -101,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <aside 
         id="sidebar" 
-        className={`fixed md:sticky top-0 left-0 z-50 h-screen w-64 bg-white text-slate-700 flex flex-col shrink-0 border-r border-slate-200/90 shadow-xs no-print select-none transition-transform duration-200 ease-in-out ${
+        className={`fixed md:sticky top-0 left-0 z-50 h-screen w-72 sm:w-80 md:w-64 bg-white text-slate-700 flex flex-col shrink-0 border-r border-slate-200/90 shadow-xs no-print select-none transition-transform duration-200 ease-in-out ${
           isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
         }`}
       >
@@ -142,10 +142,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={onCloseMobile}
-                className="md:hidden p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                className="md:hidden w-10 h-10 min-w-[40px] min-h-[40px] text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg flex items-center justify-center transition-colors cursor-pointer active:scale-95"
                 title="Tutup Menu"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             )}
           </div>
@@ -341,7 +341,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         {/* Footer Area with Activity, Settings, Logout */}
-        <div className="p-3 border-t border-slate-100 bg-slate-50/60 space-y-1">
+        <div 
+          className="p-3 border-t border-slate-100 bg-slate-50/60 space-y-1"
+          style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 1.5rem))' }}
+        >
           <div 
             onClick={() => setActiveTab('activity-logs')}
             className={`nav-item ${activeTab === 'activity-logs' ? 'active' : ''}`}

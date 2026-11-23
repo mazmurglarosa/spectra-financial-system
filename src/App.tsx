@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { MobileBottomNav } from './components/layout/MobileBottomNav';
 import { AuthGate } from './components/layout/AuthGate';
 
 // Views
@@ -180,9 +181,16 @@ const MainContent: React.FC = () => {
         />
 
         {/* Dynamic View Container */}
-        <main id="main-content" className="flex-1 overflow-y-auto bg-slate-100">
+        <main id="main-content" className="flex-1 overflow-y-auto bg-slate-100 pb-20 md:pb-6">
           {renderActiveView()}
         </main>
+
+        {/* Mobile Thumb-Friendly Bottom Navigation (Phones & Small Tablets) */}
+        <MobileBottomNav 
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+        />
       </div>
 
       {/* Accurate Multi-row Transaction Voucher Modal */}

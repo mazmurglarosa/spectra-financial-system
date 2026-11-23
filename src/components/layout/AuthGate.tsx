@@ -24,7 +24,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('mazmur.larosa');
-  const [password, setPassword] = useState('Ringgo5t@r');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Register fields
@@ -65,11 +65,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const bgPosY = settings.loginBgPosY ?? 50;
   const bgZoom = settings.loginBgZoom ?? 100;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAlertInfo(null);
 
-    const res = login(username, password);
+    const res = await login(username, password);
     if (res.success && res.user) {
       startTransition(res.user);
     } else {
@@ -100,11 +100,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAlertInfo(null);
 
-    const res = register({
+    const res = await register({
       fullName: regFullName,
       position: regPosition,
       username: regUsername,

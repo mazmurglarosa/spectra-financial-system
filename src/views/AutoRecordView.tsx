@@ -120,6 +120,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [discrepancyMessage, setDiscrepancyMessage] = useState<string>('');
   const [googleDriveLink, setGoogleDriveLink] = useState<string>('');
   const [spreadsheetRows, setSpreadsheetRows] = useState<SpreadsheetRowData[]>([]);
+  const [activeSourceEngine, setActiveSourceEngine] = useState<'groq_vision' | 'gemini_vision' | 'tesseract_ocr' | 'smart_parser' | null>(null);
 
   // Suggested Journal Lines (SAK)
   const [journalLines, setJournalLines] = useState<SuggestedJournalLine[]>([]);
@@ -453,6 +454,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setCalculatedTotal(extractionResult.calculatedSum);
       setMathDiscrepancy(extractionResult.mathDiscrepancy);
       setDiscrepancyMessage(extractionResult.discrepancyMessage || '');
+      setActiveSourceEngine(extractionResult.sourceEngine);
 
       setExtractStep('4/4: Sinkronisasi Google Drive & Penamaan Otomatis (' + nomorBerkas + ')...');
 
@@ -892,7 +894,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
         </div>
 
         {/* Tab Indicator: Tahap 1 vs Tahap 2 vs Riwayat Transaksi */}
-        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto">
+        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto touch-scroll-x no-scrollbar">
           <button
             type="button"
             onClick={() => setCurrentStage('tahap1')}
@@ -1314,7 +1316,25 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {activeSourceEngine && (
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                    activeSourceEngine === 'groq_vision'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : activeSourceEngine === 'gemini_vision'
+                      ? 'bg-purple-50 text-purple-800 border-purple-300'
+                      : activeSourceEngine === 'tesseract_ocr'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-blue-50 text-blue-800 border-blue-300'
+                  }`}>
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>
+                      {activeSourceEngine === 'groq_vision' ? 'Groq Vision (qwen/qwen3.8-27b)' :
+                       activeSourceEngine === 'gemini_vision' ? 'Gemini Multimodal Vision AI' :
+                       activeSourceEngine === 'tesseract_ocr' ? 'Offline OCR (Tesseract.js)' : 'Smart Rule Parser'}
+                    </span>
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={handleAddNewItem}
@@ -1357,6 +1377,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                           onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
                           className="w-full px-2 py-1 bg-transparent border-b border-slate-200 focus:border-blue-500 focus:bg-white text-xs font-semibold text-slate-800"
                         />
+                        {item.discrepancyNote && (
+                          <div className="mt-1 text-[10px] text-amber-700 font-medium flex items-start gap-1 bg-amber-50/80 p-1 rounded border border-amber-200">
+                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                            <span>{item.discrepancyNote}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right">
                         <input 

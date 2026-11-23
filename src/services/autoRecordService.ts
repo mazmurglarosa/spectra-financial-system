@@ -56,7 +56,7 @@ export interface RealOcrExtractionResult {
   calculatedSum: number;
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
-  sourceEngine: 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
+  sourceEngine: 'groq_vision' | 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
   rawResponse?: any;
 }
 
@@ -369,47 +369,12 @@ export function parseIndonesianCurrency(text: string | number, isLikelyThousands
 }
 
 /**
- * Sanitizer cerdas untuk memastikan nominal Rupiah bebas dari inflasi 100x akibat .00 terbaca sebagai nol tambahan
+ * Sanitizer mata uang Indonesia: membersihkan string ke angka tanpa mengubah nilai secara diam-diam.
+ * Seluruh nilai dikembalikan sesuai angka terbaca.
  */
-export function sanitizeCurrencyAmount(val: number | string | null | undefined, itemName = ''): number {
+export function sanitizeCurrencyAmount(val: number | string | null | undefined, _itemName = ''): number {
   if (val === null || val === undefined) return 0;
-
-  let num = parseIndonesianCurrency(val);
-
-  const lowerName = itemName.toLowerCase();
-
-  // 1. Deteksi Biaya BI-FAST:
-  // Biaya BI-FAST di seluruh perbankan Indonesia (BCA, Mandiri, BRI, BNI) adalah Rp 2.500.
-  // Jika terbaca 250000 (dua ratus lima puluh ribu), itu 100% akibat .00 terbaca sebagai nol ganda!
-  if (lowerName.includes('bi-fast') || lowerName.includes('bi fast') || lowerName.includes('admin') || lowerName.includes('transfer')) {
-    if (num === 250000) {
-      num = 2500;
-    } else if (num > 50000 && num % 100 === 0 && num / 100 <= 10000) {
-      num = num / 100;
-    }
-  }
-
-  // 2. Deteksi Nominal Transaksi Utama:
-  // Jika nominal >= 50.000.000 dan berakhiran 00, sedangkan nama item/keterangan adalah
-  // kursus, pelatihan, brevet, bengkel, baut, material, service, toko:
-  // Contoh: Brevet Pajak CPTT biasanya Rp 2.850.000. Jika terbaca 285000000 (285 juta), itu 100% kelebihan dua nol!
-  if (num >= 50000000 && num % 100 === 0) {
-    if (
-      lowerName.includes('brevet') || 
-      lowerName.includes('pelatihan') || 
-      lowerName.includes('kursus') || 
-      lowerName.includes('cptt') || 
-      lowerName.includes('piranha') ||
-      lowerName.includes('baut') ||
-      lowerName.includes('bengkel') ||
-      lowerName.includes('material') ||
-      lowerName.includes('perlengkapan')
-    ) {
-      num = Math.round(num / 100);
-    }
-  }
-
-  return num;
+  return parseIndonesianCurrency(val);
 }
 
 // =========================================================================
@@ -429,45 +394,62 @@ export function runTwoWayDeterministicVerification(
   declaredGrandTotal?: number
 ): VerificationResult {
   const verifiedItems = items.map(item => {
-    let { unitPrice, quantity, totalPrice, confidence } = item;
+    const { unitPrice, quantity, totalPrice, confidence } = item;
+    const lowerName = item.name.toLowerCase();
+
+    // Deteksi indikasi inflasi sen (.00) pada biaya admin / transfer bank tanpa mutasi diam-diam
+    if (lowerName.includes('bi-fast') || lowerName.includes('admin bank') || lowerName.includes('transfer fee')) {
+      if (totalPrice === 250000 || totalPrice === 650000) {
+        const suggested = totalPrice === 250000 ? 2500 : 6500;
+        return {
+          ...item,
+          confidence: Math.min(confidence, 65),
+          hasDiscrepancy: true,
+          discrepancyNote: `Nominal tertera Rp ${totalPrice.toLocaleString('id-ID')} dicurigai terinflasi dari sen (.00). Saran nilai: Rp ${suggested.toLocaleString('id-ID')}`
+        };
+      }
+    }
 
     // 1. Uji Horizontal: Harga Satuan x Kuantitas = Total
     if (unitPrice !== null && quantity !== null && unitPrice > 0 && quantity > 0) {
       const expectedTotal = unitPrice * quantity;
       
-      // Math-Assisted Disambiguation
+      // Jika terjadi ketidakcocokan perkalian, jangan ubah nilai secara diam-diam!
       if (totalPrice > 0 && Math.abs(expectedTotal - totalPrice) > 1) {
-        // Cek jika kuantitas atau harga satuan salah baca angka mirip (misal 3 mirip 8)
-        if (totalPrice % unitPrice === 0) {
+        let suggestion = '';
+        if (unitPrice > 0 && totalPrice % unitPrice === 0) {
           const solvedQty = Math.round(totalPrice / unitPrice);
-          if (solvedQty !== quantity) {
-            quantity = solvedQty;
-            confidence = Math.max(confidence, 88);
-          }
-        } else if (totalPrice % quantity === 0) {
+          suggestion = `Saran kuantitas: ${solvedQty}`;
+        } else if (quantity > 0 && totalPrice % quantity === 0) {
           const solvedPrice = Math.round(totalPrice / quantity);
-          if (solvedPrice !== unitPrice) {
-            unitPrice = solvedPrice;
-            confidence = Math.max(confidence, 88);
-          }
+          suggestion = `Saran harga satuan: Rp ${solvedPrice.toLocaleString('id-ID')}`;
         } else {
-          // Tandai discrepancy pada baris
-          return {
-            ...item,
-            unitPrice,
-            quantity,
-            totalPrice,
-            confidence: Math.min(confidence, 65),
-            hasDiscrepancy: true,
-            discrepancyNote: `Perkalian tidak cocok: ${unitPrice.toLocaleString('id-ID')} x ${quantity} ≠ ${totalPrice.toLocaleString('id-ID')}`
-          };
+          suggestion = `Saran total: Rp ${expectedTotal.toLocaleString('id-ID')}`;
         }
+
+        return {
+          ...item,
+          unitPrice,
+          quantity,
+          totalPrice,
+          confidence: Math.min(confidence, 68),
+          hasDiscrepancy: true,
+          discrepancyNote: `Perkalian tidak cocok: ${unitPrice.toLocaleString('id-ID')} x ${quantity} = ${expectedTotal.toLocaleString('id-ID')} (tertera ${totalPrice.toLocaleString('id-ID')}). [${suggestion}]`
+        };
       } else if (totalPrice === 0) {
-        totalPrice = expectedTotal;
+        return {
+          ...item,
+          totalPrice: expectedTotal,
+          hasDiscrepancy: false
+        };
       }
     } else if (totalPrice > 0 && quantity !== null && quantity > 0 && (unitPrice === null || unitPrice === 0)) {
-      // Pulihkan unitPrice
-      unitPrice = Math.round(totalPrice / quantity);
+      // Pulihkan unitPrice jika hilang
+      return {
+        ...item,
+        unitPrice: Math.round(totalPrice / quantity),
+        hasDiscrepancy: false
+      };
     }
 
     return {
@@ -1708,6 +1690,10 @@ export async function extractTransactionWithOfflineOcr(
 
 /**
  * Orkestrator Ekstraksi Bukti Transaksi Nyata
+ * Multi-Provider Pipeline:
+ * 1. Groq Vision API (Vercel Serverless Function /api/scan-receipt)
+ * 2. Gemini Multimodal Vision AI (Fallback 1)
+ * 3. Offline OCR Tesseract.js & Smart Parser (Fallback 2)
  */
 export async function extractTransactionFromFile(params: {
   fileDataUri: string;
@@ -1718,8 +1704,45 @@ export async function extractTransactionFromFile(params: {
   onProgress?: (step: string) => void;
 }): Promise<RealOcrExtractionResult> {
   const { fileDataUri, posCode, userDescription, accounts, onProgress } = params;
-  const apiKey = getGeminiApiKey();
 
+  // 1. Prioritas 1: Cloud Serverless Groq Vision API (/api/scan-receipt)
+  onProgress?.('2/4: Memproses dengan Groq Vision AI (Serverless Cloud)...');
+  try {
+    const groqRes = await fetch('/api/scan-receipt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        image: fileDataUri,
+        posCode,
+        userDescription
+      })
+    });
+
+    if (groqRes.ok) {
+      const data = await groqRes.json();
+      if (data.success && data.data) {
+        onProgress?.('2/4: Berhasil mengekstrak data struk via Groq Vision!');
+        return {
+          ...data.data,
+          sourceEngine: 'groq_vision' as const
+        };
+      }
+    } else {
+      const errJson = await groqRes.json().catch(() => null);
+      const errMsg = errJson?.error || `HTTP ${groqRes.status}`;
+      console.warn(`Groq Vision API gagal (${errMsg}), beralih ke provider cadangan...`);
+      onProgress?.(`2/4: Groq Vision (${errMsg}), beralih ke provider cadangan...`);
+    }
+  } catch (groqErr: any) {
+    console.warn('Groq Vision backend unreachable/offline, beralih ke provider cadangan:', groqErr);
+    onProgress?.('2/4: Backend Groq offline, beralih ke provider cadangan...');
+  }
+
+  // 2. Prioritas 2 (Fallback): Gemini Multimodal Vision AI
+  const apiKey = getGeminiApiKey();
   if (apiKey) {
     onProgress?.('2/4: Memproses dengan Gemini Multimodal Vision AI...');
     try {
@@ -1731,6 +1754,6 @@ export async function extractTransactionFromFile(params: {
     }
   }
 
-  // Fallback ke OCR lokal Tesseract & Smart Parser
+  // 3. Prioritas 3 (Fallback Terakhir): Offline OCR Tesseract.js & Smart Parser
   return extractTransactionWithOfflineOcr(fileDataUri, posCode, userDescription, accounts, onProgress);
 }
