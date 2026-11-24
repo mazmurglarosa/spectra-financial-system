@@ -20,8 +20,9 @@ const ALLOWED_STATIC_ORIGINS = [
 
 /**
  * Daftar domain tepercaya untuk CORS terpusat SPECTRA.
- * HANYA mengizinkan localhost dan subdomain project SPECTRA resmi.
- * Menolak seluruh *.vercel.app milik project lain dan origin asing.
+ * HANYA mengizinkan localhost (development) dan origin deployment SPECTRA resmi
+ * yang terdaftar statis atau dikonfigurasi melalui server environment.
+ * TIDAK MENGGUNAKAN regex prefix agar domain yang sengaja meniru prefix SPECTRA ditolak.
  */
 export function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return false;
@@ -35,24 +36,21 @@ export function isAllowedOrigin(origin: string | undefined): boolean {
       return true;
     }
 
-    // 2. Localhost fallback hostname
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+    // 2. Localhost development terkendali (hanya protokol http pada host loopback)
+    if (
+      url.protocol === 'http:' &&
+      (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
+    ) {
       return true;
     }
 
-    // 3. Vercel Preview domain regex KHUSUS project SPECTRA
-    // Pola: spectra-financial-system.vercel.app ATAU spectra-financial-system-*.vercel.app
-    // MENOLAK seluruh *.vercel.app lainnya!
-    if (/^https:\/\/spectra-financial-system(?:-[a-z0-9\-]+)*\.vercel\.app$/.test(clean)) {
-      return true;
-    }
-
-    // 4. Custom domain dari environment server
+    // 3. Origin deployment yang terdaftar eksplisit dari environment server
     const envOrigins = [
       process.env.ALLOWED_ORIGINS,
       process.env.SPECTRA_ALLOWED_ORIGINS,
       process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined,
-      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined
+      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+      process.env.VERCEL_BRANCH_URL ? `https://${process.env.VERCEL_BRANCH_URL}` : undefined
     ].filter(Boolean);
 
     for (const envVal of envOrigins) {
@@ -60,10 +58,11 @@ export function isAllowedOrigin(origin: string | undefined): boolean {
       const parts = envVal.split(',').map(s => s.trim().toLowerCase());
       for (const p of parts) {
         if (!p) continue;
-        if (p === clean || p === host) return true;
+        if (p === clean) return true;
+        if (p === host) return true;
         if (p.startsWith('http://') || p.startsWith('https://')) {
           try {
-            if (new URL(p).hostname === host) return true;
+            if (new URL(p).origin === clean) return true;
           } catch {}
         }
       }

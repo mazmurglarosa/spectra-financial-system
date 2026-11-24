@@ -115,16 +115,40 @@ try {
   assert.strictEqual(res7.headers.get('access-control-allow-credentials'), 'true');
   console.log('[PASS] Test 7: Origin SPECTRA yang sah diizinkan (Production: spectra-financial-system.vercel.app)');
 
-  // 8. CORS Preflight dari Trusted Origin SPECTRA Preview (e.g. spectra-financial-system-5d2ld0sd6-mazmur.vercel.app)
+  // 8. CORS Preflight dari Origin SPECTRA Preview Resmi (Dikonfigurasi via VERCEL_URL Server)
   const previewOrigin = 'https://spectra-financial-system-5d2ld0sd6-mazmur.vercel.app';
+  process.env.VERCEL_URL = 'spectra-financial-system-5d2ld0sd6-mazmur.vercel.app';
   const res8 = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'OPTIONS',
     headers: { 'Origin': previewOrigin }
   });
-  assert.strictEqual(res8.status, 200, 'OPTIONS dari SPECTRA Preview sah wajib 200 OK');
+  assert.strictEqual(res8.status, 200, 'OPTIONS dari SPECTRA Preview resmi wajib 200 OK');
   assert.strictEqual(res8.headers.get('access-control-allow-origin'), previewOrigin);
   assert.strictEqual(res8.headers.get('access-control-allow-credentials'), 'true');
-  console.log('[PASS] Test 8: Preview SPECTRA yang sah diizinkan (spectra-financial-system-*.vercel.app)');
+  console.log('[PASS] Test 8: Preview SPECTRA resmi yang dikonfigurasi server (VERCEL_URL) diizinkan');
+
+  // 8B. Anti-Spoofing: Domain yang sengaja meniru prefix SPECTRA (Prefix-Spoofing Attacker)
+  const spoofingOrigin = 'https://spectra-financial-system-fake-attacker.vercel.app';
+  const resSpoof = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'OPTIONS',
+    headers: { 'Origin': spoofingOrigin }
+  });
+  assert.strictEqual(resSpoof.status, 403, 'OPTIONS dari domain yang meniru prefix SPECTRA wajib ditolak 403 Forbidden');
+  assert.strictEqual(resSpoof.headers.get('access-control-allow-origin'), null);
+  console.log('[PASS] Test 8B: Domain peniru prefix SPECTRA (spectra-financial-system-fake-attacker.vercel.app) DITOLAK (403)');
+
+  // 8C. Anti-Spoofing Mutation: Request mutasi dari domain peniru prefix SPECTRA
+  const resSpoofMutation = await testReq('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Origin': spoofingOrigin,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ username: 'admin', password: 'password123' })
+  });
+  assert.strictEqual(resSpoofMutation.status, 403, 'POST mutasi dari domain peniru prefix SPECTRA wajib ditolak 403');
+  assert.strictEqual(resSpoofMutation.data.success, false);
+  console.log('[PASS] Test 8C: Request mutasi dari domain peniru prefix SPECTRA DITOLAK (403 Forbidden)');
 
   // 9. CORS Preflight dari Origin Aplikasi Lain di *.vercel.app (Wajib ditolak 403 Forbidden)
   const alienVercelOrigin = 'https://other-user-project.vercel.app';
@@ -212,7 +236,7 @@ try {
   console.log('[PASS] Test 16: POST /api/sync -> 410 Gone (Fake Success Prevented)');
 
   console.log('\n===============================================================');
-  console.log('   SEMUA TEST ROUTER SECURITY & CORS: 16/16 PASSED (100%)');
+  console.log('   SEMUA TEST ROUTER SECURITY & CORS: 18/18 PASSED (100%)');
   console.log('===============================================================\n');
 } catch (e) {
   console.error('[ROUTER SECURITY TEST FAILED]', e);
