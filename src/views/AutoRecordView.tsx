@@ -118,7 +118,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [discrepancyMessage, setDiscrepancyMessage] = useState<string>('');
   const [googleDriveLink, setGoogleDriveLink] = useState<string>('');
   const [spreadsheetRows, setSpreadsheetRows] = useState<SpreadsheetRowData[]>([]);
-  const [activeSourceEngine, setActiveSourceEngine] = useState<'groq_vision' | 'gemini_vision' | 'tesseract_ocr' | 'smart_parser' | null>(null);
+  const [activeSourceEngine, setActiveSourceEngine] = useState<'groq_vision' | 'tesseract_ocr' | 'smart_parser' | null>(null);
 
   // Suggested Journal Lines (SAK)
   const [journalLines, setJournalLines] = useState<SuggestedJournalLine[]>([]);
@@ -655,6 +655,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const totalCredit = journalLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
     const diff = Math.abs(totalDebit - totalCredit);
 
+    if (totalDebit <= 0 || totalCredit <= 0) {
+      alert('Jurnal tidak boleh bernilai nol! Harap lengkapi nominal debit dan kredit yang valid pada Tabel Koreksi.');
+      return;
+    }
+
     if (diff !== 0) {
       alert(`Jurnal belum seimbang! Selisih: Rp ${diff.toLocaleString('id-ID')}. Total Debit harus sama persis dengan Total Kredit.`);
       return;
@@ -691,8 +696,36 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     }
   };
 
+  // Helper validasi item: mengizinkan diskon negatif, pembulatan, dan bonus/item gratis
+  const isUnresolvedZeroItem = (item: ExtractedItem): boolean => {
+    const price = Number(item.totalPrice) || 0;
+    if (price > 0) return false; // Item positif sah
+
+    const name = (item.name || '').toLowerCase();
+    const isDiscount = price < 0 || name.includes('diskon') || name.includes('discount') || name.includes('potongan') || name.includes('voucher') || name.includes('promo') || name.includes('cashback');
+    const isRounding = name.includes('pembulatan') || name.includes('rounding') || name.includes('selisih');
+    const isFreeOrBonus = price === 0 && (name.includes('gratis') || name.includes('free') || name.includes('bonus') || name.includes('sample') || name.includes('hadiah') || name.includes('gift'));
+
+    // Diskon, pembulatan, dan bonus gratis adalah sah
+    if (isDiscount || isRounding || isFreeOrBonus) {
+      return false;
+    }
+
+    // Jika bernilai 0 / kosong dan bukan kategori di atas, wajib dikoreksi manual
+    return true;
+  };
+
   // PROCEED TO AUTO JOURNAL & SAVE RECEIPT
   const handleProceedToAutoJournal = () => {
+    // Validasi ketat: Cegah posting nominal nol atau OCR yang belum tervalidasi, namun izinkan diskon dan bonus gratis yang sah
+    const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
+    const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
+
+    if (!grandTotal || grandTotal <= 0 || !hasPositiveItem || hasInvalidItem) {
+      alert('Perekaman ditolak: Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid. Harap periksa dan lengkapi Tabel Koreksi Tahap 2 sebelum melanjutkan ke Jurnal Otomatis.');
+      return;
+    }
+
     const recordPayload: RecordedReceipt = {
       id: `rec-${Date.now()}`,
       nomorBerkas,
@@ -745,6 +778,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   };
 
   const handleSaveRecordedReceiptOnly = () => {
+    // Validasi ketat: Cegah penyimpanan nominal nol atau fiktif, namun izinkan diskon dan bonus gratis yang sah
+    const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
+    const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
+
+    if (!grandTotal || grandTotal <= 0 || !hasPositiveItem || hasInvalidItem) {
+      alert('Perekaman ditolak: Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid. Harap periksa dan lengkapi Tabel Koreksi Tahap 2 sebelum menyimpan.');
+      return;
+    }
+
     const recordPayload: RecordedReceipt = {
       id: `rec-${Date.now()}`,
       nomorBerkas,
@@ -884,32 +926,14 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
             {/* Baris 2: Status Integrasi Sistem (Groq Vision & Bot Google Sheet) */}
             <div className="flex items-center gap-2">
-              {/* Status Groq Vision AI */}
+              {/* Status Keaktifan Groq AI */}
               <div
-                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all whitespace-nowrap ${
-                  groqBackendStatus === 'verified'
-                    ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/40'
-                    : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-                }`}
-                title={
-                  groqBackendStatus === 'verified'
-                    ? 'Groq Vision terverifikasi aktif melalui backend serverless.'
-                    : 'Groq Vision dijalankan melalui backend /api/scan-receipt.'
-                }
+                className="h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border bg-slate-800/80 text-emerald-300 border-emerald-500/40 shadow-xs whitespace-nowrap"
+                title="Groq AI Vision aktif sebagai mesin OCR utama bukti transaksi (didukung fallback offline Tesseract.js)"
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    groqBackendStatus === 'verified'
-                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
-                      : 'bg-sky-400'
-                  }`}
-                />
-                <Sparkles className="w-3 h-3 text-slate-400" />
-                <span>
-                  {groqBackendStatus === 'verified'
-                    ? 'Groq Vision — AI OCR'
-                    : 'Groq Vision — Backend'}
-                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+                <span>Groq AI: Aktif</span>
               </div>
 
               {/* Status Bot Apps Script */}
@@ -1421,8 +1445,6 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
                     activeSourceEngine === 'groq_vision'
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                      : activeSourceEngine === 'gemini_vision'
-                      ? 'bg-purple-50 text-purple-800 border-purple-300'
                       : activeSourceEngine === 'tesseract_ocr'
                       ? 'bg-amber-50 text-amber-800 border-amber-300'
                       : 'bg-blue-50 text-blue-800 border-blue-300'
@@ -1430,7 +1452,6 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                     <span>
                       {activeSourceEngine === 'groq_vision' ? 'Groq Vision — AI OCR' :
-                       activeSourceEngine === 'gemini_vision' ? 'Gemini Multimodal Vision AI' :
                        activeSourceEngine === 'tesseract_ocr' ? 'Offline OCR (Tesseract.js)' : 'Smart Rule Parser'}
                     </span>
                   </span>

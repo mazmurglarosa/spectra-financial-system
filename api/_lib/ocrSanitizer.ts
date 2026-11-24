@@ -39,7 +39,7 @@ export interface RealOcrExtractionResult {
   calculatedSum: number;
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
-  sourceEngine: 'groq_vision' | 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
+  sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
   rawResponse?: any;
 }
 

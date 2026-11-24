@@ -1,6 +1,6 @@
 /**
  * SPECTRA Auto Record & Intelligent Accounting OCR/HTR Pipeline Service
- * 
+ *
  * Modul ini menyediakan:
  * 1. Generator Kode Nomor Berkas (BT/XXXX/DDMYY)
  * 2. Manajemen Jenis Transaksi & Kode POS (Bawaan & Custom POS Builder)
@@ -57,7 +57,7 @@ export interface RealOcrExtractionResult {
   calculatedSum: number;
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
-  sourceEngine: 'groq_vision' | 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
+  sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
   rawResponse?: any;
 }
 
@@ -414,7 +414,7 @@ export function runTwoWayDeterministicVerification(
     // 1. Uji Horizontal: Harga Satuan x Kuantitas = Total
     if (unitPrice !== null && quantity !== null && unitPrice > 0 && quantity > 0) {
       const expectedTotal = unitPrice * quantity;
-      
+
       // Jika terjadi ketidakcocokan perkalian, jangan ubah nilai secara diam-diam!
       if (totalPrice > 0 && Math.abs(expectedTotal - totalPrice) > 1) {
         let suggestion = '';
@@ -491,7 +491,7 @@ export function runTwoWayDeterministicVerification(
   if (diff > 0) {
     mathDiscrepancy = true;
     const avgConfidence = verifiedItems.reduce((acc, it) => acc + it.confidence, 0) / (verifiedItems.length || 1);
-    
+
     if (avgConfidence >= 88) {
       // Kasus Penjual Salah Hitung Manual (SELLER_MATH_DISCREPANCY)
       discrepancyMessage = `SELLER_MATH_DISCREPANCY: Seluruh baris tulisan tangan terbaca sangat jelas (${Math.round(avgConfidence)}%), namun hasil penjumlahan (${calculatedSum.toLocaleString('id-ID')}) berselisih Rp ${diff.toLocaleString('id-ID')} dengan Grand Total nota (${targetGrandTotal.toLocaleString('id-ID')}). Penjual diindikasikan salah hitung manual pada nota fisik.`;
@@ -593,12 +593,12 @@ export function analyzeAndSuggestJournal(
   items.forEach(it => {
     const lower = it.name.toLowerCase();
     const isTax = lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph');
-    const isBankFee = lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || 
+    const isBankFee = lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
                       lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
     const isFreight = lower.includes('ongkir') || lower.includes('kirim');
-    const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || 
-                                lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') || 
-                                lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') || 
+    const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') ||
+                                lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') ||
+                                lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') ||
                                 lower.includes('service') || lower.includes('servis') || lower.includes('bengkel') ||
                                 lower.includes('pemeliharaan') || lower.includes('perbaikan') || lower.includes('sewa') ||
                                 lower.includes('iklan') || lower.includes('listrik') || lower.includes('telepon');
@@ -617,8 +617,8 @@ export function analyzeAndSuggestJournal(
     // A. Barang Fisik: Agregasi barang fisik sejenis menjadi 1 baris Perlengkapan / Persediaan
     if (physicalItems.length > 0) {
       const totalPhysical = physicalItems.reduce((acc, it) => acc + it.totalPrice, 0);
-      
-      let perlengkapanAcc = accounts.find(a => 
+
+      let perlengkapanAcc = accounts.find(a =>
         !a.isHeader && (a.name.toLowerCase().includes('perlengkapan kantor') || a.name.toLowerCase() === 'perlengkapan')
       );
       if (!perlengkapanAcc) {
@@ -653,17 +653,17 @@ export function analyzeAndSuggestJournal(
 
       if (lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan')) {
         targetAccName = 'Beban Pelatihan & Brevet Pajak';
-        existingAcc = accounts.find(a => 
+        existingAcc = accounts.find(a =>
           !a.isHeader && (
-            a.name.toLowerCase().includes('pelatihan') || 
-            a.name.toLowerCase().includes('brevet') || 
+            a.name.toLowerCase().includes('pelatihan') ||
+            a.name.toLowerCase().includes('brevet') ||
             a.name.toLowerCase().includes('pendidikan') ||
             a.name.toLowerCase().includes('kursus')
           )
         );
       } else if (lower.includes('service') || lower.includes('servis') || lower.includes('pemeliharaan') || lower.includes('bengkel') || lower.includes('perbaikan')) {
         targetAccName = 'Beban Service';
-        existingAcc = accounts.find(a => 
+        existingAcc = accounts.find(a =>
           !a.isHeader && (a.name.toLowerCase().includes('service') || a.name.toLowerCase().includes('pemeliharaan'))
         );
       } else if (lower.includes('sewa')) {
@@ -729,7 +729,7 @@ export function analyzeAndSuggestJournal(
       }
 
       // Cek apakah akun sudah terdaftar di COA
-      let existingAcc = accounts.find(a => 
+      let existingAcc = accounts.find(a =>
         !a.isHeader && (
           a.name.toLowerCase() === targetAccName.toLowerCase() ||
           (lower.includes('pb1') && (a.name.toLowerCase().includes('pb1') || a.name.toLowerCase().includes('pajak pembelian pb1'))) ||
@@ -930,7 +930,7 @@ export function autoCreateMissingCoaAccount(
   accounts: Account[],
   addAccountFn: (acc: Omit<Account, 'id'>) => Account
 ): Account {
-  const existing = accounts.find(a => 
+  const existing = accounts.find(a =>
     !a.isHeader && (a.name.toLowerCase() === line.accountName.toLowerCase() || a.code === line.accountCode)
   );
   if (existing) return existing;
@@ -1008,9 +1008,9 @@ export function ensureSuggestedJournalWithAutoCreatedAccounts(
 
   const finalLines = sug.map(line => {
     if (line.isNewAccount) {
-      let existing = workingAccounts.find(a => 
+      let existing = workingAccounts.find(a =>
         !a.isHeader && (
-          a.code === line.accountCode || 
+          a.code === line.accountCode ||
           a.name.toLowerCase() === line.accountName.toLowerCase() ||
           (line.accountName.toLowerCase().includes('pb1') && a.name.toLowerCase().includes('pb1'))
         )
@@ -1176,6 +1176,15 @@ export const SAMPLE_RECEIPT_DATA = {
 // 9. MESIN EKSTRAKSI NYATA (GROQ VISION AI & OFFLINE OCR PIPELINE)
 // =========================================================================
 
+// Pembersihan aman kredensial legacy Gemini dari browser jika masih ada (tanpa log/tampilan key)
+if (typeof window !== 'undefined') {
+  try {
+    if (localStorage.getItem('spectra_gemini_api_key')) {
+      localStorage.removeItem('spectra_gemini_api_key');
+    }
+  } catch (e) {}
+}
+
 /**
  * Parsing cerdas untuk bukti transfer bank dari raw OCR text
  */
@@ -1184,9 +1193,9 @@ export function parseBankTransferFromText(
   userDescription: string
 ): { isBankTransfer: boolean; items: ExtractedItem[]; recipient: string; grandTotal: number } {
   const upper = rawText.toUpperCase();
-  const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') || 
-                     upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') || 
-                     upper.includes('BRI') || upper.includes('BERHASIL') || upper.includes('REKENING') || 
+  const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') ||
+                     upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') ||
+                     upper.includes('BRI') || upper.includes('BERHASIL') || upper.includes('REKENING') ||
                      upper.includes('PENERIMA') || upper.includes('BREVET') || upper.includes('PIRANHA');
 
   if (!isTransfer) {
@@ -1323,6 +1332,77 @@ export function parseBankTransferFromText(
 }
 
 /**
+ * Mengekstrak nominal transaksi yang sah dari teks mentah OCR dengan validasi ketat:
+ * 1. Menolak angka tanggal (YYYYMMDD, DDMMYYYY, tahun 2020-2035).
+ * 2. Menolak nomor handphone/telepon (08xx, 628xx).
+ * 3. Menolak nomor faktur, resi, kode pos, NPWP.
+ * 4. Hanya menerima angka yang berdekatan dengan indikator mata uang atau total (Rp, IDR, Total, Jumlah, Bayar, Subtotal).
+ */
+export function extractCandidateAmountFromOcrText(rawText: string): number {
+  if (!rawText || !rawText.trim()) return 0;
+
+  // Pola eksplisit dengan kata kunci total / bayar / jumlah / rp
+  const currencyPatterns = [
+    /(?:grand\s*total|total\s*bayar|total\s*tagihan|total|jumlah|subtotal|tagihan|bayar|netto)\s*[:=]?\s*(?:rp\.?|idr)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/gi,
+    /(?:rp\.?|idr)\s*[:=]?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/gi
+  ];
+
+  const candidateAmounts: number[] = [];
+
+  for (const pattern of currencyPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(rawText)) !== null) {
+      if (match[1]) {
+        const fullSnippet = match[0].toLowerCase();
+        // Cek jika snippet ada kata penolak (telp, invoice, nota, resi, no, rek, tgl)
+        if (
+          fullSnippet.includes('telp') ||
+          fullSnippet.includes('phone') ||
+          fullSnippet.includes('hp') ||
+          fullSnippet.includes('wa') ||
+          fullSnippet.includes('tgl') ||
+          fullSnippet.includes('tanggal') ||
+          fullSnippet.includes('inv') ||
+          fullSnippet.includes('nota') ||
+          fullSnippet.includes('resi') ||
+          fullSnippet.includes('npwp') ||
+          fullSnippet.includes('rek')
+        ) {
+          continue;
+        }
+
+        const cleanNum = match[1].replace(/[.,](?=[0-9]{3})/g, '').replace(/,[0-9]{2}$/, '');
+        const val = parseInt(cleanNum, 10);
+
+        if (!val || isNaN(val) || val < 1000) continue;
+
+        // Tolak tahun (2020-2035)
+        if (val >= 2020 && val <= 2035) continue;
+
+        // Tolak format tanggal YYYYMMDD atau DDMMYYYY 8-digit
+        const valStr = String(val);
+        if (valStr.length === 8) {
+          if (valStr.startsWith('202') || valStr.startsWith('203')) continue;
+          if (valStr.endsWith('2024') || valStr.endsWith('2025') || valStr.endsWith('2026') || valStr.endsWith('2027')) continue;
+        }
+
+        // Tolak format nomor HP
+        if (/^(?:08|628|81)[0-9]{8,11}$/.test(valStr)) continue;
+
+        candidateAmounts.push(val);
+      }
+    }
+  }
+
+  if (candidateAmounts.length > 0) {
+    return Math.max(...candidateAmounts);
+  }
+
+  // Jika tidak ditemukan angka dengan konteks harga yang valid, kembalikan 0 (tanpa nominal fiktif)
+  return 0;
+}
+
+/**
  * Ekstraksi offline dengan Tesseract.js dan parser teks cerdas
  */
 export async function extractTransactionWithOfflineOcr(
@@ -1371,6 +1451,32 @@ export async function extractTransactionWithOfflineOcr(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const lowerLine = line.toLowerCase();
+
+    // Saring baris metadata yang sering berisi angka tanggal, nota, telepon, kasir
+    const isMetadataLine =
+      lowerLine.startsWith('no.') ||
+      lowerLine.startsWith('no ') ||
+      lowerLine.startsWith('nomor') ||
+      lowerLine.startsWith('inv') ||
+      lowerLine.startsWith('nota') ||
+      lowerLine.startsWith('faktur') ||
+      lowerLine.startsWith('tanggal') ||
+      lowerLine.startsWith('tgl') ||
+      lowerLine.startsWith('date') ||
+      lowerLine.startsWith('waktu') ||
+      lowerLine.startsWith('jam') ||
+      lowerLine.startsWith('kasir') ||
+      lowerLine.startsWith('operator') ||
+      lowerLine.startsWith('telp') ||
+      lowerLine.startsWith('phone') ||
+      lowerLine.startsWith('npwp') ||
+      lowerLine.startsWith('alamat');
+
+    if (isMetadataLine) {
+      continue;
+    }
+
     const numMatches = line.match(/(?:[1-9][0-9]{0,2}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,9}(?:[.,][0-9]{2})?)/g);
     if (numMatches && numMatches.length > 0) {
       const priceRaw = numMatches[numMatches.length - 1];
@@ -1397,37 +1503,40 @@ export async function extractTransactionWithOfflineOcr(
     }
   }
 
-  // Fallback aman jika teks tidak dapat di-parse menjadi baris item
+  // Fallback jika OCR tidak dapat membaca baris item secara terstruktur
   if (parsedItems.length === 0) {
-    const allNumbers = rawOcrText.match(/[1-9][0-9]{3,8}/g);
-    let fallbackAmount = 0;
-    if (allNumbers && allNumbers.length > 0) {
-      fallbackAmount = Math.max(...allNumbers.map(n => parseInt(n, 10)));
-    }
-    if (fallbackAmount === 0) {
-      fallbackAmount = 100000;
-    }
+    // Saring teks mentah dengan validasi ketat: cari hanya angka berkonteks harga/total yang valid
+    const detectedAmount = extractCandidateAmountFromOcrText(rawOcrText);
 
+    // STRICT: DILARANG membuat nominal fiktif (misal 100000) atau mengambil tanggal/nomor nota/telepon.
+    // Jika tidak terbaca dengan konteks mata uang yang yakin, set 0 dan tandai wajib koreksi manual.
+    const isUndetected = detectedAmount <= 0;
     parsedItems.push({
-      id: `it-fallback-${Date.now()}`,
-      name: userDescription && userDescription.trim() ? userDescription.trim() : 'Transaksi Bukti Unggahan',
-      unitPrice: fallbackAmount,
+      id: `it-ocr-manual-${Date.now()}`,
+      name: userDescription && userDescription.trim()
+        ? userDescription.trim()
+        : (isUndetected ? 'Item Belum Teridentifikasi (Wajib Diisi Manual)' : 'Pengeluaran Transaksi Umum'),
+      unitPrice: detectedAmount > 0 ? detectedAmount : 0,
       quantity: 1,
       unit: 'transaksi',
-      totalPrice: fallbackAmount,
-      confidence: 80
+      totalPrice: detectedAmount > 0 ? detectedAmount : 0,
+      confidence: detectedAmount > 0 ? 50 : 0
     });
   }
 
   const verif = runTwoWayDeterministicVerification(parsedItems);
+  const isIncomplete = verif.grandTotal <= 0 || parsedItems.some(it => !it.totalPrice || it.totalPrice <= 0);
+
   return {
     detectedType: 'nota_pembelian',
     sellerOrRecipient: userDescription || 'Toko / Rekanan',
     extractedItems: verif.verifiedItems,
     declaredGrandTotal: verif.grandTotal,
     calculatedSum: verif.calculatedSum,
-    mathDiscrepancy: verif.mathDiscrepancy,
-    discrepancyMessage: verif.discrepancyMessage,
+    mathDiscrepancy: verif.mathDiscrepancy || isIncomplete,
+    discrepancyMessage: isIncomplete
+      ? 'OCR Tidak Lengkap: Nominal tidak terbaca dengan yakin. Wajib dilakukan koreksi manual pada Tabel Koreksi Tahap 2 sebelum jurnal dapat diposting.'
+      : verif.discrepancyMessage,
     sourceEngine: 'smart_parser'
   };
 }

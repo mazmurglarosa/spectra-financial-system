@@ -9,11 +9,18 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Inisialisasi worker PDF.js dengan URL aset Vite
-if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Inisialisasi worker PDF.js dengan URL aset yang kompatibel dengan browser Vite dan runtime Node/SSR
+if (typeof window !== 'undefined' && (pdfjsLib as any).GlobalWorkerOptions) {
+  try {
+    (pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString();
+  } catch {
+    // Fallback URL jika resolving lokal terhalang
+    (pdfjsLib as any).GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${(pdfjsLib as any).version || '4.0.379'}/build/pdf.worker.min.mjs`;
+  }
 }
 
 export interface PdfConversionOptions {

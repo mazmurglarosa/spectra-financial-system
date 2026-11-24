@@ -8,30 +8,49 @@ export interface SupabaseConfig {
   isConfigured: boolean;
 }
 
-const DEFAULT_SUPABASE_URL = 'https://drsqwxkkcfqvooqzoyvm.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyc3F3eGtrY2Zxdm9vcXpveXZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjUyMDMsImV4cCI6MjEwNzY0MTIwM30.5ayLSmloCqvJ1PJsRDGM9ZPbfud-bwOBh0NfyshCOlg';
-
 const STORAGE_KEYS = {
   URL: 'spectra_supabase_url',
   KEY: 'spectra_supabase_anon_key'
 };
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const isProd = import.meta.env.PROD;
-  // Di lingkungan Production/Preview, cegah fallback otomatis ke URL produksi jika variabel env tidak diatur
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || (isProd ? '' : DEFAULT_SUPABASE_URL);
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || (isProd ? '' : DEFAULT_SUPABASE_ANON_KEY);
+  const envUrl = (
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+    ((globalThis as any).process?.env?.VITE_SUPABASE_URL) ||
+    ''
+  ).trim();
+  const envKey = (
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
+    ((globalThis as any).process?.env?.VITE_SUPABASE_ANON_KEY) ||
+    ''
+  ).trim();
 
-  const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.URL) || '' : '';
-  const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.KEY) || '' : '';
+  // Deteksi apakah sedang berjalan di lingkungan Vercel atau Production
+  const isVercelOrHosted = typeof window !== 'undefined' && (
+    window.location.hostname.includes('.vercel.app') ||
+    window.location.hostname.includes('spectra') ||
+    Boolean(import.meta.env.PROD)
+  );
 
-  const url = (storedUrl || envUrl).trim();
-  const anonKey = (storedKey || envKey).trim();
+  let url = envUrl;
+  let anonKey = envKey;
+
+  // localStorage HANYA boleh digunakan di lingkungan lokal pengembangan jika env vars tidak didefinisikan
+  if (!isVercelOrHosted && typeof window !== 'undefined') {
+    const storedUrl = (localStorage.getItem(STORAGE_KEYS.URL) || '').trim();
+    const storedKey = (localStorage.getItem(STORAGE_KEYS.KEY) || '').trim();
+    if (!url && storedUrl) url = storedUrl;
+    if (!anonKey && storedKey) anonKey = storedKey;
+  }
+
+  // Fail-Closed: DILARANG ada fallback hardcoded ke Production drsqwxkkcfqvooqzoyvm!
+  // Jika environment variable tidak valid, kembalikan isConfigured: false
+  const isConfigured = Boolean(url && anonKey);
 
   return {
     url,
     anonKey,
-    isConfigured: Boolean(url && anonKey)
+    isConfigured
   };
 }
 
@@ -72,7 +91,60 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
+// Helper untuk membaca Double-Submit CSRF Token
+function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)spectra_csrf=([^;]+)/);
+  if (match) return decodeURIComponent(match[1]);
+  return sessionStorage.getItem('spectra_csrf') || localStorage.getItem('spectra_csrf') || '';
+}
+
+// Client Gateway untuk memanggil Backend API Vercel Serverless terautentikasi
+async function callFinancialGateway(endpoint: string, options: RequestInit = {}): Promise<any> {
+  if (typeof window === 'undefined') return null;
+
+  const csrf = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    ...(options.headers as any || {})
+  };
+  const method = (options.method || 'GET').toUpperCase();
+  if (csrf && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    headers['x-csrf-token'] = csrf;
+  }
+
+  const res = await fetch(endpoint, {
+    ...options,
+    headers,
+    credentials: 'include'
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    throw new Error(errJson?.error || `HTTP ${res.status}: Gagal memproses permintaan.`);
+  }
+
+  return await res.json();
+}
+
 export async function testSupabaseConnection(): Promise<{ success: boolean; message: string; tableCount?: number; latencyMs?: number }> {
+  // 1. Prioritas Utama: Uji melalui Backend API Gateway (/api/financial/status)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/status');
+      if (res && res.success) {
+        return {
+          success: true,
+          message: res.message || 'Koneksi Backend API Gateway ke Supabase aktif & stabil.',
+          tableCount: res.tableCounts?.accounts,
+          latencyMs: res.latencyMs
+        };
+      }
+    } catch (e: any) {
+      console.warn('[SupabaseClient] Uji via backend gateway gagal, mencoba fallback direct client:', e?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return {
@@ -83,11 +155,9 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
 
   const startTime = performance.now();
   try {
-    // Attempt a lightweight select from accounts
     const { data, error } = await client.from('accounts').select('id').limit(1);
     const latencyMs = Math.round(performance.now() - startTime);
     if (error) {
-      // If table doesn't exist yet, it will report relation does not exist
       if (error.code === '42P01') {
         return {
           success: true,
@@ -179,6 +249,25 @@ export async function syncPushAllToSupabase(payload: {
   contacts?: Contact[];
   settings?: CompanySettings;
 }): Promise<{ success: boolean; message: string }> {
+  // 1. Prioritas Utama: Unggah melalui Backend API Gateway (/api/financial/sync-push)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/sync-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res && res.success) {
+        return {
+          success: true,
+          message: res.message || 'Seluruh data berhasil diunggah dan disinkronkan ke Supabase Cloud!'
+        };
+      }
+    } catch (err: any) {
+      console.warn('[SupabaseClient] Push via backend gateway gagal, mencoba fallback direct client:', err?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return { success: false, message: 'Supabase belum dikonfigurasi.' };
@@ -208,8 +297,9 @@ export async function syncPushAllToSupabase(payload: {
     // 2. Sync Transactions
     if (Array.isArray(payload.transactions)) {
       if (payload.transactions.length === 0) {
-        // If 0 transactions (e.g. after system reset), delete all transactions in Supabase
-        await client.from('transactions').delete().neq('id', '___non_existent___');
+        // STRICT: Array transaksi kosong TIDAK BOLEH memicu penghapusan massal di Supabase!
+        // Penghapusan massal hanya boleh dilakukan melalui tindakan administratif eksplisit.
+        console.info('[SupabaseSync] Array transaksi kosong. Sinkronisasi transaksi dilewati demi melindungi data cloud.');
       } else {
         const txRows = payload.transactions.map(t => ({
           id: t.id,
@@ -305,6 +395,22 @@ export async function syncPullAllFromSupabase(): Promise<{
     settings?: CompanySettings;
   };
 }> {
+  // 1. Prioritas Utama: Tarik melalui Backend API Gateway (/api/financial/sync-pull)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/sync-pull');
+      if (res && res.success && res.data) {
+        return {
+          success: true,
+          message: 'Data pembukuan berhasil ditarik dari Backend Serverless Gateway!',
+          data: res.data
+        };
+      }
+    } catch (err: any) {
+      console.warn('[SupabaseClient] Pull via backend gateway gagal, mencoba fallback direct client:', err?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return { success: false, message: 'Supabase belum dikonfigurasi.' };
@@ -419,6 +525,20 @@ export async function syncPullAllFromSupabase(): Promise<{
 }
 
 export async function pushTransactionToSupabase(tx: Transaction): Promise<void> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tx)
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Push tx via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
@@ -441,6 +561,18 @@ export async function pushTransactionToSupabase(tx: Transaction): Promise<void> 
 }
 
 export async function deleteTransactionFromSupabase(id: string): Promise<void> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway(`/api/financial/transactions?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Delete tx via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
@@ -451,8 +583,16 @@ export async function deleteTransactionFromSupabase(id: string): Promise<void> {
 }
 
 export async function deleteAllTransactionsFromSupabase(): Promise<void> {
+  const { url } = getSupabaseConfig();
+  // STRICT GUARD: Dilarang melakukan penghapusan massal jika tersambung ke database Produksi drsqwxkkcfqvooqzoyvm
+  if (url && url.includes('drsqwxkkcfqvooqzoyvm')) {
+    console.error('[SupabaseSecurity] Penghapusan massal seluruh transaksi DITOLAK pada database Produksi.');
+    throw new Error('Penghapusan massal seluruh transaksi diblokir pada database Produksi demi keamanan data.');
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
+
   try {
     await client.from('transactions').delete().neq('id', '___non_existent___');
   } catch (e) {
@@ -461,10 +601,24 @@ export async function deleteAllTransactionsFromSupabase(): Promise<void> {
 }
 
 export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {
+  const s = await sanitizeSettingsForSupabase(rawSettings);
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(s)
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Push settings via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
-    const s = await sanitizeSettingsForSupabase(rawSettings);
     await client.from('company_settings').upsert({
       id: 'primary',
       company_name: s.companyName,
@@ -506,6 +660,20 @@ export async function pushSettingsToSupabase(rawSettings: CompanySettings): Prom
 }
 
 export async function pushAccountToSupabase(a: Account): Promise<void> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(a)
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Push account via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
@@ -529,6 +697,19 @@ export async function pushAccountToSupabase(a: Account): Promise<void> {
 }
 
 export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accounts })
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Push multiple accounts via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client || !accounts.length) return;
   try {
@@ -553,6 +734,17 @@ export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promi
 }
 
 export async function deleteAccountFromSupabase(id: string): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway(`/api/financial/accounts?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      return;
+    } catch (e) {
+      console.warn('[SupabaseClient] Delete account via gateway failed, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {

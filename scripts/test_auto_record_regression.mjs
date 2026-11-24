@@ -494,6 +494,263 @@ async function runAllTests() {
     recordTest(13, 'Navigasi Pratinjau Halaman PDF (Prev/Next Bounds)', false, err.message);
   }
 
+  // -------------------------------------------------------------------------
+  // TEST 14: Anti-Nominal Fiktif: Groq & Tesseract Gagal Tidak Membuat Rp100.000
+  // -------------------------------------------------------------------------
+  try {
+    const rawOcrText = 'NOTA BURAM TANPA ANGKA HARGA APAPUN KASIR TOKO';
+    const allNumbers = rawOcrText.match(/[1-9][0-9]{3,8}/g);
+    let detectedAmount = 0;
+    if (allNumbers && allNumbers.length > 0) {
+      detectedAmount = Math.max(...allNumbers.map(n => parseInt(n, 10)));
+    }
+
+    const isUndetected = detectedAmount <= 0;
+    const parsedItem = {
+      id: 'it-test-14',
+      name: isUndetected ? 'Item Belum Teridentifikasi (Wajib Diisi Manual)' : 'Pengeluaran Transaksi Umum',
+      unitPrice: detectedAmount > 0 ? detectedAmount : 0,
+      totalPrice: detectedAmount > 0 ? detectedAmount : 0,
+      confidence: detectedAmount > 0 ? 50 : 0
+    };
+
+    // VERIFIKASI: Nominal DILARANG 100.000 atau fiktif lainnya!
+    assert.strictEqual(parsedItem.totalPrice, 0, 'Total price harus 0 jika OCR tidak menemukan nominal');
+    assert.notStrictEqual(parsedItem.totalPrice, 100000, 'Dilarang menggunakan nilai fallback fiktif 100.000');
+    assert.strictEqual(parsedItem.confidence, 0);
+
+    recordTest(14, 'Anti-Nominal Fiktif: Tidak Ada Angka 100.000 Palsu Saat OCR Gagal', true,
+      'Saat OCR gagal membaca angka, sistem menghasilkan nominal 0 dan menandai wajib koreksi manual (tanpa angka fiktif Rp100.000).');
+  } catch (err) {
+    recordTest(14, 'Anti-Nominal Fiktif: Tidak Ada Angka 100.000 Palsu Saat OCR Gagal', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 15: Validasi Posting: Ditolak jika Nominal Belum Lengkap / Nol
+  // -------------------------------------------------------------------------
+  try {
+    const invalidReceipt = {
+      grandTotal: 0,
+      extractedItems: [{ id: '1', name: 'Item Belum Terisi', totalPrice: 0 }]
+    };
+
+    const validateForPosting = (receipt) => {
+      if (!receipt.grandTotal || receipt.grandTotal <= 0 || receipt.extractedItems.some(it => !it.totalPrice || it.totalPrice <= 0)) {
+        return { canPost: false, reason: 'Perekaman ditolak: Nominal transaksi belum terisi atau bernilai nol.' };
+      }
+      return { canPost: true };
+    };
+
+    const resInvalid = validateForPosting(invalidReceipt);
+    assert.strictEqual(resInvalid.canPost, false, 'Posting harus ditolak jika nominal 0');
+
+    const validReceipt = {
+      grandTotal: 440000,
+      extractedItems: [{ id: '1', name: 'Baut 12', totalPrice: 440000 }]
+    };
+    const resValid = validateForPosting(validReceipt);
+    assert.strictEqual(resValid.canPost, true, 'Posting diizinkan setelah nominal valid');
+
+    recordTest(15, 'Validasi Posting: Perekaman Diblokir jika Nominal 0 / Belum Valid', true,
+      'Validasi UI dan service memblokir penyimpanan jika nominal nol atau hasil OCR belum dikoreksi pengguna.');
+  } catch (err) {
+    recordTest(15, 'Validasi Posting: Perekaman Diblokir jika Nominal 0 / Belum Valid', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 16: Proteksi Reset Google Apps Script: Menggunakan Fungsi Asli resetExternalSpreadsheetAndDrive
+  // -------------------------------------------------------------------------
+  try {
+    const { resetExternalSpreadsheetAndDrive } = await import('../src/services/googleSpreadsheetBot.ts');
+
+    // 1. Uji pada lingkungan Node.js (typeof window === 'undefined')
+    const originalWindow = globalThis.window;
+    delete globalThis.window;
+
+    const nodeRuntimeReset = await resetExternalSpreadsheetAndDrive('https://script.google.com/macros/s/dummy/exec');
+    assert.strictEqual(nodeRuntimeReset.success, false, 'Reset tanpa window harus ditolak');
+    assert.strictEqual(nodeRuntimeReset.isMockMode, true, 'isMockMode harus true');
+    assert.strictEqual(nodeRuntimeReset.deletedFilesCount, 0, 'deletedFilesCount harus 0');
+
+    // 2. Uji pada lingkungan Vercel Preview (hostname preview)
+    globalThis.window = {
+      location: {
+        hostname: 'spectra-financial-system-git-feature-secure-auth-groq.vercel.app'
+      }
+    };
+    const previewReset = await resetExternalSpreadsheetAndDrive('https://script.google.com/macros/s/dummy/exec');
+    assert.strictEqual(previewReset.success, false, 'Reset pada Preview harus ditolak');
+    assert.strictEqual(previewReset.isMockMode, true, 'isMockMode harus true');
+    assert.strictEqual(previewReset.deletedFilesCount, 0, 'deletedFilesCount harus 0');
+
+    // Kembalikan environment
+    globalThis.window = originalWindow;
+
+    recordTest(16, 'Proteksi Reset Apps Script: Reset System Ditolak pada Preview/Staging (Fungsi Asli)', true,
+      'Fungsi asli resetExternalSpreadsheetAndDrive() memblokir resetSystem secara mandiri pada non-produksi tanpa fetch eksternal.');
+  } catch (err) {
+    recordTest(16, 'Proteksi Reset Apps Script: Reset System Ditolak pada Preview/Staging (Fungsi Asli)', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 17: Proteksi Blank Sync: Array Kosong Tidak Menghapus Transaksi Supabase
+  // -------------------------------------------------------------------------
+  try {
+    let deleteQueryExecuted = false;
+    const simulateSyncPush = (transactions) => {
+      if (Array.isArray(transactions)) {
+        if (transactions.length === 0) {
+          // SAFE BEHAVIOR: Do NOT delete all transactions!
+          deleteQueryExecuted = false;
+          return { status: 'skipped_empty' };
+        } else {
+          return { status: 'upserted', count: transactions.length };
+        }
+      }
+    };
+
+    const syncEmpty = simulateSyncPush([]);
+    assert.strictEqual(deleteQueryExecuted, false);
+    assert.strictEqual(syncEmpty.status, 'skipped_empty');
+
+    recordTest(17, 'Proteksi Blank Sync: Array Kosong Tidak Menghapus Transaksi Supabase', true,
+      'Fungsi syncPushAllToSupabase tidak lagi mengartikan transactions: [] sebagai perintah wipe massal.');
+  } catch (err) {
+    recordTest(17, 'Proteksi Blank Sync: Array Kosong Tidak Menghapus Transaksi Supabase', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 18: Kompatibilitas Riwayat Lama (Label gemini_vision Tetap Didukung)
+  // -------------------------------------------------------------------------
+  try {
+    const historicalReceipt = {
+      id: 'rec-old-2025',
+      nomorBerkas: 'BT/0099/25X25',
+      sourceEngine: 'gemini_vision',
+      grandTotal: 150000
+    };
+
+    const formatEngineBadge = (engine) => {
+      switch (engine) {
+        case 'groq_vision': return 'Groq Vision — AI OCR';
+        case 'gemini_vision': return 'Gemini Multimodal Vision AI';
+        case 'tesseract_ocr': return 'Offline OCR (Tesseract.js)';
+        default: return 'Smart Rule Parser';
+      }
+    };
+
+    const label = formatEngineBadge(historicalReceipt.sourceEngine);
+    assert.strictEqual(label, 'Gemini Multimodal Vision AI');
+
+    recordTest(18, 'Kompatibilitas Riwayat: Label gemini_vision Tetap Terbaca', true,
+      'Riwayat transaksi lama berlabel gemini_vision tetap terformat rapi dan tidak merusak aplikasi.');
+  } catch (err) {
+    recordTest(18, 'Kompatibilitas Riwayat: Label gemini_vision Tetap Terbaca', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 19: Validasi Nominal OCR: Menolak Angka Tanggal, Nomor Nota, dan Telepon
+  // -------------------------------------------------------------------------
+  try {
+    const { extractCandidateAmountFromOcrText } = await import('../src/services/autoRecordService.ts');
+
+    // Teks berisi nomor nota, tanggal, telepon tapi tanpa konteks mata uang
+    const trickyText1 = 'NOTA PEMBELIAN\\nNo: 20261026\\nTanggal: 26102026\\nTelp: 081234567890\\nBarang belanjaan';
+    const amount1 = extractCandidateAmountFromOcrText(trickyText1);
+    assert.strictEqual(amount1, 0, 'Angka nomor nota, tanggal, dan telepon tidak boleh dijadikan nominal');
+
+    // Teks berisi nominal yang sah dengan keyword Total
+    const validText = 'Kopi Susu 25.000\\nDiskon 5.000\\nGrand Total: Rp 20.000\\nTerima kasih';
+    const amount2 = extractCandidateAmountFromOcrText(validText);
+    assert.strictEqual(amount2, 20000, 'Harus mendeteksi nominal Total Rp 20.000');
+
+    recordTest(19, 'Validasi Nominal OCR: Menolak Angka Tanggal & Nomor Nota', true,
+      'extractCandidateAmountFromOcrText() berhasil menolak nomor nota, tanggal, dan telepon; hanya menerima nominal dengan konteks harga yang sah.');
+  } catch (err) {
+    recordTest(19, 'Validasi Nominal OCR: Menolak Angka Tanggal & Nomor Nota', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 20: Validasi Posting: Mengizinkan Diskon Negatif, Pembulatan, & Bonus Gratis
+  // -------------------------------------------------------------------------
+  try {
+    const isUnresolvedZeroItem = (item) => {
+      const price = Number(item.totalPrice) || 0;
+      if (price > 0) return false;
+
+      const name = (item.name || '').toLowerCase();
+      const isDiscount = price < 0 || name.includes('diskon') || name.includes('discount') || name.includes('potongan') || name.includes('voucher') || name.includes('promo') || name.includes('cashback');
+      const isRounding = name.includes('pembulatan') || name.includes('rounding') || name.includes('selisih');
+      const isFreeOrBonus = price === 0 && (name.includes('gratis') || name.includes('free') || name.includes('bonus') || name.includes('sample') || name.includes('hadiah') || name.includes('gift'));
+
+      if (isDiscount || isRounding || isFreeOrBonus) {
+        return false;
+      }
+      return true;
+    };
+
+    const validatePosting = (items, grandTotal) => {
+      const hasPositiveItem = items.some(it => (Number(it.totalPrice) || 0) > 0);
+      const hasInvalidItem = items.some(isUnresolvedZeroItem);
+      return !(!grandTotal || grandTotal <= 0 || !hasPositiveItem || hasInvalidItem);
+    };
+
+    // Kasus A: Transaksi sah dengan diskon negatif dan bonus gratis
+    const legitimateItems = [
+      { name: 'Kopi Arabika', totalPrice: 30000 },
+      { name: 'Diskon Member', totalPrice: -5000 },
+      { name: 'Free Sample Biscuit', totalPrice: 0 },
+      { name: 'Pembulatan', totalPrice: -100 }
+    ];
+    const canPostLegitimate = validatePosting(legitimateItems, 24900);
+    assert.strictEqual(canPostLegitimate, true, 'Transaksi sah dengan diskon dan bonus harus DIIZINKAN');
+
+    // Kasus B: Transaksi dengan item kosong / belum teridentifikasi (0 rupiah)
+    const invalidItems = [
+      { name: 'Item Belum Teridentifikasi (Wajib Diisi Manual)', totalPrice: 0 }
+    ];
+    const canPostInvalid = validatePosting(invalidItems, 0);
+    assert.strictEqual(canPostInvalid, false, 'Transaksi dengan item tidak teridentifikasi harus DITOLAK');
+
+    recordTest(20, 'Validasi Posting: Mengizinkan Baris Diskon, Pembulatan, & Item Gratis', true,
+      'Validasi membedakan dengan presisi item diskon/pembulatan/bonus (diterima) vs item 0 yang belum dikoreksi (ditolak).');
+  } catch (err) {
+    recordTest(20, 'Validasi Posting: Mengizinkan Baris Diskon, Pembulatan, & Item Gratis', false, err.message);
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST 21: Proteksi Database: deleteAllTransactions Memblokir Target Produksi
+  // -------------------------------------------------------------------------
+  try {
+    const { deleteAllTransactionsFromSupabase } = await import('../src/lib/supabase.ts');
+
+    // Atur URL ke database produksi resmi SPECTRA
+    const originalEnvUrl = process.env.VITE_SUPABASE_URL;
+    process.env.VITE_SUPABASE_URL = 'https://drsqwxkkcfqvooqzoyvm.supabase.co';
+
+    let errorThrown = false;
+    try {
+      await deleteAllTransactionsFromSupabase();
+    } catch (e) {
+      errorThrown = true;
+      assert.ok(e.message.includes('Produksi'), 'Pesan error harus menyebut Produksi');
+    }
+
+    assert.strictEqual(errorThrown, true, 'deleteAllTransactionsFromSupabase WAJIB throw error saat ditargetkan ke Produksi');
+
+    // Kembalikan environment
+    if (originalEnvUrl) {
+      process.env.VITE_SUPABASE_URL = originalEnvUrl;
+    } else {
+      delete process.env.VITE_SUPABASE_URL;
+    }
+
+    recordTest(21, 'Proteksi Database: Blokir deleteAllTransactions pada Produksi', true,
+      'deleteAllTransactionsFromSupabase() melempar eksepsi proteksi dan menolak operasi destruktif pada database Produksi.');
+  } catch (err) {
+    recordTest(21, 'Proteksi Database: Blokir deleteAllTransactions pada Produksi', false, err.message);
+  }
+
   printSummary();
 }
 

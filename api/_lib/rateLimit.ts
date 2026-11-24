@@ -73,6 +73,24 @@ export async function checkRateLimitCentralized(
 
   if (supabase) {
     try {
+      // 1. ATOMIC: Gunakan PostgreSQL Stored Procedure check_and_increment_rate_limit
+      // untuk mencegah race conditions pada multi-instance Vercel serverless.
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('check_and_increment_rate_limit', {
+        p_key: key,
+        p_limit: limit,
+        p_window_ms: windowMs,
+        p_now: now
+      });
+
+      if (!rpcErr && rpcData) {
+        return {
+          allowed: Boolean(rpcData.allowed),
+          remaining: Number(rpcData.remaining),
+          resetAt: Number(rpcData.reset_at)
+        };
+      }
+
+      // 2. Fallback jika RPC belum terdaftar (single-transaction fallback)
       const { data: record, error: fetchErr } = await supabase
         .from('rate_limits')
         .select('key, count, reset_at')
@@ -127,16 +145,13 @@ export async function checkRateLimitCentralized(
           remaining: limit - newCount,
           resetAt: Number(record.reset_at)
         };
-      } else {
-        // Query error to rate_limits table (misal table belum ada atau koneksi gagal)
-        if (isPublicEnv) {
-          return {
-            allowed: false,
-            remaining: 0,
-            resetAt: now + 60000,
-            error: 'Centralized rate limit table unreachable or query failed. Request blocked for security.'
-          };
-        }
+      } else if (isPublicEnv) {
+        return {
+          allowed: false,
+          remaining: 0,
+          resetAt: now + 60000,
+          error: 'Centralized rate limit query failed. Request blocked for security.'
+        };
       }
     } catch (err: any) {
       if (isPublicEnv) {
@@ -149,7 +164,6 @@ export async function checkRateLimitCentralized(
       }
     }
   } else if (isPublicEnv) {
-    // Pada environment Vercel / Production, tidak boleh ada request lolos jika Supabase client tidak tersedia
     return {
       allowed: false,
       remaining: 0,

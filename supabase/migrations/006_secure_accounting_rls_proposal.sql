@@ -1,0 +1,77 @@
+-- =========================================================================
+-- [PROPOSAL ARSITEKTUR RLS ONLY - DILARANG DIJALANKAN OTOMATIS]
+-- File: supabase/migrations/006_secure_accounting_rls_proposal.sql
+-- PERHATIAN KRITIKAL:
+-- 1. FILE INI ADALAH DOKUMEN PROPOSAL & EVALUASI DESAIN KEAMANAN.
+-- 2. DILARANG DIJALANKAN PADA DATABASE PRODUCTION MAUPUN STAGING TANPA
+--    PERSETUJUAN RESMI (RFC APPROVAL).
+-- 3. JANGAN MENGGUNAKAN 'supabase.auth.setSession(jwt)' DENGAN SATU TOKEN BERSAMA!
+-- =========================================================================
+
+-- =========================================================================
+-- EVALUASI DESAIN ARSITEKTUR OTORISASI (REVISI PASCA AUDIT):
+-- =========================================================================
+-- Masalah Pendekatan Single-Token JWT:
+-- Jika seluruh pengguna browser menggunakan satu static minted JWT token,
+-- PostgreSQL RLS tidak dapat membedakan identitas pengguna (auth.uid() identik
+-- atau null untuk semua orang). Akibatnya, audit trail, pemisahan role
+-- (Operator vs Superadmin), dan kepemilikan data tidak dapat ditegakkan.
+--
+-- Dua Pilihan Arsitektur yang Direkomendasikan:
+--
+-- PILIHAN A: Supabase Auth Resmi (Native Multi-User)
+--   - Pengguna login via supabase.auth.signInWithPassword({ email, password }).
+--   - Supabase GoTrue mengelola session, auto-refresh token, dan JWT unik per user.
+--   - Tabel PostgreSQL RLS menggunakan auth.uid() untuk mengecek kepemilikan
+--     dan role pengguna via custom claims: (auth.jwt() ->> 'user_role' = 'superadmin').
+--   - Cocok jika aplikasi ingin mempertahankan mutasi langsung dari browser.
+--
+-- PILIHAN B: Backend API Gateway / Proxy Pattern (Zero Client DB Mutations) [DIREKOMENDASIKAN]
+--   - Browser/klien TIDAK PERNAH memanggil .insert(), .update(), .delete() ke Supabase.
+--   - Semua mutasi dikirim ke Serverless API terautentikasi (/api/transactions, /api/accounts).
+--   - Serverless API memvalidasi cookie session (HMAC SHA-256) per pengguna,
+--     memverifikasi permission role di server, dan mencatat audit log dengan ID pengguna riil.
+--   - Serverless API mengeksekusi mutasi menggunakan SUPABASE_SERVICE_ROLE_KEY.
+--   - Anon key di browser hanya diberi hak SELECT (Read-Only) atau dinonaktifkan total.
+--   - Tidak ada ketergantungan pada client-side token injection yang rapuh.
+-- =========================================================================
+
+-- DRAFT KEBIJAKAN RLS UNTUK EVALUASI STAGING DI MASA DEPAN:
+
+-- 1. Cabut Policy Publik Terbuka
+-- DROP POLICY IF EXISTS "Allow public all" ON accounts;
+-- DROP POLICY IF EXISTS "Allow public all" ON transactions;
+-- DROP POLICY IF EXISTS "Allow public all" ON contacts;
+-- DROP POLICY IF EXISTS "Allow public all" ON company_settings;
+-- DROP POLICY IF EXISTS "Allow public all" ON activity_logs;
+
+-- 2. Aktifkan RLS
+-- ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
+
+-- 3. Akses Service Role Penuh (Untuk Backend Serverless API)
+-- CREATE POLICY "Service Role Full Access Accounts" ON accounts
+--   FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- CREATE POLICY "Service Role Full Access Transactions" ON transactions
+--   FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- CREATE POLICY "Service Role Full Access Contacts" ON contacts
+--   FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- CREATE POLICY "Service Role Full Access Settings" ON company_settings
+--   FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- CREATE POLICY "Service Role Full Access Logs" ON activity_logs
+--   FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- 4. Akses Read-Only Terautentikasi (Jika menggunakan Supabase Auth Resmi)
+-- CREATE POLICY "Authenticated Read Accounts" ON accounts
+--   FOR SELECT TO authenticated USING (true);
+-- CREATE POLICY "Authenticated Read Transactions" ON transactions
+--   FOR SELECT TO authenticated USING (true);
+-- CREATE POLICY "Authenticated Read Contacts" ON contacts
+--   FOR SELECT TO authenticated USING (true);
+-- CREATE POLICY "Authenticated Read Settings" ON company_settings
+--   FOR SELECT TO authenticated USING (true);
+-- CREATE POLICY "Authenticated Read Logs" ON activity_logs
+--   FOR SELECT TO authenticated USING (true);
