@@ -137,7 +137,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                   <h3 className="text-sm font-black flex items-center gap-2">
                     <span>{healthState.buttonText}</span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/70 border border-current">
-                      {isError ? 'GANGGUAN KRITIS' : isWarning ? 'PERINGATAN SUBSISTEM' : 'OPTIMAL 100%'}
+                      {isError ? 'GANGGUAN KRITIS' : isWarning ? (healthState.problemName === 'Akses Backend Dibatasi Sementara' ? 'RATE LIMIT COOLDOWN' : 'PERINGATAN SUBSISTEM') : 'OPTIMAL 100%'}
                     </span>
                   </h3>
                 </div>
@@ -163,7 +163,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons: Cek & Hubungkan Ulang + Perbaiki Otomatis */}
+          {/* Action Buttons: Periksa Status Koneksi (Read-Only) + Sinkronkan Ulang Database */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <button
               type="button"
@@ -172,7 +172,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
               className="py-2.5 px-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-600 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${healthState.isChecking ? 'animate-spin' : ''}`} />
-              <span>{healthState.isChecking ? 'Sedang Memeriksa...' : 'Cek & Hubungkan Ulang'}</span>
+              <span>{healthState.isChecking ? 'Sedang Memeriksa...' : 'Periksa Status Koneksi (Read-Only)'}</span>
             </button>
 
             <button
@@ -224,7 +224,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-600 truncate">{healthState.services.supabase.message}</p>
                 <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                  <span>drsqwxkkcfqvooqzoyvm</span>
+                  <span className="truncate max-w-[200px]">{healthState.services.supabase.details || 'Cluster Supabase Staging'}</span>
                   {healthState.services.supabase.latencyMs && (
                     <span className="text-emerald-700 font-bold">{healthState.services.supabase.latencyMs}ms</span>
                   )}
@@ -244,7 +244,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-600 truncate">{healthState.services.vercel.message}</p>
                 <div className="text-[10px] text-slate-400 font-mono truncate">
-                  spectra-financial-system.vercel.app
+                  {typeof window !== 'undefined' ? window.location.hostname : 'spectra-financial-system.vercel.app'}
                 </div>
               </div>
 
@@ -372,7 +372,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
                 <span>Akses Resmi SPECTRA (Vercel Production Cloud):</span>
               </span>
               <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-600 text-white">
-                LIVE PRODUCTION
+                {typeof window !== 'undefined' && window.location.hostname.includes('preview') ? 'PREVIEW CLOUD' : 'LIVE HOST'}
               </span>
             </div>
 
@@ -380,19 +380,19 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({
               <input
                 type="text"
                 readOnly
-                value="https://spectra-financial-system.vercel.app"
+                value={typeof window !== 'undefined' ? window.location.origin : 'https://spectra-financial-system.vercel.app'}
                 className="flex-1 bg-white border border-blue-200 rounded-xl px-3 py-1.5 text-xs font-mono text-blue-900 font-bold select-all focus:outline-none"
               />
               <button
                 type="button"
-                onClick={() => copyUrl('https://spectra-financial-system.vercel.app')}
+                onClick={() => copyUrl(typeof window !== 'undefined' ? window.location.origin : 'https://spectra-financial-system.vercel.app')}
                 className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-blue-200 flex items-center gap-1 transition cursor-pointer"
               >
                 {copiedUrl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedUrl ? 'Tersalin' : 'Salin'}</span>
               </button>
               <a
-                href="https://spectra-financial-system.vercel.app"
+                href={typeof window !== 'undefined' ? window.location.origin : 'https://spectra-financial-system.vercel.app'}
                 target="_blank"
                 rel="noreferrer"
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1 transition shadow-xs"

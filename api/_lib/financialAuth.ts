@@ -82,22 +82,7 @@ export async function authenticateFinancialRequest(
     return null;
   }
 
-  // 2. Centralized Rate Limiting
-  const limit = options.rateLimitLimit || 120; // default 120 req / menit
-  const windowMs = options.rateLimitWindowMs || 60 * 1000;
-  const rateLimitKey = `rate:fin:${clientIp}`;
-
-  const rateCheck = await checkRateLimitCentralized(rateLimitKey, limit, windowMs, supabase);
-  if (!rateCheck.allowed) {
-    res.setHeader('Retry-After', Math.ceil((rateCheck.resetAt - Date.now()) / 1000));
-    res.status(429).json({
-      success: false,
-      error: 'Terlalu banyak permintaan akses keuangan. Silakan tunggu sesaat.'
-    });
-    return null;
-  }
-
-  // 3. Ekstraksi Token Sesi dari Cookie atau Header Authorization
+  // 2. Ekstraksi Token Sesi dari Cookie atau Header Authorization
   const cookies = parseCookies(req.headers?.cookie);
   let token = cookies['spectra_session'];
 
@@ -108,6 +93,49 @@ export async function authenticateFinancialRequest(
     }
   }
 
+  const candidateSession = token ? verifySessionToken(token) : null;
+
+  // 3. Centralized Rate Limiting (Dual-Tier Fair Share Partitioning)
+  // Pengguna terautentikasi dipartisi per User ID: rate:fin:usr:<userId>
+  // Request belum terautentikasi dipartisi per IP: rate:fin:ip:<clientIp>
+  // Mencegah kolisi satu kantor/NAT memblokir seluruh staf akuntansi.
+  const limit = options.rateLimitLimit || 120; // default 120 req / menit
+  const windowMs = options.rateLimitWindowMs || 60 * 1000;
+  const rateLimitKey = candidateSession
+    ? `rate:fin:usr:${candidateSession.sub}`
+    : `rate:fin:ip:${clientIp}`;
+
+  const rateCheck = await checkRateLimitCentralized(rateLimitKey, limit, windowMs, supabase);
+  if (!rateCheck.allowed) {
+    const now = Date.now();
+    const retryAfterSec = Math.max(1, Math.min(300, Math.ceil((rateCheck.resetAt - now) / 1000)));
+
+    // Jika terjadi kegagalan infrastruktur / RPC rate limiter (Bukan kuota limit habis)
+    if (rateCheck.isRpcFailure) {
+      res.setHeader('Retry-After', '5');
+      res.status(503).json({
+        success: false,
+        errorCode: 'RATE_LIMITER_UNAVAILABLE',
+        error: 'Layanan verifikasi backend sedang mengalami gangguan sementara. Silakan coba sesaat lagi.'
+      });
+      return null;
+    }
+
+    // Kuota habis murni (Rate Limited)
+    res.setHeader('Retry-After', String(retryAfterSec));
+    res.setHeader('X-RateLimit-Limit', String(limit));
+    res.setHeader('X-RateLimit-Remaining', '0');
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(rateCheck.resetAt / 1000)));
+    res.status(429).json({
+      success: false,
+      errorCode: 'RATE_LIMITED',
+      retryAfter: retryAfterSec,
+      error: 'Terlalu banyak permintaan akses keuangan. Silakan tunggu sesaat.'
+    });
+    return null;
+  }
+
+  // 4. Verifikasi Autentikasi
   if (!token) {
     res.status(401).json({
       success: false,
@@ -116,8 +144,7 @@ export async function authenticateFinancialRequest(
     return null;
   }
 
-  // 4. Verifikasi Kriptografis Token (HMAC-SHA256 & Expiration)
-  const session = verifySessionToken(token);
+  const session = candidateSession;
   if (!session) {
     res.status(401).json({
       success: false,

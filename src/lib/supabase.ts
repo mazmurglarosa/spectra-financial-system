@@ -99,9 +99,35 @@ function getCsrfToken(): string {
   return sessionStorage.getItem('spectra_csrf') || localStorage.getItem('spectra_csrf') || '';
 }
 
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  tableCount?: number;
+  latencyMs?: number;
+  dbHost?: string;
+  status?: number;
+  isRateLimited?: boolean;
+  isRpcFailure?: boolean;
+  retryAfter?: number;
+}
+
+// Client-side rate limit cooldown tracker
+let rateLimitCooldownUntil = 0;
+
 // Client Gateway untuk memanggil Backend API Vercel Serverless terautentikasi
 async function callFinancialGateway(endpoint: string, options: RequestInit = {}): Promise<any> {
   if (typeof window === 'undefined') return null;
+
+  // Jika sedang masa cooldown rate-limit, tolak request segera sebelum network trip (mencegah retry storm)
+  const now = Date.now();
+  if (now < rateLimitCooldownUntil) {
+    const remainingSec = Math.ceil((rateLimitCooldownUntil - now) / 1000);
+    const err: any = new Error(`Permintaan ditahan oleh sistem: Akses sedang dibatasi (Rate Limited). Silakan tunggu ${remainingSec} detik.`);
+    err.status = 429;
+    err.errorCode = 'RATE_LIMITED';
+    err.retryAfter = remainingSec;
+    throw err;
+  }
 
   const csrf = getCsrfToken();
   const headers: Record<string, string> = {
@@ -121,30 +147,77 @@ async function callFinancialGateway(endpoint: string, options: RequestInit = {})
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
-    throw new Error(errJson?.error || `HTTP ${res.status}: Gagal memproses permintaan.`);
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : (errJson?.retryAfter || 30);
+    if (res.status === 429) {
+      rateLimitCooldownUntil = Date.now() + (retryAfter * 1000);
+    }
+    const err = new Error(errJson?.error || `HTTP ${res.status}: Gagal memproses permintaan.`);
+    (err as any).status = res.status;
+    (err as any).errorCode = errJson?.errorCode;
+    (err as any).retryAfter = retryAfter;
+    throw err;
   }
 
   return await res.json();
 }
 
-export async function testSupabaseConnection(): Promise<{ success: boolean; message: string; tableCount?: number; latencyMs?: number }> {
+export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
+  // 0. Hormati Cooldown Rate Limiter jika sedang dibatasi (mencegah request berulang terus-menerus)
+  const now = Date.now();
+  if (now < rateLimitCooldownUntil) {
+    const remainingSec = Math.ceil((rateLimitCooldownUntil - now) / 1000);
+    return {
+      success: false,
+      isRateLimited: true,
+      status: 429,
+      retryAfter: remainingSec,
+      message: `Akses backend sedang dibatasi sementara (Rate Limited). Silakan tunggu ${remainingSec} detik.`
+    };
+  }
+
   // 1. Prioritas Utama: Uji melalui Backend API Gateway (/api/financial/status)
   if (typeof window !== 'undefined') {
     try {
       const res = await callFinancialGateway('/api/financial/status');
       if (res && res.success) {
+        // Reset cooldown jika berhasil
+        rateLimitCooldownUntil = 0;
         return {
           success: true,
           message: res.message || 'Koneksi Backend API Gateway ke Supabase aktif & stabil.',
           tableCount: res.tableCounts?.accounts,
-          latencyMs: res.latencyMs
+          latencyMs: res.latencyMs,
+          dbHost: res.dbHost
         };
       }
       throw new Error(res?.error || 'Uji status backend gateway gagal.');
     } catch (e: any) {
+      if (e?.status === 429 || e?.errorCode === 'RATE_LIMITED') {
+        const retryAfter = Number(e.retryAfter) || 30;
+        rateLimitCooldownUntil = Date.now() + (retryAfter * 1000);
+        return {
+          success: false,
+          isRateLimited: true,
+          status: 429,
+          retryAfter,
+          message: `Terlalu banyak permintaan akses keuangan. Silakan tunggu ${retryAfter} detik.`
+        };
+      }
+
+      if (e?.status === 503 || e?.errorCode === 'RATE_LIMITER_UNAVAILABLE') {
+        return {
+          success: false,
+          isRpcFailure: true,
+          status: 503,
+          message: e?.message || 'Layanan verifikasi backend sedang mengalami gangguan sementara.'
+        };
+      }
+
       if (isRemoteEnvironment()) {
         return {
           success: false,
+          status: e?.status || 500,
           message: `Koneksi Backend Gateway gagal: ${e.message}`
         };
       }

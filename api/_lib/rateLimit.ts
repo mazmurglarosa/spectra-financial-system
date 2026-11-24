@@ -17,6 +17,15 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+  error?: string;
+  isRateLimited?: boolean;
+  isRpcFailure?: boolean;
+}
+
 /**
  * Rate Limiter in-memory synchronous (tier 1 fast cache)
  */
@@ -24,7 +33,7 @@ export function checkRateLimit(
   key: string,
   limit: number,
   windowMs: number
-): { allowed: boolean; remaining: number; resetAt: number } {
+): RateLimitResult {
   const now = Date.now();
   const entry = memoryStore.get(key);
 
@@ -37,7 +46,9 @@ export function checkRateLimit(
     return {
       allowed: true,
       remaining: limit - 1,
-      resetAt: newEntry.resetAt
+      resetAt: newEntry.resetAt,
+      isRateLimited: false,
+      isRpcFailure: false
     };
   }
 
@@ -45,7 +56,9 @@ export function checkRateLimit(
     return {
       allowed: false,
       remaining: 0,
-      resetAt: entry.resetAt
+      resetAt: entry.resetAt,
+      isRateLimited: true,
+      isRpcFailure: false
     };
   }
 
@@ -53,21 +66,23 @@ export function checkRateLimit(
   return {
     allowed: true,
     remaining: limit - entry.count,
-    resetAt: entry.resetAt
+    resetAt: entry.resetAt,
+    isRateLimited: false,
+    isRpcFailure: false
   };
 }
 
 /**
  * Centralized Rate Limiter untuk Vercel Serverless Multi-Instance
  * Berjalan terpusat menggunakan Supabase tabel `rate_limits` jika tersedia;
- * otomatis fallback ke in-memory jika tabel belum siap atau koneksi terputus.
+ * membedakan secara tegas antara kuota habis (isRateLimited) vs kegagalan RPC (isRpcFailure).
  */
 export async function checkRateLimitCentralized(
   key: string,
   limit: number,
   windowMs: number,
   supabase?: SupabaseClient | any
-): Promise<{ allowed: boolean; remaining: number; resetAt: number; error?: string }> {
+): Promise<RateLimitResult> {
   const now = Date.now();
   const isPublicEnv = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
 
@@ -83,22 +98,30 @@ export async function checkRateLimitCentralized(
       });
 
       if (!rpcErr && rpcData) {
+        const allowed = Boolean(rpcData.allowed);
+        const remaining = Number(rpcData.remaining ?? 0);
+        const resetAt = Number(rpcData.reset_at ?? (now + windowMs));
         return {
-          allowed: Boolean(rpcData.allowed),
-          remaining: Number(rpcData.remaining),
-          resetAt: Number(rpcData.reset_at)
+          allowed,
+          remaining,
+          resetAt,
+          isRateLimited: !allowed,
+          isRpcFailure: false
         };
       }
 
       // KETENTUAN KEAMANAN MUTLAK:
       // Pada lingkungan Vercel/Produksi, jika RPC gagal, DILARANG fallback ke mekanisme non-atomik.
       // Sistem wajib Fail-Closed demi mencegah eksploitasi rate-limit bypass.
+      // Diberikan status isRpcFailure agar backend dapat mengembalikan HTTP 503 (bukan 429).
       if (isPublicEnv) {
         console.error('[RateLimitAtomicError] RPC check_and_increment_rate_limit gagal di serverless:', rpcErr?.message);
         return {
           allowed: false,
           remaining: 0,
-          resetAt: now + 60000,
+          resetAt: now + 5000,
+          isRateLimited: false,
+          isRpcFailure: true,
           error: 'Rate limit atomik tidak tersedia. Permintaan diblokir demi keamanan.'
         };
       }
@@ -124,15 +147,17 @@ export async function checkRateLimitCentralized(
             return {
               allowed: false,
               remaining: 0,
-              resetAt: now + 60000,
-              error: 'Centralized rate limit storage write failed. Request blocked for security.'
+              resetAt: now + 5000,
+              isRateLimited: false,
+              isRpcFailure: true,
+              error: 'Centralized rate limit storage write failed.'
             };
           }
-          return { allowed: true, remaining: limit - 1, resetAt };
+          return { allowed: true, remaining: limit - 1, resetAt, isRateLimited: false, isRpcFailure: false };
         }
 
         if (Number(record.count) >= limit) {
-          return { allowed: false, remaining: 0, resetAt: Number(record.reset_at) };
+          return { allowed: false, remaining: 0, resetAt: Number(record.reset_at), isRateLimited: true, isRpcFailure: false };
         }
 
         const newCount = Number(record.count) + 1;
@@ -149,21 +174,27 @@ export async function checkRateLimitCentralized(
             allowed: false,
             remaining: 0,
             resetAt: Number(record.reset_at),
-            error: 'Centralized rate limit storage update failed. Request blocked for security.'
+            isRateLimited: false,
+            isRpcFailure: true,
+            error: 'Centralized rate limit storage update failed.'
           };
         }
 
         return {
           allowed: true,
           remaining: limit - newCount,
-          resetAt: Number(record.reset_at)
+          resetAt: Number(record.reset_at),
+          isRateLimited: false,
+          isRpcFailure: false
         };
       } else if (isPublicEnv) {
         return {
           allowed: false,
           remaining: 0,
-          resetAt: now + 60000,
-          error: 'Centralized rate limit query failed. Request blocked for security.'
+          resetAt: now + 5000,
+          isRateLimited: false,
+          isRpcFailure: true,
+          error: 'Centralized rate limit query failed.'
         };
       }
     } catch (err: any) {
@@ -171,8 +202,10 @@ export async function checkRateLimitCentralized(
         return {
           allowed: false,
           remaining: 0,
-          resetAt: now + 60000,
-          error: `Centralized rate limit check exception: ${err?.message || 'unknown'}. Request blocked for security.`
+          resetAt: now + 5000,
+          isRateLimited: false,
+          isRpcFailure: true,
+          error: `Centralized rate limit check exception: ${err?.message || 'unknown'}.`
         };
       }
     }
@@ -180,8 +213,10 @@ export async function checkRateLimitCentralized(
     return {
       allowed: false,
       remaining: 0,
-      resetAt: now + 60000,
-      error: 'Centralized rate limit client missing in public environment. Request blocked for security.'
+      resetAt: now + 5000,
+      isRateLimited: false,
+      isRpcFailure: true,
+      error: 'Centralized rate limit client missing in public environment.'
     };
   }
 

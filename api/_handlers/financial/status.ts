@@ -32,10 +32,20 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // Ambil identifier host database secara dinamis tanpa membocorkan kredensial
+    let dbHost = 'unknown';
+    try {
+      const dbUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      if (dbUrl) {
+        dbHost = new URL(dbUrl).hostname;
+      }
+    } catch {}
+
     return res.status(200).json({
       success: true,
       message: 'Koneksi Backend API Gateway ke Supabase aktif & stabil.',
       latencyMs,
+      dbHost,
       tableCounts: {
         accounts: count || 0
       },
