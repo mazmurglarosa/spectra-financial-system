@@ -23,8 +23,6 @@ import {
   HardDrive,
   CheckCircle,
   X,
-  Key,
-  EyeOff,
   History,
   Clock,
   ListFilter,
@@ -67,9 +65,6 @@ import {
   SAMPLE_RECEIPT_DATA, 
   SPREADSHEET_CONFIG,
   extractTransactionFromFile,
-  getGeminiApiKey,
-  saveGeminiApiKey,
-  testGeminiApiKey,
   RealOcrExtractionResult
 } from '../services/autoRecordService';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
@@ -103,12 +98,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [seqNumber, setSeqNumber] = useState<number>(() => getNextDocumentSequence(transactions));
   const [nomorBerkas, setNomorBerkas] = useState<string>(() => generateFileCode(getNextDocumentSequence(transactions)));
 
-  // Gemini API Key Modal State
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
-  const [apiKeyInput, setApiKeyInput] = useState<string>(() => getGeminiApiKey());
-  const [showApiKeyText, setShowApiKeyText] = useState<boolean>(false);
-  const [apiTesting, setApiTesting] = useState<boolean>(false);
-  const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Groq Vision Backend Status (Neutral until verified by actual request or backend verification)
+  const [groqBackendStatus, setGroqBackendStatus] = useState<'verified' | 'neutral'>('neutral');
 
   // Pipeline Status & Stage (tahap1, tahap2, riwayat)
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
@@ -495,6 +486,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setMathDiscrepancy(extractionResult.mathDiscrepancy);
       setDiscrepancyMessage(extractionResult.discrepancyMessage || '');
       setActiveSourceEngine(extractionResult.sourceEngine);
+      if (extractionResult.sourceEngine === 'groq_vision') {
+        setGroqBackendStatus('verified');
+      }
 
       setExtractStep('4/4: Sinkronisasi Google Drive & Penamaan Otomatis (' + nomorBerkas + ')...');
 
@@ -888,27 +882,35 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               </a>
             </div>
 
-            {/* Baris 2: Status Integrasi Sistem (AI Vision & Bot Google Sheet) */}
+            {/* Baris 2: Status Integrasi Sistem (Groq Vision & Bot Google Sheet) */}
             <div className="flex items-center gap-2">
-              {/* Status Gemini Vision AI */}
-              <button
-                type="button"
-                onClick={() => {
-                  setApiKeyInput(getGeminiApiKey());
-                  setApiTestResult(null);
-                  setIsApiKeyModalOpen(true);
-                }}
-                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer whitespace-nowrap ${
-                  getGeminiApiKey()
-                    ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:border-slate-600'
-                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+              {/* Status Groq Vision AI */}
+              <div
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all whitespace-nowrap ${
+                  groqBackendStatus === 'verified'
+                    ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/40'
+                    : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
                 }`}
-                title={getGeminiApiKey() ? 'API Key Gemini terhubung. Klik untuk konfigurasi.' : 'Klik untuk menyetel API Key Gemini.'}
+                title={
+                  groqBackendStatus === 'verified'
+                    ? 'Groq Vision terverifikasi aktif melalui backend serverless.'
+                    : 'Groq Vision dijalankan melalui backend /api/scan-receipt.'
+                }
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${getGeminiApiKey() ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-amber-400 animate-pulse'}`} />
-                <Key className="w-3 h-3 text-slate-400" />
-                <span>{getGeminiApiKey() ? 'AI Vision: Terhubung' : 'Setel Gemini Key'}</span>
-              </button>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    groqBackendStatus === 'verified'
+                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                      : 'bg-sky-400'
+                  }`}
+                />
+                <Sparkles className="w-3 h-3 text-slate-400" />
+                <span>
+                  {groqBackendStatus === 'verified'
+                    ? 'Groq Vision — AI OCR'
+                    : 'Groq Vision — Backend'}
+                </span>
+              </div>
 
               {/* Status Bot Apps Script */}
               <button
@@ -1427,7 +1429,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   }`}>
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                     <span>
-                      {activeSourceEngine === 'groq_vision' ? 'Groq Vision (qwen/qwen3.8-27b)' :
+                      {activeSourceEngine === 'groq_vision' ? 'Groq Vision — AI OCR' :
                        activeSourceEngine === 'gemini_vision' ? 'Gemini Multimodal Vision AI' :
                        activeSourceEngine === 'tesseract_ocr' ? 'Offline OCR (Tesseract.js)' : 'Smart Rule Parser'}
                     </span>
@@ -2256,150 +2258,6 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               >
                 Proses Bukti Transaksi Berikutnya
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL KONFIGURASI GEMINI VISION API KEY */}
-      {/* ========================================================================= */}
-      {isApiKeyModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-scaleUp">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Konfigurasi Gemini Multimodal Vision AI</h3>
-                  <p className="text-[11px] text-slate-500">Google AI Studio API Key (Tersimpan aman di localStorage)</p>
-                </div>
-              </div>
-              <button 
-                type="button"
-                onClick={() => setIsApiKeyModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-relaxed space-y-1.5">
-                <div className="font-bold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Ekstraksi Visioner Multimodal Berbasis Gemini AI</span>
-                </div>
-                <p>
-                  Gemini Vision bertindak sebagai otak analitis akuntansi: membaca struk kasir, nota tulis tangan (HTR), dan <strong>Bukti Transfer Bank (BCA, Mandiri, BI-FAST, dll)</strong> secara cerdas untuk membentuk jurnal debit-kredit SAK secara otomatis.
-                </p>
-                
-                <div className="bg-white/80 rounded-lg p-2 border border-blue-100 text-[10.5px] space-y-1 text-slate-700">
-                  <div><strong className="text-blue-900">• Free Tier (Gratis):</strong> Batas 15 request/menit &amp; 1.500 transaksi/hari (sangat memadai untuk operasional harian kantor).</div>
-                  <div><strong className="text-emerald-800">• Tanpa Batasan (Pay-as-you-go):</strong> Cukup hubungkan tagihan di Google AI Studio untuk pemakaian tanpa batas (biaya sangat hemat: rata-rata ~Rp 1 s.d. Rp 5 per lembar struk).</div>
-                  <div><strong className="text-purple-800">• Tips Hasil 100% Jelas:</strong> Gunakan aplikasi kamera HP (seperti Google Camera / Document Mode) dengan pencahayaan terang saat memotret bukti fisik.</div>
-                </div>
-
-                <p className="text-[10px] text-blue-700 pt-0.5">
-                  Belum punya key? Dapatkan secara gratis di:{' '}
-                  <a 
-                    href="https://aistudio.google.com/app/apikey" 
-                    target="_blank" 
-                    rel="noreferrer" 
-                    className="font-bold underline text-blue-800 hover:text-blue-950 inline-flex items-center gap-0.5"
-                  >
-                    Google AI Studio <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  Google Gemini API Key:
-                </label>
-                <div className="relative">
-                  <input
-                    type={showApiKeyText ? 'text' : 'password'}
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3.5 py-2.5 pr-10 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKeyText(!showApiKeyText)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    {showApiKeyText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {apiTestResult && (
-                <div className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
-                  apiTestResult.success ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'
-                }`}>
-                  {apiTestResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-                  <div>{apiTestResult.message}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={apiTesting}
-                onClick={async () => {
-                  if (!apiKeyInput.trim()) {
-                    setApiTestResult({ success: false, message: 'Ketik API Key terlebih dahulu untuk diuji.' });
-                    return;
-                  }
-                  setApiTesting(true);
-                  setApiTestResult(null);
-                  const res = await testGeminiApiKey(apiKeyInput.trim());
-                  setApiTesting(false);
-                  setApiTestResult(res);
-                }}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {apiTesting ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
-                    <span>Menguji...</span>
-                  </>
-                ) : (
-                  <span>Uji Koneksi AI</span>
-                )}
-              </button>
-
-              <div className="flex items-center gap-2">
-                {apiKeyInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      saveGeminiApiKey('');
-                      setApiKeyInput('');
-                      setApiTestResult({ success: true, message: 'API Key berhasil dihapus dari browser.' });
-                    }}
-                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl transition cursor-pointer"
-                  >
-                    Hapus
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    saveGeminiApiKey(apiKeyInput.trim());
-                    setIsApiKeyModalOpen(false);
-                    alert(apiKeyInput.trim() ? 'Gemini API Key berhasil disimpan!' : 'API Key dikosongkan.');
-                  }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
-                >
-                  Simpan API Key
-                </button>
-              </div>
             </div>
           </div>
         </div>

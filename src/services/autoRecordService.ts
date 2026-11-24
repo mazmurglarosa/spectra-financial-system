@@ -1173,77 +1173,8 @@ export const SAMPLE_RECEIPT_DATA = {
 };
 
 // =========================================================================
-// 9. MESIN EKSTRAKSI NYATA (GEMINI VISION MULTIMODAL & OFFLINE OCR PIPELINE)
+// 9. MESIN EKSTRAKSI NYATA (GROQ VISION AI & OFFLINE OCR PIPELINE)
 // =========================================================================
-
-export const GEMINI_API_KEY_STORAGE = 'spectra_gemini_api_key';
-
-export function getGeminiApiKey(): string {
-  try {
-    const local = localStorage.getItem(GEMINI_API_KEY_STORAGE);
-    if (local && local.trim()) return local.trim();
-  } catch (e) {}
-
-  const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.NEXT_PUBLIC_GEMINI_API_KEY || '';
-  return envKey ? String(envKey).trim() : '';
-}
-
-export function saveGeminiApiKey(key: string): void {
-  try {
-    if (!key || !key.trim()) {
-      localStorage.removeItem(GEMINI_API_KEY_STORAGE);
-    } else {
-      localStorage.setItem(GEMINI_API_KEY_STORAGE, key.trim());
-    }
-  } catch (e) {}
-}
-
-export async function testGeminiApiKey(apiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
-  if (!apiKey || !apiKey.trim()) {
-    return { success: false, message: 'API Key tidak boleh kosong' };
-  }
-  const cleanKey = apiKey.trim();
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-  let quotaExceeded = false;
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Halo Gemini, konfirmasi koneksi API akuntansi SPECTRA dengan satu kata: OK' }] }]
-        })
-      });
-
-      if (res.ok) {
-        return { success: true, message: `Koneksi Gemini Multimodal API (${model}) Berhasil!`, model };
-      } else if (res.status === 429) {
-        quotaExceeded = true;
-      }
-    } catch (e: any) {
-      console.warn(`Testing model ${model} failed:`, e);
-    }
-  }
-
-  if (quotaExceeded) {
-    return { 
-      success: false, 
-      message: 'Batas kuota/laju gratis (Rate Limit 15 req/menit) tercapai. Tunggu 1 menit atau aktifkan Pay-as-you-go di Google AI Studio untuk akses tanpa batas.' 
-    };
-  }
-
-  return { success: false, message: 'Gagal terhubung ke Gemini API. Pastikan API Key valid dan kuota aktif.' };
-}
-
-function extractBase64AndMime(dataUri: string): { mimeType: string; base64: string } {
-  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
-  if (match) {
-    return { mimeType: match[1], base64: match[2] };
-  }
-  return { mimeType: 'image/jpeg', base64: dataUri };
-}
 
 /**
  * Parsing cerdas untuk bukti transfer bank dari raw OCR text
@@ -1392,194 +1323,6 @@ export function parseBankTransferFromText(
 }
 
 /**
- * Panggilan ke Gemini Multimodal Vision API
- */
-export async function callGeminiVisionExtraction(
-  dataUri: string,
-  posCode: string,
-  userDescription: string,
-  accounts: Account[],
-  apiKey: string
-): Promise<RealOcrExtractionResult> {
-  const { mimeType, base64 } = extractBase64AndMime(dataUri);
-  const coaList = accounts
-    .filter(a => !a.isHeader)
-    .map(a => `${a.code} - ${a.name} (${a.categoryName})`)
-    .slice(0, 60)
-    .join('\n');
-
-  const prompt = `
-Anda adalah Akuntan Publik Senior (CPA) dan Ahli AI Vision Finansial Indonesia.
-Tugas Anda: Analisis bukti transaksi keuangan pada gambar/dokumen yang terlampir dan hasilkan JSON terstruktur secara akurat.
-
-Konteks Transaksi:
-- Deskripsi/Keterangan dari Pengguna: "${userDescription || '(Tidak ada keterangan)'}"
-- Kode POS yang dipilih: "${posCode}"
-- Daftar Akun (COA) Sistem:
-${coaList}
-
-PERINGATAN SANGAT KRUSIAL MENGENAI ANGKA DESIMAL & NOL (0):
-1. Pada Bukti Transfer Bank (seperti BCA, Mandiri, BRI, BNI) atau nota belanja, angka sering ditulis dengan dua digit sen/desimal di akhir, misalnya: "IDR 2,850,000.00" atau "IDR 2,500.00".
-2. Dua digit terakhir (.00 atau ,00) tersebut adalah SEN (CENTS), BUKAN RIBUAN ATAU JUTAAN!
-3. DILARANG KERAS menghasilkan angka dengan 2 nol berlebih (misalnya: JANGAN PERNAH menghasilkan 285000000 untuk 2,850,000.00, atau 250000 untuk 2,500.00)!
-4. Output angka integer WAJIB murni tanpa desimal sen:
-   - "IDR 2,850,000.00" -> 2850000 (Dua Juta Delapan Ratus Lima Puluh Ribu)
-   - "IDR 2,500.00" -> 2500 (Dua Ribu Lima Ratus)
-   - "IDR 2,852,500.00" -> 2852500 (Dua Juta Delapan Ratus Lima Puluh Dua Ribu Lima Ratus)
-   - "Rp 440.000,00" -> 440000
-
-Aturan Analisis Dokumen:
-1. Bukti Transfer Bank / m-Banking / BI-FAST (contoh: BCA, Mandiri, BRI, BNI, QRIS):
-   - Baris 1: Gabungkan informasi Berita/Tujuan Transaksi dan Nama Penerima (contoh: "Brevet Pajak CPTT - PT Piranha Multi Talenta").
-     - unit_price: nominal pokok transfer integer (contoh: 2850000 jika tertulis IDR 2,850,000.00).
-     - quantity: 1.
-     - total_price: 2850000.
-     - is_tax_or_fee: false.
-   - Baris 2 (jika tertera biaya admin / biaya transfer BI-FAST):
-     - name: "Biaya Transfer BI-FAST" (atau nama biaya yang tertera).
-     - unit_price: null.
-     - quantity: null.
-     - total_price: 2500 (angka integer 2500, BUKAN 250000!).
-     - is_tax_or_fee: true.
-     - tax_or_fee_type: "BI_FAST".
-   - declared_grand_total: Penjumlahan seluruh total_price (contoh: 2850000 + 2500 = 2852500).
-
-2. Struk Kasir / Nota Belanja / Faktur / Nota Tulis Tangan:
-   - Ekstrak setiap baris barang/jasa: nama item, unit_price, quantity, unit, total_price.
-   - Pisahkan pajak (PB1, PPN), service charge, ongkir sebagai baris tersendiri (is_tax_or_fee: true).
-
-Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
-{
-  "detected_type": "transfer_bank" | "nota_pembelian" | "faktur" | "struk_thermal" | "lainnya",
-  "seller_or_recipient": "Nama Penerima / Toko",
-  "transaction_date": "YYYY-MM-DD",
-  "declared_grand_total": 2852500,
-  "extracted_items": [
-    {
-      "name": "Brevet Pajak CPTT - PT Piranha Multi Talenta",
-      "unit_price": 2850000,
-      "quantity": 1,
-      "unit": "transaksi",
-      "total_price": 2850000,
-      "is_tax_or_fee": false,
-      "tax_or_fee_type": null,
-      "confidence": 98
-    },
-    {
-      "name": "Biaya Transfer BI-FAST",
-      "unit_price": null,
-      "quantity": null,
-      "unit": "",
-      "total_price": 2500,
-      "is_tax_or_fee": true,
-      "tax_or_fee_type": "BI_FAST",
-      "confidence": 99
-    }
-  ]
-}
-`;
-
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-  let lastError: any = null;
-  let responseText = '';
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const payload = {
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64
-                }
-              },
-              {
-                text: prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1
-        }
-      };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        console.warn(`Gemini model ${model} error (${res.status}):`, errText);
-        lastError = new Error(`Gemini ${model} HTTP ${res.status}`);
-        continue;
-      }
-
-      const json = await res.json();
-      responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (responseText) break;
-    } catch (e) {
-      lastError = e;
-    }
-  }
-
-  if (!responseText) {
-    throw lastError || new Error('Gagal mendapatkan respon dari Gemini Vision');
-  }
-
-  // Parse JSON
-  let cleaned = responseText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
-
-  const parsed = JSON.parse(cleaned);
-  const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => {
-    const itemName = it.name || `Item ${idx + 1}`;
-    const sanitizedTotal = sanitizeCurrencyAmount(it.total_price, itemName);
-    const sanitizedUnit = it.unit_price !== null && it.unit_price !== undefined 
-      ? sanitizeCurrencyAmount(it.unit_price, itemName) 
-      : null;
-
-    return {
-      id: `it-gemini-${Date.now()}-${idx}`,
-      name: itemName,
-      unitPrice: sanitizedUnit,
-      quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
-      unit: it.unit || '',
-      totalPrice: sanitizedTotal,
-      confidence: Number(it.confidence) || 95,
-      isTaxOrFee: Boolean(it.is_tax_or_fee),
-      taxOrFeeType: it.tax_or_fee_type || undefined
-    };
-  });
-
-  const declaredGrand = sanitizeCurrencyAmount(parsed.declared_grand_total, userDescription);
-  const verif = runTwoWayDeterministicVerification(items, declaredGrand);
-
-  return {
-    detectedType: parsed.detected_type || 'lainnya',
-    sellerOrRecipient: parsed.seller_or_recipient || userDescription,
-    transactionDate: parsed.transaction_date,
-    extractedItems: verif.verifiedItems,
-    declaredGrandTotal: verif.grandTotal,
-    calculatedSum: verif.calculatedSum,
-    mathDiscrepancy: verif.mathDiscrepancy,
-    discrepancyMessage: verif.discrepancyMessage,
-    sourceEngine: 'gemini_vision',
-    rawResponse: parsed
-  };
-}
-
-/**
  * Ekstraksi offline dengan Tesseract.js dan parser teks cerdas
  */
 export async function extractTransactionWithOfflineOcr(
@@ -1690,7 +1433,7 @@ export async function extractTransactionWithOfflineOcr(
 }
 
 /**
- * Pipeline Ekstraksi Citra Tunggal (Groq Vision -> Gemini Vision -> Tesseract OCR)
+ * Pipeline Ekstraksi Citra Tunggal (Groq Vision -> Offline Tesseract OCR)
  */
 async function extractSingleImageViaPipeline(params: {
   imageUri: string;
@@ -1731,28 +1474,15 @@ async function extractSingleImageViaPipeline(params: {
     } else {
       const errJson = await groqRes.json().catch(() => null);
       const errMsg = errJson?.error || `HTTP ${groqRes.status}`;
-      console.warn(`Groq Vision API gagal (${errMsg}), beralih ke provider cadangan...`);
-      onProgress?.(`2/4: ${prefix}Groq Vision (${errMsg}), beralih ke provider cadangan...`);
+      console.warn(`Groq Vision API gagal (${errMsg}), beralih ke OCR offline lokal...`);
+      onProgress?.(`2/4: ${prefix}Groq Vision (${errMsg}), beralih ke OCR offline lokal...`);
     }
   } catch (groqErr: any) {
-    console.warn('Groq Vision backend unreachable/offline, beralih ke provider cadangan:', groqErr);
-    onProgress?.(`2/4: ${prefix}Backend Groq offline, beralih ke provider cadangan...`);
+    console.warn('Groq Vision backend unreachable/offline, beralih ke OCR offline lokal:', groqErr);
+    onProgress?.(`2/4: ${prefix}Backend Groq offline, beralih ke OCR offline lokal...`);
   }
 
-  // 2. Prioritas 2 (Fallback): Gemini Multimodal Vision AI
-  const apiKey = getGeminiApiKey();
-  if (apiKey) {
-    onProgress?.(`2/4: ${prefix}Memproses dengan Gemini Multimodal Vision AI...`);
-    try {
-      const result = await callGeminiVisionExtraction(imageUri, posCode, userDescription, accounts, apiKey);
-      return result;
-    } catch (err: any) {
-      console.warn('Gemini Vision API gagal, beralih ke OCR lokal:', err);
-      onProgress?.(`2/4: ${prefix}Gemini Vision sibuk/gagal, beralih ke OCR lokal...`);
-    }
-  }
-
-  // 3. Prioritas 3 (Fallback Terakhir): Offline OCR Tesseract.js & Smart Parser
+  // 2. Prioritas 2 (Fallback Offline): Offline OCR Tesseract.js & Smart Parser
   return extractTransactionWithOfflineOcr(imageUri, posCode, userDescription, accounts, onProgress);
 }
 
@@ -1761,7 +1491,7 @@ async function extractSingleImageViaPipeline(params: {
  * Multi-Provider & Multi-Format Pipeline:
  * - Dukungan PDF (1 s.d. 5 halaman) via konversi cerdas PDF.js ke gambar JPEG beresolusi tinggi
  * - Optimasi & kompresi cerdas gambar struk (JPEG/PNG/WebP/kamera) agar di bawah batas Vercel 4.5MB
- * - Multi-tier AI: Groq Vision -> Gemini Multimodal -> Offline Tesseract.js
+ * - Multi-tier AI: Groq Vision -> Offline Tesseract.js
  */
 export async function extractTransactionFromFile(params: {
   fileDataUri: string;

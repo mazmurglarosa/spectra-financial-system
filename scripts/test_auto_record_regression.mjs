@@ -11,7 +11,7 @@
  * 7. Error PDF.js worker dan PDF rusak -> ditangani dengan ramah.
  * 8. Optimasi gambar tanpa memotong struk panjang (thermal tape aspect ratio).
  * 9. Ukuran payload aktual termasuk Base64 dan JSON (< 4.5 MB Vercel Gateway).
- * 10. Fallback yang sesuai jika Groq gagal (Groq -> Gemini -> Tesseract).
+ * 10. Fallback yang sesuai jika Groq gagal (Groq Vision -> Offline Tesseract).
  * 11. Tidak ada upload Google Drive/Sheets perusahaan dari Preview (Fail-Closed Guard).
  * 12. Hasil masuk ke Tabel Koreksi Tahap 2, tidak langsung diposting ke Jurnal Umum.
  * 13. Navigasi pratinjau halaman PDF di antarmuka pengguna.
@@ -376,35 +376,28 @@ async function runAllTests() {
   }
 
   // -------------------------------------------------------------------------
-  // TEST 10: Fallback Hierarchy jika Groq Gagal (Groq -> Gemini -> Tesseract)
+  // TEST 10: Fallback Hierarchy jika Groq Gagal (Groq Vision -> Offline Tesseract)
   // -------------------------------------------------------------------------
   try {
-    const simulateOcrPipeline = async ({ groqOnline, hasGeminiKey }) => {
-      // 1. Groq Vision
+    const simulateOcrPipeline = async ({ groqOnline }) => {
+      // 1. Groq Vision Serverless
       if (groqOnline) {
         return { engine: 'groq_vision', success: true };
       }
-      // 2. Gemini Vision Fallback
-      if (hasGeminiKey) {
-        return { engine: 'gemini_vision', success: true };
-      }
-      // 3. Offline Tesseract Fallback
+      // 2. Offline Tesseract Fallback (Direct, Tanpa Gemini)
       return { engine: 'tesseract_ocr', success: true };
     };
 
-    const res1 = await simulateOcrPipeline({ groqOnline: true, hasGeminiKey: false });
+    const res1 = await simulateOcrPipeline({ groqOnline: true });
     assert.strictEqual(res1.engine, 'groq_vision');
 
-    const res2 = await simulateOcrPipeline({ groqOnline: false, hasGeminiKey: true });
-    assert.strictEqual(res2.engine, 'gemini_vision');
+    const res2 = await simulateOcrPipeline({ groqOnline: false });
+    assert.strictEqual(res2.engine, 'tesseract_ocr');
 
-    const res3 = await simulateOcrPipeline({ groqOnline: false, hasGeminiKey: false });
-    assert.strictEqual(res3.engine, 'tesseract_ocr');
-
-    recordTest(10, 'Fallback Hierarchy: Groq -> Gemini -> Offline Tesseract', true, 
-      'Hierarki transisi mulus: Groq -> Fallback Gemini -> Fallback Tesseract berhasil diverifikasi.');
+    recordTest(10, 'Fallback Hierarchy: Groq Vision -> Offline Tesseract (No Gemini)', true,
+      'Hierarki transisi mulus: Groq Vision -> Langsung Offline Tesseract berhasil diverifikasi tanpa panggilan Gemini.');
   } catch (err) {
-    recordTest(10, 'Fallback Hierarchy: Groq -> Gemini -> Offline Tesseract', false, err.message);
+    recordTest(10, 'Fallback Hierarchy: Groq Vision -> Offline Tesseract (No Gemini)', false, err.message);
   }
 
   // -------------------------------------------------------------------------
