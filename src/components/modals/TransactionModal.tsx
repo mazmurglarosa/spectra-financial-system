@@ -51,6 +51,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [contact, setContact] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [lines, setLines] = useState<TransactionLine[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -194,7 +196,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setLines(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!isBalanced) {
@@ -214,33 +216,47 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       return;
     }
 
-    if (transactionToEdit) {
-      updateTransaction(transactionToEdit.id, {
-        date,
-        refNumber,
-        type: txType,
-        description: description.trim(),
-        partner: contact.trim() || undefined,
-        lines: validLines,
-        totalDebit,
-        totalCredit
-      });
-      alert(`Transaksi ${refNumber} berhasil diperbarui!`);
-    } else {
-      addTransaction({
-        date,
-        refNumber,
-        type: txType,
-        description: description.trim(),
-        partner: contact.trim() || undefined,
-        lines: validLines,
-        totalDebit,
-        totalCredit
-      });
-      alert(`Transaksi ${refNumber} berhasil disimpan!`);
-    }
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    onClose();
+    try {
+      if (transactionToEdit) {
+        const res = await updateTransaction(transactionToEdit.id, {
+          date,
+          refNumber,
+          type: txType,
+          description: description.trim(),
+          partner: contact.trim() || undefined,
+          lines: validLines,
+          totalDebit,
+          totalCredit
+        });
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal memperbarui transaksi');
+        }
+        alert(`Transaksi ${refNumber} berhasil diperbarui!`);
+      } else {
+        const res = await addTransaction({
+          date,
+          refNumber,
+          type: txType,
+          description: description.trim(),
+          partner: contact.trim() || undefined,
+          lines: validLines,
+          totalDebit,
+          totalCredit
+        });
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal menyimpan transaksi');
+        }
+        alert(`Transaksi ${refNumber} berhasil disimpan!`);
+      }
+      onClose();
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Terjadi kesalahan saat menyimpan transaksi.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -555,25 +571,41 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </div>
             )}
 
+            {/* Submit Error Alert Box */}
+            {submitError && (
+              <div className="p-2.5 rounded-lg text-xs flex items-center space-x-2 bg-rose-50 text-rose-800 border border-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Gagal menyimpan: {submitError}</span>
+              </div>
+            )}
+
             {/* Modal Actions */}
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-3 border-t border-slate-200">
               <button 
                 type="button" 
                 onClick={onClose} 
-                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 transition text-center cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
+                disabled={isSubmitting}
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 transition text-center cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center disabled:opacity-50"
               >
                 Batal
               </button>
               <button 
                 type="submit" 
-                disabled={!isBalanced}
+                disabled={!isBalanced || isSubmitting}
                 className={`w-full sm:w-auto px-5 py-2.5 sm:py-2 text-xs font-semibold text-white rounded-lg shadow-sm transition flex items-center justify-center space-x-1.5 min-h-[44px] sm:min-h-0 ${
-                  isBalanced 
+                  isBalanced && !isSubmitting
                     ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer active:scale-98' 
                     : 'bg-slate-400 opacity-50 cursor-not-allowed'
                 }`}
               >
-                <span>Simpan Transaksi</span>
+                {isSubmitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Menyimpan ke Cloud...</span>
+                  </>
+                ) : (
+                  <span>Simpan Transaksi</span>
+                )}
               </button>
             </div>
           </form>

@@ -262,14 +262,14 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     exportTableToExcel(data, `Riwayat_Transaksi_AutoRecord_${new Date().toISOString().split('T')[0]}`, 'Riwayat Transaksi');
   };
 
-  const handleLoadSampleRecordedTransaction = () => {
+  const handleLoadSampleRecordedTransaction = async () => {
     const existing = transactions.find(t => t.refNumber && t.refNumber.startsWith('BT/0001'));
     if (existing) {
       alert('Transaksi BT/0001 sudah ada dalam daftar transaksi yang terekam.');
       return;
     }
 
-    addTransaction({
+    const res = await addTransaction({
       date: new Date().toISOString().slice(0, 10),
       refNumber: 'BT/0001/26X26',
       type: 'general',
@@ -307,6 +307,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       totalCredit: 440000,
       partner: 'TOKO BAUT & MATERIAL JAYA'
     });
+
+    if (!res.success) {
+      alert(`Gagal menambahkan contoh transaksi: ${res.error}`);
+      return;
+    }
+
     commitDocumentSequence(2);
     logActivity('Auto Record Sample', 'Menambahkan contoh transaksi BT/0001/26X26 ke database');
     alert('Contoh transaksi BT/0001/26X26 berhasil ditambahkan ke daftar transaksi terekam!');
@@ -2072,9 +2078,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                           <td className="py-3 px-3.5 text-center">
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi "${trx.refNumber || trx.description}"?`)) {
-                                  deleteTransaction(trx.id);
+                                  const res = await deleteTransaction(trx.id);
+                                  if (!res.success) {
+                                    alert(res.error || 'Gagal menghapus transaksi dari database.');
+                                  }
                                 }
                               }}
                               className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"

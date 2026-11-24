@@ -482,9 +482,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <td className="text-center">
                         <button 
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             if (confirm(`Apakah Anda yakin ingin menghapus transaksi ${tx.refNumber}?`)) {
-                              deleteTransaction(tx.id);
+                              const res = await deleteTransaction(tx.id);
+                              if (!res.success) {
+                                alert(res.error || 'Gagal menghapus transaksi dari server.');
+                              }
                             }
                           }}
                           title="Hapus Transaksi"

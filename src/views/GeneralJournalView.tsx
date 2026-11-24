@@ -59,9 +59,12 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
   const totalCredit = filteredTransactions.reduce((acc, t) => acc + t.totalCredit, 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
 
-  const handleDelete = (trx: Transaction) => {
+  const handleDelete = async (trx: Transaction) => {
     if (confirm(`Hapus transaksi ${trx.refNumber}: "${trx.description}"? Tindakan ini akan mengupdate semua buku besar dan laporan keuangan.`)) {
-      deleteTransaction(trx.id);
+      const res = await deleteTransaction(trx.id);
+      if (!res.success) {
+        alert(res.error || 'Gagal menghapus transaksi dari server.');
+      }
     }
   };
 

@@ -55,7 +55,7 @@ export default async function handler(req: any, res: any) {
     if (!auth) return;
 
     const { supabase, dbUser } = auth;
-    const rawTx = req.body;
+    const rawTx = (req.body && req.body.transaction) ? req.body.transaction : req.body;
 
     // VALIDASI TERPUSAT: Struktur, Akun, Nilai Finite/Positif, Keseimbangan SAK
     const validation = await validateTransactionStrict(rawTx, supabase, { checkAccountExistence: true });

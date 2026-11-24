@@ -165,7 +165,13 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const groqModel = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b';
+  // Model Vision Candidates dengan Fallback Otomatis
+  const candidateModels = [
+    process.env.GROQ_VISION_MODEL,
+    'llama-3.2-11b-vision-preview',
+    'llama-3.2-90b-vision-preview'
+  ].filter(Boolean) as string[];
+
   const dataUri = `data:${mime};base64,${cleanBase64}`;
 
   // 6. Buat Prompt Terstruktur untuk Model Vision
@@ -176,14 +182,21 @@ PANDUAN EKSTRAKSI ANGKA INDONESIA:
 1. Pemisah ribuan di Indonesia menggunakan tanda titik (contoh: 50.000) atau koma jika format internasional.
 2. Nominal bukti transfer sering menyertakan sen .00 (contoh: 2.500.000,00 atau 2,500,000.00). JANGAN menganggap dua nol desimal sebagai angka ratusan ribu!
 3. Tulisan tangan sering menggunakan notasi '10,-' (artinya 10.000 jika dalam konteks ribuan) atau '10k' / '10rb'.
-4. Pisahkan pajak (PB1/PPN), biaya kirim (ongkir), atau biaya transfer bank (BI-FAST / admin bank) sebagai baris item dengan tanda is_tax_or_fee: true.
+4. Pisahkan subtotal, pajak (PB1/PPN), diskon, biaya kirim (ongkir), total bayar, dan kembalian secara terpisah.
+5. DILARANG membuat nominal fiktif. Jika teks angka buram/hilang, beri confidence rendah (20-40) dan gunakan angka tertera apa adanya.
 
 WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
 {
   "detected_type": "nota_pembelian" | "transfer_bank" | "faktur" | "struk_thermal" | "lainnya",
   "seller_or_recipient": "Nama Toko / Penerima / Rekanan",
   "transaction_date": "YYYY-MM-DD",
+  "subtotal": 0,
+  "tax_amount": 0,
+  "discount_amount": 0,
+  "shipping_fee": 0,
   "declared_grand_total": 0,
+  "payment_amount": 0,
+  "change_amount": 0,
   "extracted_items": [
     {
       "name": "Nama barang atau jasa",
@@ -191,7 +204,7 @@ WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
       "unit": "pcs",
       "unit_price": 50000,
       "total_price": 50000,
-      "confidence": 95,
+      "confidence": 85,
       "is_tax_or_fee": false,
       "tax_or_fee_type": null
     }
@@ -199,113 +212,149 @@ WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
 }`;
 
   const userPrompt = `Analisis berkas transaksi berikut (Konteks POS: ${posCode}, Catatan User: ${userDescription || '-'}).
-Ekstrak semua baris item barang/jasa beserta harganya secara akurat dan kembalikan dalam format JSON.`;
+Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand total secara presisi dan kembalikan dalam format JSON.`;
 
-  // 7. Panggil Groq Vision API dengan Timeout 15s
-  const controller = new AbortController();
-  const timeoutTimer = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+  // 7. Panggil Groq Vision API dengan Fallback Antar Model dan Timeout 15s
+  let lastError: any = null;
+  let parsed: any = null;
+  let usedModel = candidateModels[0] || 'llama-3.2-11b-vision-preview';
 
-  try {
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${groqApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: groqModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userPrompt },
-              {
-                type: 'image_url',
-                image_url: { url: dataUri }
-              }
-            ]
-          }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-        max_tokens: 2048
-      }),
-      signal: controller.signal
-    });
+  for (const modelToTry of candidateModels) {
+    usedModel = modelToTry;
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
 
-    clearTimeout(timeoutTimer);
-
-    if (!groqResponse.ok) {
-      const errText = await groqResponse.text();
-      console.error('[Groq API Error Status]:', groqResponse.status, errText);
-
-      if (groqResponse.status === 401) {
-        return res.status(500).json({
-          success: false,
-          error: 'Autentikasi ke Groq Vision API gagal. Kunci GROQ_API_KEY tidak valid.'
-        });
-      }
-
-      if (groqResponse.status === 404) {
-        return res.status(502).json({
-          success: false,
-          error: 'Model Groq Vision yang diminta tidak ditemukan atau telah dinonaktifkan oleh provider. Pastikan model yang digunakan aktif (default: qwen/qwen3.8-27b).'
-        });
-      }
-
-      if (groqResponse.status === 429) {
-        return res.status(429).json({
-          success: false,
-          error: 'Groq API sedang melayani beban puncak (rate limited). Silakan coba lagi beberapa saat.'
-        });
-      }
-
-      return res.status(502).json({
-        success: false,
-        error: `Layanan Groq Vision API mengembalikan status kesalahan (${groqResponse.status}).`
-      });
-    }
-
-    const completion: any = await groqResponse.json();
-    const contentText = completion.choices?.[0]?.message?.content || '{}';
-
-    let parsed: any = {};
     try {
-      parsed = JSON.parse(contentText);
-    } catch (parseErr) {
-      console.error('[Groq JSON Parse Error]: Raw content was:', contentText);
-      return res.status(502).json({
-        success: false,
-        error: 'Hasil dari model Vision tidak dapat diuraikan sebagai format JSON yang valid.'
+      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: modelToTry,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userPrompt },
+                {
+                  type: 'image_url',
+                  image_url: { url: dataUri }
+                }
+              ]
+            }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+          max_tokens: 2048
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutTimer);
+
+      if (!groqResponse.ok) {
+        const errText = await groqResponse.text();
+        console.warn(`[Groq API Model ${modelToTry} Error]:`, groqResponse.status, errText);
+
+        if (groqResponse.status === 404 || groqResponse.status === 503) {
+          // Model dihentikan atau service unavailable -> coba kandidat model berikutnya
+          lastError = new Error(`Model ${modelToTry} tidak aktif (${groqResponse.status}).`);
+          continue;
+        }
+
+        if (groqResponse.status === 401) {
+          return res.status(500).json({
+            success: false,
+            error: 'Autentikasi ke Groq Vision API gagal. Kunci GROQ_API_KEY tidak valid.'
+          });
+        }
+
+        if (groqResponse.status === 429) {
+          return res.status(429).json({
+            success: false,
+            error: 'Groq API sedang melayani beban puncak (rate limited). Silakan coba lagi beberapa saat.'
+          });
+        }
+
+        lastError = new Error(`Groq status ${groqResponse.status}`);
+        continue;
+      }
+
+      const completion: any = await groqResponse.json();
+      const contentText = completion.choices?.[0]?.message?.content || '{}';
+
+      try {
+        parsed = JSON.parse(contentText);
+        break; // Berhasil mendapatkan dan mem-parse JSON
+      } catch (parseErr) {
+        console.error('[Groq JSON Parse Error]: Raw content was:', contentText);
+        lastError = new Error('Hasil model Vision bukan format JSON valid.');
+        continue;
+      }
+    } catch (fetchErr: any) {
+      clearTimeout(timeoutTimer);
+      console.warn(`[Groq Fetch Error with ${modelToTry}]:`, fetchErr.message);
+      lastError = fetchErr;
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return res.status(502).json({
+      success: false,
+      error: `Layanan Groq Vision API tidak dapat menyelesaikan pemindaian (${lastError?.message || 'semua model kandidat gagal'}). Sistem dapat beralih ke OCR Offline Tesseract.js.`
+    });
+  }
+
+  // 8. Normalisasi extracted_items (tangani null, object, atau tipe salah)
+  let rawItems: any[] = [];
+  if (Array.isArray(parsed.extracted_items)) {
+    rawItems = parsed.extracted_items;
+  } else if (parsed.extracted_items && typeof parsed.extracted_items === 'object') {
+    rawItems = Object.values(parsed.extracted_items);
+  } else if (Array.isArray(parsed.items)) {
+    rawItems = parsed.items;
+  } else if (parsed.items && typeof parsed.items === 'object') {
+    rawItems = Object.values(parsed.items);
+  }
+
+  const items: ExtractedItem[] = rawItems.filter(Boolean).map((it: any, idx: number) => {
+    const itemName = String(it.name || it.item_name || `Item ${idx + 1}`).trim();
+    const sanitizedTotal = sanitizeCurrencyAmount(it.total_price ?? it.total ?? it.subtotal, itemName);
+    const sanitizedUnit = it.unit_price !== null && it.unit_price !== undefined
+      ? sanitizeCurrencyAmount(it.unit_price, itemName)
+      : null;
+
+    // Jangan berikan confidence tinggi palsu jika model tidak menyertakan confidence
+    let conf = 50;
+    if (it.confidence !== null && it.confidence !== undefined && !isNaN(Number(it.confidence))) {
+      conf = Math.max(10, Math.min(100, Math.round(Number(it.confidence))));
+    } else if (sanitizedTotal > 0 && itemName.length > 2) {
+      conf = 75; // Nilai wajar moderat untuk item lengkap
     }
 
-    // 8. Sanitasi & Normalisasi Data Transaksi
-    const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => {
-      const itemName = String(it.name || `Item ${idx + 1}`).trim();
-      const sanitizedTotal = sanitizeCurrencyAmount(it.total_price, itemName);
-      const sanitizedUnit = it.unit_price !== null && it.unit_price !== undefined
-        ? sanitizeCurrencyAmount(it.unit_price, itemName)
-        : null;
+    return {
+      id: `it-groq-${Date.now()}-${idx}`,
+      name: itemName,
+      unitPrice: sanitizedUnit,
+      quantity: it.quantity !== null && it.quantity !== undefined && !isNaN(Number(it.quantity)) ? Number(it.quantity) : null,
+      unit: String(it.unit || 'pcs').trim(),
+      totalPrice: sanitizedTotal,
+      confidence: conf,
+      isTaxOrFee: Boolean(it.is_tax_or_fee),
+      taxOrFeeType: it.tax_or_fee_type || undefined
+    };
+  });
 
-      return {
-        id: `it-groq-${Date.now()}-${idx}`,
-        name: itemName,
-        unitPrice: sanitizedUnit,
-        quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
-        unit: String(it.unit || '').trim(),
-        totalPrice: sanitizedTotal,
-        confidence: Number(it.confidence) || 92,
-        isTaxOrFee: Boolean(it.is_tax_or_fee),
-        taxOrFeeType: it.tax_or_fee_type || undefined
-      };
-    });
+  const declaredGrand = sanitizeCurrencyAmount(
+    parsed.declared_grand_total ?? parsed.grand_total ?? parsed.total_amount ?? parsed.total,
+    userDescription
+  );
 
-    const declaredGrand = sanitizeCurrencyAmount(parsed.declared_grand_total, userDescription);
-
-    // 9. Jalankan Verifikasi Deterministik Dua Arah (Horizontal & Vertikal)
-    const verification = runTwoWayDeterministicVerification(items, declaredGrand);
+  // 9. Jalankan Verifikasi Deterministik Dua Arah (Horizontal & Vertikal)
+  const verification = runTwoWayDeterministicVerification(items, declaredGrand);
 
     const extractionResult: RealOcrExtractionResult = {
       detectedType: parsed.detected_type || 'nota_pembelian',
@@ -320,26 +369,10 @@ Ekstrak semua baris item barang/jasa beserta harganya secara akurat dan kembalik
       rawResponse: parsed
     };
 
-    // 10. Kembalikan Hasil Ekstraksi Bersih ke Frontend
-    // PERINGATAN INTEGRITAS: Endpoint ini TIDAK boleh otomatis menyimpan transaksi ke database!
-    return res.status(200).json({
-      success: true,
-      data: extractionResult
-    });
-
-  } catch (err: any) {
-    clearTimeout(timeoutTimer);
-    if (err.name === 'AbortError') {
-      return res.status(504).json({
-        success: false,
-        error: `Waktu pemrosesan Groq Vision melebihi batas waktu maksimal (${GROQ_TIMEOUT_MS / 1000} detik). Silakan coba lagi.`
-      });
-    }
-
-    console.error('[API Scan Receipt Execution Error]:', err);
-    return res.status(500).json({
-      success: false,
-      error: 'Terjadi kesalahan sistem internal saat memproses pemindaian dokumen.'
-    });
-  }
+  // 10. Kembalikan Hasil Ekstraksi Bersih ke Frontend
+  // PERINGATAN INTEGRITAS: Endpoint ini TIDAK boleh otomatis menyimpan transaksi ke database!
+  return res.status(200).json({
+    success: true,
+    data: extractionResult
+  });
 }

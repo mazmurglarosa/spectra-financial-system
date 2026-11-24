@@ -553,16 +553,17 @@ export async function syncPullAllFromSupabase(): Promise<{
   }
 }
 
-export async function pushTransactionToSupabase(tx: Transaction): Promise<void> {
+export async function pushTransactionToSupabase(tx: Transaction, isUpdate: boolean = false): Promise<{ success: boolean; message?: string }> {
   // 1. Gateway Serverless
   if (typeof window !== 'undefined') {
     try {
-      await callFinancialGateway('/api/financial/transactions', {
+      const endpoint = isUpdate ? '/api/financial/transactions?isUpdate=true' : '/api/financial/transactions';
+      const res = await callFinancialGateway(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(tx)
       });
-      return;
+      return { success: true, message: res?.message };
     } catch (e: any) {
       if (isRemoteEnvironment()) {
         console.error('[SupabaseGatewayError] Gagal simpan transaksi:', e?.message);
@@ -573,34 +574,37 @@ export async function pushTransactionToSupabase(tx: Transaction): Promise<void> 
   }
 
   const client = getSupabaseClient();
-  if (!client) return;
-  try {
-    await client.from('transactions').upsert({
-      id: tx.id,
-      date: tx.date,
-      ref_number: tx.refNumber,
-      type: tx.type || 'general',
-      description: tx.description,
-      lines: tx.lines,
-      total_debit: tx.totalDebit,
-      total_credit: tx.totalCredit,
-      partner: tx.partner || '-',
-      created_at: tx.createdAt,
-      updated_at: tx.updatedAt
-    }, { onConflict: 'id' });
-  } catch (e) {
-    console.warn('Auto push tx to Supabase failed:', e);
+  if (!client) {
+    throw new Error('Koneksi Supabase client tidak tersedia.');
   }
+  const { error } = await client.from('transactions').upsert({
+    id: tx.id,
+    date: tx.date,
+    ref_number: tx.refNumber,
+    type: tx.type || 'general',
+    description: tx.description,
+    lines: tx.lines,
+    total_debit: tx.totalDebit,
+    total_credit: tx.totalCredit,
+    partner: tx.partner || '-',
+    created_at: tx.createdAt,
+    updated_at: tx.updatedAt
+  }, { onConflict: 'id' });
+
+  if (error) {
+    throw new Error(`Gagal menyimpan transaksi ke Supabase: ${error.message}`);
+  }
+  return { success: true };
 }
 
-export async function deleteTransactionFromSupabase(id: string): Promise<void> {
+export async function deleteTransactionFromSupabase(id: string): Promise<{ success: boolean; message?: string }> {
   // 1. Gateway Serverless
   if (typeof window !== 'undefined') {
     try {
-      await callFinancialGateway(`/api/financial/transactions?id=${encodeURIComponent(id)}`, {
+      const res = await callFinancialGateway(`/api/financial/transactions?id=${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
-      return;
+      return { success: true, message: res?.message };
     } catch (e: any) {
       if (isRemoteEnvironment()) {
         console.error('[SupabaseGatewayError] Gagal hapus transaksi:', e?.message);
@@ -611,12 +615,14 @@ export async function deleteTransactionFromSupabase(id: string): Promise<void> {
   }
 
   const client = getSupabaseClient();
-  if (!client) return;
-  try {
-    await client.from('transactions').delete().eq('id', id);
-  } catch (e) {
-    console.warn('Auto delete tx from Supabase failed:', e);
+  if (!client) {
+    throw new Error('Koneksi Supabase client tidak tersedia.');
   }
+  const { error } = await client.from('transactions').delete().eq('id', id);
+  if (error) {
+    throw new Error(`Gagal menghapus transaksi dari Supabase: ${error.message}`);
+  }
+  return { success: true };
 }
 
 export async function deleteAllTransactionsFromSupabase(): Promise<void> {

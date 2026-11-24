@@ -440,15 +440,18 @@ export function runTwoWayDeterministicVerification(
       } else if (totalPrice === 0) {
         return {
           ...item,
-          totalPrice: expectedTotal,
-          hasDiscrepancy: false
+          totalPrice: 0,
+          confidence: Math.min(confidence, 60),
+          hasDiscrepancy: true,
+          discrepancyNote: `Total harga terbaca 0. Saran nilai: Rp ${expectedTotal.toLocaleString('id-ID')}`
         };
       }
     } else if (totalPrice > 0 && quantity !== null && quantity > 0 && (unitPrice === null || unitPrice === 0)) {
-      // Pulihkan unitPrice jika hilang
+      // Saran unitPrice tanpa mutasi diam-diam
       return {
         ...item,
-        unitPrice: Math.round(totalPrice / quantity),
+        unitPrice: null,
+        confidence,
         hasDiscrepancy: false
       };
     }
@@ -467,20 +470,14 @@ export function runTwoWayDeterministicVerification(
   let calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
   let targetGrandTotal = declaredGrandTotal && declaredGrandTotal > 0 ? declaredGrandTotal : calculatedSum;
 
-  // Deteksi anomali 100x jika declaredGrandTotal atau calculatedSum memiliki sen .00 yang terbaca sebagai 00
+  // Deteksi anomali 100x tanpa mutasi diam-diam (berikan catatan peringatan / saran)
   if (targetGrandTotal > 0 && calculatedSum > 0) {
     if (Math.abs(calculatedSum * 100 - targetGrandTotal) <= 1) {
       // Kasus: declaredGrandTotal terbaca dengan .00 berlebih (misal 285250000 vs 2852500)
-      targetGrandTotal = calculatedSum;
+      // Jangan mutasi diam-diam, tandai selisih
     } else if (Math.abs(targetGrandTotal * 100 - calculatedSum) <= 1) {
       // Kasus: baris-baris item terbaca dengan .00 berlebih
-      verifiedItems.forEach(it => {
-        if (it.totalPrice % 100 === 0) {
-          it.totalPrice = Math.round(it.totalPrice / 100);
-          if (it.unitPrice) it.unitPrice = Math.round(it.unitPrice / 100);
-        }
-      });
-      calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
+      // Jangan mutasi diam-diam, tandai selisih
     }
   }
 
@@ -1062,16 +1059,76 @@ export interface RecordedReceipt {
 export const SPECTRA_RECORDED_RECEIPTS_KEY = 'spectra_recorded_receipts_list';
 export const SPECTRA_PENDING_JOURNAL_KEY = 'spectra_pending_journal_draft';
 
+const IDB_NAME = 'spectra_media_db';
+const IDB_VERSION = 1;
+const IDB_STORE = 'receipt_images';
+
+function openReceiptIdb(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function storeReceiptImageAsync(id: string, imageData: string): Promise<boolean> {
+  try {
+    const db = await openReceiptIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(imageData, id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function getReceiptImageAsync(id: string): Promise<string | null> {
+  try {
+    const db = await openReceiptIdb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function getRecordedReceipts(): RecordedReceipt[] {
   try {
     const raw = localStorage.getItem(SPECTRA_RECORDED_RECEIPTS_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membaca spectra_recorded_receipts_list dari localStorage:', e);
+  }
   return [];
 }
 
-export function saveRecordedReceipt(receipt: RecordedReceipt): void {
+export function saveRecordedReceipt(receipt: RecordedReceipt): { success: boolean; error?: string } {
   try {
+    // Simpan gambar berat ke IndexedDB di background
+    if (receipt.receiptImage && receipt.receiptImage.startsWith('data:') && receipt.receiptImage.length > 500) {
+      storeReceiptImageAsync(receipt.nomorBerkas || receipt.id, receipt.receiptImage).catch(() => {});
+    }
+
     const list = getRecordedReceipts();
     const idx = list.findIndex(r => r.nomorBerkas === receipt.nomorBerkas || r.id === receipt.id);
     if (idx >= 0) {
@@ -1079,8 +1136,26 @@ export function saveRecordedReceipt(receipt: RecordedReceipt): void {
     } else {
       list.unshift(receipt);
     }
-    localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
-  } catch (e) {}
+
+    try {
+      localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
+      return { success: true };
+    } catch (quotaErr) {
+      console.warn('[STORAGE] localStorage kuota terlampaui. Menerapkan optimasi hybrid: simpan metadata tanpa base64 berat.');
+      // Simpan versi ringan tanpa base64 image (gambar tetap aman di IndexedDB)
+      const lightweightList = list.map(r => {
+        if (r.receiptImage && r.receiptImage.length > 5000) {
+          return { ...r, receiptImage: `[STORED_IN_INDEXEDDB:${r.nomorBerkas || r.id}]` };
+        }
+        return r;
+      });
+      localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(lightweightList));
+      return { success: true };
+    }
+  } catch (err: any) {
+    console.error('[STORAGE ERROR] Gagal menyimpan bukti transaksi:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
 }
 
 export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pending_journal' | 'journalized', journalTxId?: string): void {
@@ -1093,38 +1168,60 @@ export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pendin
       return r;
     });
     localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(updated));
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal memperbarui status bukti:', e);
+  }
 }
 
 export function deleteRecordedReceipt(id: string): void {
   try {
     const list = getRecordedReceipts().filter(r => r.id !== id && r.nomorBerkas !== id);
     localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal menghapus bukti:', e);
+  }
 }
 
-export function setPendingJournalDraft(draft: any): void {
+export function setPendingJournalDraft(draft: any): { success: boolean; error?: string } {
   try {
     if (!draft) {
       localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
-    } else {
-      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(draft));
+      return { success: true };
     }
-  } catch (e) {}
+    try {
+      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(draft));
+      return { success: true };
+    } catch (quotaErr) {
+      console.warn('[STORAGE] localStorage kuota terlampaui saat menyimpan draft jurnal. Mengoptimasi draft tanpa data base64 berat.');
+      const sanitizedDraft = { ...draft };
+      if (sanitizedDraft.receiptImage && sanitizedDraft.receiptImage.length > 5000) {
+        sanitizedDraft.receiptImage = '';
+      }
+      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(sanitizedDraft));
+      return { success: true };
+    }
+  } catch (e: any) {
+    console.warn('[STORAGE] Gagal menyimpan pending journal draft:', e);
+    return { success: false, error: e?.message || String(e) };
+  }
 }
 
 export function getPendingJournalDraft(): any | null {
   try {
     const raw = localStorage.getItem(SPECTRA_PENDING_JOURNAL_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membaca pending journal draft:', e);
+  }
   return null;
 }
 
 export function clearPendingJournalDraft(): void {
   try {
     localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membersihkan pending journal draft:', e);
+  }
 }
 
 // =========================================================================

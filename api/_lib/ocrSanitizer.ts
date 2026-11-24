@@ -194,20 +194,31 @@ export function runTwoWayDeterministicVerification(
         };
       }
 
-      // Jika totalPrice terbaca 0, lengkapi dengan expectedTotal
+      // Jika totalPrice terbaca 0, JANGAN ubah diam-diam: berikan saran koreksi
       if (totalPrice === 0) {
         return {
           ...item,
-          totalPrice: expectedTotal,
-          hasDiscrepancy: false
+          totalPrice: 0,
+          confidence: Math.min(confidence, 60),
+          hasDiscrepancy: true,
+          discrepancyNote: `Total harga terbaca 0. Saran nilai: Rp ${expectedTotal.toLocaleString('id-ID')}`,
+          suggestedCorrection: {
+            totalPrice: expectedTotal,
+            reason: `Hasil kali ${unitPrice.toLocaleString('id-ID')} x ${quantity}`
+          }
         };
       }
     } else if (totalPrice > 0 && quantity !== null && quantity > 0 && (unitPrice === null || unitPrice === 0)) {
-      // Pulihkan unitPrice yang hilang tanpa kontradiksi
+      // Berikan saran unitPrice tanpa mengubah nilai OCR secara diam-diam
+      const suggestedUnit = Math.round(totalPrice / quantity);
       return {
         ...item,
-        unitPrice: Math.round(totalPrice / quantity),
-        hasDiscrepancy: false
+        unitPrice: null,
+        hasDiscrepancy: false,
+        suggestedCorrection: {
+          unitPrice: suggestedUnit,
+          reason: `Estimasi harga satuan dari total Rp ${totalPrice.toLocaleString('id-ID')} / ${quantity}`
+        }
       };
     }
 

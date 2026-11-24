@@ -100,9 +100,9 @@ interface AccountingContextType {
   complaints: Complaint[];
   
   // Transaction CRUD
-  addTransaction: (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>) => Transaction;
-  updateTransaction: (id: string, trx: Partial<Transaction>) => void;
-  deleteTransaction: (id: string) => void;
+  addTransaction: (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; transaction?: Transaction; error?: string }>;
+  updateTransaction: (id: string, trx: Partial<Transaction>) => Promise<{ success: boolean; transaction?: Transaction; error?: string }>;
+  deleteTransaction: (id: string) => Promise<{ success: boolean; error?: string }>;
   getNextRefNumber: (type: TransactionType) => string;
 
   // Account CRUD
@@ -617,20 +617,50 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             });
           }
 
-          // B. Transactions Smart Sync (Protects User's Locally Created Transactions)
+          // B. Transactions Smart Sync dengan Resolusi Konflik (Timestamp-Based)
           if (Array.isArray(res.data.transactions)) {
             const cloudTx = res.data.transactions;
             setTransactions(prevLocal => {
-              if (prevLocal.length > 0 && cloudTx.length === 0) {
-                console.log('[Auto-Sync] Mempertahankan transaksi lokal dan mengunggah otomatis ke Cloud...');
-                prevLocal.forEach(t => pushTransactionToSupabase(t));
-                return prevLocal;
-              }
-              if (cloudTx.length > 0) {
+              if (prevLocal.length === 0) {
                 try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTx)); } catch (e) {}
                 return cloudTx;
               }
-              return prevLocal;
+
+              // Peta transaksi berdasarkan ID
+              const cloudMap = new Map(cloudTx.map(t => [t.id, t]));
+              const localMap = new Map(prevLocal.map(t => [t.id, t]));
+              const merged: Transaction[] = [];
+
+              // Transaksi dari cloud
+              cloudTx.forEach(ct => {
+                const lt = localMap.get(ct.id);
+                if (!lt) {
+                  merged.push(ct);
+                } else {
+                  // Bandingkan timestamp updatedAt
+                  const cloudTime = Number(ct.updatedAt) || 0;
+                  const localTime = Number(lt.updatedAt) || 0;
+                  if (cloudTime >= localTime) {
+                    // Cloud lebih baru atau sama: gunakan cloud
+                    merged.push(ct);
+                  } else {
+                    // Local lebih baru: pertahankan local dan push ke cloud
+                    merged.push(lt);
+                    pushTransactionToSupabase(lt, true).catch(console.error);
+                  }
+                }
+              });
+
+              // Transaksi lokal yang belum ada di cloud
+              prevLocal.forEach(lt => {
+                if (!cloudMap.has(lt.id)) {
+                  merged.push(lt);
+                  pushTransactionToSupabase(lt, false).catch(console.error);
+                }
+              });
+
+              try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(merged)); } catch (e) {}
+              return merged;
             });
           }
 
@@ -713,63 +743,145 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       type === 'sales' ? 'FP-' :
       type === 'purchase' ? 'FB-' : 'JU-';
     
-    const count = transactions.filter(t => t.refNumber?.startsWith(prefix) || t.type === type).length + 1;
-    return `${prefix}${count}`;
+    // Cari angka terbesar dari seluruh transaksi yang memiliki prefix yang sama (kebal tabrakan paralel)
+    let maxNum = 0;
+    const escapedPrefix = prefix.replace('-', '\\-');
+    const regex = new RegExp(`^${escapedPrefix}(\\d+)`, 'i');
+    transactions.forEach(t => {
+      const match = (t.refNumber || '').match(regex);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > maxNum) maxNum = val;
+      }
+    });
+    const nextNum = maxNum + 1;
+    return `${prefix}${nextNum}`;
   }, [transactions]);
 
-  const addTransaction = useCallback((trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Transaction => {
+  const addTransaction = useCallback(async (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; transaction?: Transaction; error?: string }> => {
+    // 1. Validasi persamaan debit-kredit
+    const diff = Math.abs((Number(trx.totalDebit) || 0) - (Number(trx.totalCredit) || 0));
+    if (diff > 0.01) {
+      return {
+        success: false,
+        error: `Transaksi tidak seimbang: Total Debit (Rp ${Number(trx.totalDebit || 0).toLocaleString('id-ID')}) tidak sama dengan Total Kredit (Rp ${Number(trx.totalCredit || 0).toLocaleString('id-ID')}).`
+      };
+    }
+
+    if (!trx.lines || trx.lines.length < 2) {
+      return {
+        success: false,
+        error: 'Transaksi akuntansi wajib memiliki minimal 2 baris jurnal berpasangan.'
+      };
+    }
+
+    // 2. Tentukan nomor referensi yang unik
+    let finalRefNumber = (trx.refNumber || '').trim();
+    if (!finalRefNumber) {
+      finalRefNumber = getNextRefNumber(trx.type || 'general');
+    }
+
     const newTx: Transaction = {
       ...trx,
+      refNumber: finalRefNumber,
       id: 'tx-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       type: trx.type || 'general',
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
 
-    setTransactions(prev => {
-      const updated = [...prev, newTx];
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
+    try {
+      // 3. Simpan jurnal melalui operasi asynchronous yang menunggu konfirmasi commit backend
+      await pushTransactionToSupabase(newTx, false);
 
-    // Auto-sync to Supabase Cloud in background
-    pushTransactionToSupabase(newTx);
-
-    logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
-    return newTx;
-  }, [broadcastChange, logActivity]);
-
-  const updateTransaction = useCallback((id: string, trx: Partial<Transaction>) => {
-    setTransactions(prev => {
-      const updated = prev.map(t => {
-        if (t.id === id) {
-          const merged = { ...t, ...trx, updatedAt: Date.now() };
-          pushTransactionToSupabase(merged);
-          return merged;
+      // 4. Status BERHASIL hanya setelah database mengonfirmasi commit
+      setTransactions(prev => {
+        const exists = prev.some(t => t.id === newTx.id);
+        const updated = exists ? prev.map(t => t.id === newTx.id ? newTx : t) : [...prev, newTx];
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
         }
-        return t;
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
       });
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
-    logActivity('Edit Jurnal', `Memperbarui transaksi ID: ${id}`);
-  }, [broadcastChange, logActivity]);
 
-  const deleteTransaction = useCallback((id: string) => {
+      logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
+      return { success: true, transaction: newTx };
+    } catch (err: any) {
+      console.error('[TransactionSaveError] Gagal menyimpan transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal menyimpan transaksi ke database cloud.'
+      };
+    }
+  }, [getNextRefNumber, broadcastChange, logActivity]);
+
+  const updateTransaction = useCallback(async (id: string, trx: Partial<Transaction>): Promise<{ success: boolean; transaction?: Transaction; error?: string }> => {
+    const existing = transactions.find(t => t.id === id);
+    if (!existing) {
+      return { success: false, error: `Transaksi dengan ID ${id} tidak ditemukan.` };
+    }
+
+    const merged: Transaction = {
+      ...existing,
+      ...trx,
+      updatedAt: Date.now()
+    };
+
+    const diff = Math.abs((Number(merged.totalDebit) || 0) - (Number(merged.totalCredit) || 0));
+    if (diff > 0.01) {
+      return {
+        success: false,
+        error: `Transaksi tidak seimbang: Total Debit tidak sama dengan Total Kredit.`
+      };
+    }
+
+    try {
+      await pushTransactionToSupabase(merged, true);
+
+      setTransactions(prev => {
+        const updated = prev.map(t => t.id === id ? merged : t);
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
+        }
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
+      });
+
+      logActivity('Edit Jurnal', `Memperbarui transaksi ID: ${id} (${merged.refNumber})`);
+      return { success: true, transaction: merged };
+    } catch (err: any) {
+      console.error('[TransactionUpdateError] Gagal memperbarui transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal memperbarui transaksi ke database cloud.'
+      };
+    }
+  }, [transactions, broadcastChange, logActivity]);
+
+  const deleteTransaction = useCallback(async (id: string): Promise<{ success: boolean; error?: string }> => {
     const target = transactions.find(t => t.id === id);
-    setTransactions(prev => {
-      const updated = prev.filter(t => t.id !== id);
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
+    try {
+      await deleteTransactionFromSupabase(id);
 
-    // Auto-sync deletion to Supabase Cloud in background
-    deleteTransactionFromSupabase(id);
+      setTransactions(prev => {
+        const updated = prev.filter(t => t.id !== id);
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
+        }
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
+      });
 
-    logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
+      logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[TransactionDeleteError] Gagal menghapus transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal menghapus transaksi dari database cloud.'
+      };
+    }
   }, [transactions, broadcastChange, logActivity]);
 
   // Account CRUD (With Real-Time Supabase Auto-Save)

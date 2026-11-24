@@ -70,7 +70,31 @@ export function mapDbAccountToAccount(r: any): Account {
   if (!r) throw new Error('Cannot map null database account row');
 
   const pos: ReportType = r.pos === 'Lr' ? 'Lr' : 'Nrc';
-  const sn: NormalBalance = r.sn === 'Kr' ? 'Kr' : 'Db';
+  const rawSn = String(r.sn || '').trim().toLowerCase();
+  const rawCategory = String(r.category || '').toUpperCase();
+  const code = String(r.code || '').trim();
+  const name = String(r.name || '').toLowerCase();
+
+  let sn: NormalBalance = 'Db';
+  if (rawSn === 'kr' || rawSn === 'kredit' || rawSn === 'cr' || rawSn === 'credit') {
+    sn = 'Kr';
+  } else if (rawSn === 'db' || rawSn === 'debet' || rawSn === 'debit') {
+    sn = 'Db';
+  } else {
+    // SAK Normal Balance Inference jika di database bernilai null / kosong
+    if (
+      rawCategory === 'UTANG_LANCAR' || 
+      rawCategory === 'UTANG_JANGKA_PANJANG' || 
+      (rawCategory === 'EKUITAS' && !name.includes('prive')) ||
+      rawCategory === 'PENDAPATAN' ||
+      rawCategory === 'PENDAPATAN_LAIN' ||
+      code.startsWith('2') || 
+      (code.startsWith('3') && !name.includes('prive')) || 
+      code.startsWith('4')
+    ) {
+      sn = 'Kr';
+    }
+  }
 
   return {
     id: String(r.id),
