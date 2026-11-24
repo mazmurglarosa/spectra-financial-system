@@ -34,25 +34,8 @@ export interface AuthOptions {
  * 5. Pengecekan otorisasi role & hak otoritas keuangan di server (mengabaikan input client).
  * 6. Validasi CSRF double-submit token pada metode mutasi (POST, PUT, DELETE).
  */
-const ALLOWED_STATIC_ORIGINS = [
-  'https://spectra-financial-system.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000'
-];
-
-export function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  const clean = origin.trim().toLowerCase();
-  if (ALLOWED_STATIC_ORIGINS.includes(clean)) return true;
-  // Vercel Preview domain regex untuk project SPECTRA
-  if (/^https:\/\/spectra-financial-system[a-z0-9\-]*\.vercel\.app$/.test(clean)) {
-    return true;
-  }
-  return false;
-}
+import { isAllowedOrigin, applyCorsHeaders } from './routerHelper.js';
+export { isAllowedOrigin };
 
 export async function authenticateFinancialRequest(
   req: any,
@@ -63,18 +46,12 @@ export async function authenticateFinancialRequest(
   const method = req.method?.toUpperCase();
   const isAllowed = isAllowedOrigin(origin);
 
-  // 1. CORS Preflight & Header Security
-  if (isAllowed && origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
+  // 1. CORS Preflight & Header Security terpusat
+  applyCorsHeaders(req, res, ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']);
 
   if (method === 'OPTIONS') {
     if (origin && !isAllowed) {
-      res.status(403).json({ success: false, error: 'Origin tidak diizinkan.' });
+      res.status(403).json({ success: false, error: 'Origin tidak diizinkan oleh kebijakan CORS SPECTRA.' });
       return null;
     }
     res.status(200).end();
@@ -86,7 +63,7 @@ export async function authenticateFinancialRequest(
   if (isMutation && origin && !isAllowed) {
     res.status(403).json({
       success: false,
-      error: 'Akses mutasi ditolak: Origin tidak dikenal atau tidak terdaftar dalam allowlist.'
+      error: 'Akses mutasi ditolak: Origin tidak diizinkan oleh kebijakan keamanan SPECTRA.'
     });
     return null;
   }

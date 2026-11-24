@@ -3,9 +3,11 @@ import http from 'http';
 import authRouter from '../api/auth.ts';
 import financialRouter from '../api/financial.ts';
 import systemRouter from '../api/system.ts';
+import scanReceiptRouter from '../api/scan-receipt.ts';
+import { isAllowedOrigin, lockCorsHeaders } from '../api/_lib/routerHelper.ts';
 
 console.log('===============================================================');
-console.log('   SPECTRA ROUTER SECURITY, CORS & REWRITE VERIFICATION');
+console.log('   SPECTRA CENTRALIZED CORS & ROUTER SECURITY REGRESSION TEST');
 console.log('===============================================================');
 
 const server = http.createServer(async (req, res) => {
@@ -48,6 +50,8 @@ const server = http.createServer(async (req, res) => {
       await financialRouter(req, res);
     } else if (pathname.startsWith('/api/system') || pathname === '/api/status' || pathname === '/api/data' || pathname === '/api/sync') {
       await systemRouter(req, res);
+    } else if (pathname === '/api/scan-receipt') {
+      await scanReceiptRouter(req, res);
     } else {
       res.statusCode = 404;
       res.end(JSON.stringify({ error: 'Endpoint Not Found' }));
@@ -101,42 +105,114 @@ try {
   assert.strictEqual(res6.status, 404, 'Endpoint system tak dikenal wajib mengembalikan 404');
   console.log('[PASS] Test 6: GET /api/system/unknown -> 404 Not Found');
 
-  // 7. CORS Preflight dari Trusted Origin (localhost)
+  // 7. CORS Preflight dari Trusted Origin SPECTRA Production
   const res7 = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'OPTIONS',
-    headers: { 'Origin': 'http://localhost:5173' }
+    headers: { 'Origin': 'https://spectra-financial-system.vercel.app' }
   });
-  assert.strictEqual(res7.status, 200, 'OPTIONS dari trusted origin wajib 200 OK');
-  assert.strictEqual(res7.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  assert.strictEqual(res7.status, 200, 'OPTIONS dari SPECTRA Production wajib 200 OK');
+  assert.strictEqual(res7.headers.get('access-control-allow-origin'), 'https://spectra-financial-system.vercel.app');
   assert.strictEqual(res7.headers.get('access-control-allow-credentials'), 'true');
-  console.log('[PASS] Test 7: OPTIONS /api/auth/login (Trusted Origin) -> 200 OK & Proper Allow-Origin');
+  console.log('[PASS] Test 7: Origin SPECTRA yang sah diizinkan (Production: spectra-financial-system.vercel.app)');
 
-  // 8. CORS Preflight dari Untrusted Origin (harus ditolak 403)
+  // 8. CORS Preflight dari Trusted Origin SPECTRA Preview (e.g. spectra-financial-system-5d2ld0sd6-mazmur.vercel.app)
+  const previewOrigin = 'https://spectra-financial-system-5d2ld0sd6-mazmur.vercel.app';
   const res8 = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'OPTIONS',
-    headers: { 'Origin': 'https://malicious-attacker-site.com' }
+    headers: { 'Origin': previewOrigin }
   });
-  assert.strictEqual(res8.status, 403, 'OPTIONS dari untrusted origin wajib ditolak 403');
-  console.log('[PASS] Test 8: OPTIONS /api/auth/login (Untrusted Origin) -> 403 Forbidden');
+  assert.strictEqual(res8.status, 200, 'OPTIONS dari SPECTRA Preview sah wajib 200 OK');
+  assert.strictEqual(res8.headers.get('access-control-allow-origin'), previewOrigin);
+  assert.strictEqual(res8.headers.get('access-control-allow-credentials'), 'true');
+  console.log('[PASS] Test 8: Preview SPECTRA yang sah diizinkan (spectra-financial-system-*.vercel.app)');
 
-  // 9. Vercel Rewrite query parameter route resolution (e.g. /api/auth?route=admin/users)
-  const res9 = await testReq('/api/auth?route=admin/users', { method: 'GET' });
-  // Tanpa sesi auth harus 401 Unauthorized (bukan 404)
-  assert.strictEqual(res9.status, 401, '/api/auth?route=admin/users harus mencapai handler admin users dan ditolak 401');
-  console.log('[PASS] Test 9: Vercel Rewrite /api/auth?route=admin/users -> 401 Unauthorized (Handler Reached)');
+  // 9. CORS Preflight dari Origin Aplikasi Lain di *.vercel.app (Wajib ditolak 403 Forbidden)
+  const alienVercelOrigin = 'https://other-user-project.vercel.app';
+  const res9 = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'OPTIONS',
+    headers: { 'Origin': alienVercelOrigin }
+  });
+  assert.strictEqual(res9.status, 403, 'OPTIONS dari origin *.vercel.app lain wajib ditolak 403 Forbidden');
+  assert.strictEqual(res9.headers.get('access-control-allow-origin'), null);
+  console.log('[PASS] Test 9: Origin aplikasi lain pada *.vercel.app ditolak (403 Forbidden)');
 
-  // 10. Audit Legacy /api/sync — Cegah Fake Success
-  const res10 = await testReq('/api/sync', {
+  // 10. CORS Preflight dari Origin Attacker (attacker.evil wajib ditolak 403)
+  const res10 = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'OPTIONS',
+    headers: { 'Origin': 'https://attacker.evil' }
+  });
+  assert.strictEqual(res10.status, 403, 'OPTIONS dari attacker.evil wajib ditolak 403 Forbidden');
+  assert.strictEqual(res10.headers.get('access-control-allow-origin'), null);
+  console.log('[PASS] Test 10: Origin attacker.evil ditolak (403 Forbidden)');
+
+  // 11. Mutation Request (POST) dari Origin Asing pada *.vercel.app (Wajib ditolak 403)
+  const res11 = await testReq('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Origin': 'https://malicious-app.vercel.app',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ username: 'admin', password: 'password123' })
+  });
+  assert.strictEqual(res11.status, 403, 'POST dari origin asing wajib ditolak 403');
+  assert.strictEqual(res11.data.success, false);
+  console.log('[PASS] Test 11: Request mutasi dari origin *.vercel.app asing ditolak (403 Forbidden)');
+
+  // 12. Mutation Request (POST) dari Origin attacker.evil (Wajib ditolak 403)
+  const res12 = await testReq('/api/financial/transactions', {
+    method: 'POST',
+    headers: {
+      'Origin': 'https://attacker.evil',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ description: 'Transfer Ilegal' })
+  });
+  assert.strictEqual(res12.status, 403, 'POST transaksi dari attacker.evil wajib ditolak 403');
+  console.log('[PASS] Test 12: Request mutasi transaksi dari attacker.evil ditolak (403 Forbidden)');
+
+  // 13. Mutation Request dari Origin SPECTRA yang Sah (Diteruskan ke handler dan diproses sesuai otorisasi)
+  const res13 = await testReq('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Origin': previewOrigin,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({}) // Body kosong memicu validasi 400 Bad Request di handler login
+  });
+  assert.strictEqual(res13.status, 400, 'POST dari origin SPECTRA yang sah berhasil mencapai handler (400 Bad Request)');
+  assert.strictEqual(res13.headers.get('access-control-allow-origin'), previewOrigin);
+  console.log('[PASS] Test 13: Request mutasi dari preview SPECTRA sah mencapai handler (bukan ditolak CORS)');
+
+  // 14. Immutability Test: Handler internal permisif tidak dapat menimpa CORS Router
+  const dummyRes = {
+    headers: {},
+    setHeader(k, v) { this.headers[k.toLowerCase()] = v; }
+  };
+  dummyRes.setHeader('Access-Control-Allow-Origin', 'https://spectra-financial-system.vercel.app');
+  lockCorsHeaders(dummyRes);
+  // Simulasikan handler nakal mencoba menimpa dengan '*'
+  dummyRes.setHeader('Access-Control-Allow-Origin', '*');
+  dummyRes.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, TRACE');
+  assert.strictEqual(dummyRes.headers['access-control-allow-origin'], 'https://spectra-financial-system.vercel.app');
+  console.log('[PASS] Test 14: Header CORS router terkunci (Handler internal tidak dapat menimpa CORS)');
+
+  // 15. Vercel Rewrite query parameter route resolution (e.g. /api/auth?route=admin/users)
+  const res15 = await testReq('/api/auth?route=admin/users', { method: 'GET' });
+  assert.strictEqual(res15.status, 401, '/api/auth?route=admin/users harus mencapai handler admin users dan ditolak 401');
+  console.log('[PASS] Test 15: Vercel Rewrite /api/auth?route=admin/users -> 401 Unauthorized (Handler Reached)');
+
+  // 16. Audit Legacy /api/sync — Cegah Fake Success
+  const res16 = await testReq('/api/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ accounts: [], transactions: [] })
   });
-  assert.strictEqual(res10.status, 410, 'POST /api/sync wajib 410 Gone demi mencegah sukses palsu');
-  assert.strictEqual(res10.data.success, false);
-  console.log('[PASS] Test 10: POST /api/sync -> 410 Gone (Fake Success Prevented)');
+  assert.strictEqual(res16.status, 410, 'POST /api/sync wajib 410 Gone demi mencegah sukses palsu');
+  assert.strictEqual(res16.data.success, false);
+  console.log('[PASS] Test 16: POST /api/sync -> 410 Gone (Fake Success Prevented)');
 
   console.log('\n===============================================================');
-  console.log('   SEMUA TEST ROUTER SECURITY & CORS: 10/10 PASSED (100%)');
+  console.log('   SEMUA TEST ROUTER SECURITY & CORS: 16/16 PASSED (100%)');
   console.log('===============================================================\n');
 } catch (e) {
   console.error('[ROUTER SECURITY TEST FAILED]', e);

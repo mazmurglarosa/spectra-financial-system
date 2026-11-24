@@ -7,7 +7,7 @@ import syncPullHandler from './_handlers/financial/sync-pull.js';
 import syncPushHandler from './_handlers/financial/sync-push.js';
 import spreadsheetSyncHandler from './_handlers/financial/spreadsheet-sync.js';
 import driveUploadHandler from './_handlers/financial/drive-upload.js';
-import { resolveSubpath, applyCorsHeaders, isAllowedOrigin } from './_lib/routerHelper.js';
+import { resolveSubpath, handleCorsAndSecurity } from './_lib/routerHelper.js';
 
 interface RouteDefinition {
   methods: string[];
@@ -39,20 +39,10 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 2. CORS Preflight & Headers berbasis Trusted Origin
-  const origin = req.headers?.origin;
-  if (method === 'OPTIONS') {
-    if (origin && !isAllowedOrigin(origin)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Origin tidak diizinkan oleh kebijakan CORS.'
-      });
-    }
-    applyCorsHeaders(req, res, routeDef.methods);
-    return res.status(200).end();
+  // 2. Centralized CORS & Security Policy
+  if (!handleCorsAndSecurity(req, res, routeDef.methods)) {
+    return;
   }
-
-  applyCorsHeaders(req, res, routeDef.methods);
 
   // 3. HTTP Method Allowlist Check — Method tidak diizinkan wajib 405
   if (!routeDef.methods.includes(method)) {

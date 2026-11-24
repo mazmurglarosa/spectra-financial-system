@@ -4,15 +4,6 @@ import { hashPassword } from "../../../_lib/hash.js";
 import { getSupabaseServerClient } from "../../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed. Hanya POST yang didukung.' });
   }

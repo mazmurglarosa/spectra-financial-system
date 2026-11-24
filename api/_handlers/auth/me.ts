@@ -2,15 +2,6 @@ import { verifySessionToken, parseCookies } from "../../_lib/auth.js";
 import { getSupabaseServerClient } from "../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'GET') {
     return res.status(405).json({ success: false, error: 'Method not allowed. Hanya GET yang didukung.' });
   }

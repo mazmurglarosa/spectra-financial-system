@@ -1,6 +1,7 @@
 import { verifySessionToken, parseCookies } from "./_lib/auth.js";
 import { checkRateLimitCentralized, getClientIp } from "./_lib/rateLimit.js";
 import { getSupabaseServerClient } from "./_lib/supabaseServer.js";
+import { handleCorsAndSecurity } from "./_lib/routerHelper.js";
 import {
   sanitizeCurrencyAmount,
   runTwoWayDeterministicVerification,
@@ -61,16 +62,13 @@ function detectAndValidateImageFormat(base64Data: string): { valid: boolean; mim
 }
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  // Centralized CORS & Security Policy (Preflight, Mutation Origin Guard, Centralized Headers)
+  if (!handleCorsAndSecurity(req, res, ['POST', 'OPTIONS'])) {
+    return;
   }
 
   if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
     return res.status(405).json({ success: false, error: 'Method not allowed. Hanya POST yang didukung.' });
   }
 

@@ -1,35 +1,71 @@
 /**
  * Helper terpusat untuk resolusi subpath router dan keamanan CORS Vercel Serverless
+ * Menegakkan allowlist origin SPECTRA eksplisit, proteksi anti-tamper immutability,
+ * dan pencegahan CSRF/mutation cross-origin.
  */
 
+const ALLOWED_STATIC_ORIGINS = [
+  'https://spectra-financial-system.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://localhost:8080',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:8080',
+  'http://[::1]:5173',
+  'http://[::1]:3000'
+];
+
 /**
- * Daftar domain tepercaya untuk CORS
+ * Daftar domain tepercaya untuk CORS terpusat SPECTRA.
+ * HANYA mengizinkan localhost dan subdomain project SPECTRA resmi.
+ * Menolak seluruh *.vercel.app milik project lain dan origin asing.
  */
 export function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return false;
   try {
-    const url = new URL(origin);
-    const host = url.hostname.toLowerCase();
+    const clean = origin.trim().toLowerCase();
+    const url = new URL(clean);
+    const host = url.hostname;
 
-    // 1. Localhost development
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+    // 1. Static allowlist (Localhost & SPECTRA Production domain)
+    if (ALLOWED_STATIC_ORIGINS.includes(clean)) {
       return true;
     }
 
-    // 2. Vercel deployment domains (Preview & Production)
-    if (host.endsWith('.vercel.app')) {
-      if (host.includes('spectra') || host.startsWith('spectra-financial-system')) {
-        return true;
-      }
-      // Izinkan domain vercel preview internal
+    // 2. Localhost fallback hostname
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
       return true;
     }
 
-    // 3. Custom domain produksi dari environment
-    if (process.env.ALLOWED_ORIGINS) {
-      const allowedList = process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim().toLowerCase());
-      if (allowedList.includes(origin.toLowerCase()) || allowedList.includes(host)) {
-        return true;
+    // 3. Vercel Preview domain regex KHUSUS project SPECTRA
+    // Pola: spectra-financial-system.vercel.app ATAU spectra-financial-system-*.vercel.app
+    // MENOLAK seluruh *.vercel.app lainnya!
+    if (/^https:\/\/spectra-financial-system(?:-[a-z0-9\-]+)*\.vercel\.app$/.test(clean)) {
+      return true;
+    }
+
+    // 4. Custom domain dari environment server
+    const envOrigins = [
+      process.env.ALLOWED_ORIGINS,
+      process.env.SPECTRA_ALLOWED_ORIGINS,
+      process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined,
+      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined
+    ].filter(Boolean);
+
+    for (const envVal of envOrigins) {
+      if (!envVal) continue;
+      const parts = envVal.split(',').map(s => s.trim().toLowerCase());
+      for (const p of parts) {
+        if (!p) continue;
+        if (p === clean || p === host) return true;
+        if (p.startsWith('http://') || p.startsWith('https://')) {
+          try {
+            if (new URL(p).hostname === host) return true;
+          } catch {}
+        }
       }
     }
 
@@ -37,6 +73,30 @@ export function isAllowedOrigin(origin: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Mengunci objek res.setHeader agar handler internal permisif
+ * tidak dapat menimpa header Access-Control-* yang telah diatur terpusat oleh router.
+ */
+export function lockCorsHeaders(res: any) {
+  if (!res || res.__corsLocked) return;
+  res.__corsLocked = true;
+
+  const originalSetHeader = res.setHeader.bind(res);
+  res.setHeader = function(name: string, value: any) {
+    const lowerName = String(name || '').toLowerCase();
+    if (
+      lowerName === 'access-control-allow-origin' ||
+      lowerName === 'access-control-allow-credentials' ||
+      lowerName === 'access-control-allow-methods' ||
+      lowerName === 'access-control-allow-headers'
+    ) {
+      // Abaikan upaya penimpaan header CORS oleh internal handler
+      return res;
+    }
+    return originalSetHeader(name, value);
+  };
 }
 
 /**
@@ -53,6 +113,47 @@ export function applyCorsHeaders(req: any, res: any, allowedMethods: string[] = 
 
   res.setHeader('Access-Control-Allow-Methods', allowedMethods.join(', '));
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token, Cookie');
+
+  // Proteksi Immutability: Cegah internal handler menimpa header CORS
+  lockCorsHeaders(res);
+}
+
+/**
+ * Memeriksa CORS, menangani OPTIONS preflight, dan menolak Origin mutasi yang tidak sah.
+ * Mengembalikan `false` jika request sudah ditangani / ditolak (short-circuit).
+ * Mengembalikan `true` jika request aman untuk dilanjutkan ke handler.
+ */
+export function handleCorsAndSecurity(req: any, res: any, allowedMethods: string[]): boolean {
+  const method = req.method?.toUpperCase();
+  const origin = req.headers?.origin;
+
+  // 1. Tangani Preflight OPTIONS
+  if (method === 'OPTIONS') {
+    if (origin && !isAllowedOrigin(origin)) {
+      res.status(403).json({
+        success: false,
+        error: 'Origin tidak diizinkan oleh kebijakan CORS SPECTRA.'
+      });
+      return false;
+    }
+    applyCorsHeaders(req, res, allowedMethods);
+    res.status(200).end();
+    return false;
+  }
+
+  // 2. Tolak request mutasi jika Origin asing terdeteksi
+  const isMutation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
+  if (isMutation && origin && !isAllowedOrigin(origin)) {
+    res.status(403).json({
+      success: false,
+      error: 'Akses mutasi ditolak: Origin tidak diizinkan oleh kebijakan keamanan SPECTRA.'
+    });
+    return false;
+  }
+
+  // 3. Terapkan header CORS terpusat untuk request yang valid
+  applyCorsHeaders(req, res, allowedMethods);
+  return true;
 }
 
 /**

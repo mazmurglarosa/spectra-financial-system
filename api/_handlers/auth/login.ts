@@ -4,25 +4,21 @@ import { checkRateLimitCentralized, getClientIp } from "../../_lib/rateLimit.js"
 import { getSupabaseServerClient, DbUserRecord } from "../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed. Hanya POST yang didukung.' });
   }
 
-  // 1. Rate Limiting Brute Force Protection (Maks 5 percobaan gagal per 5 menit per IP/Username)
+  // 1. Validasi Input Dasar (Fail fast 400 sebelum operasi DB/rate limiting)
   const clientIp = getClientIp(req);
   const body = req.body || {};
   const username = String(body.username || '').trim().toLowerCase();
   const password = String(body.password || '');
 
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'Username dan password wajib diisi.' });
+  }
+
+  // 2. Rate Limiting Brute Force Protection (Maks 5 percobaan gagal per 5 menit per IP/Username)
   const supabase = getSupabaseServerClient();
   const rateKey = `login_${clientIp}_${username}`;
   const rateCheck = await checkRateLimitCentralized(rateKey, 5, 5 * 60 * 1000, supabase);
@@ -31,10 +27,6 @@ export default async function handler(req: any, res: any) {
       success: false,
       error: 'Terlalu banyak percobaan login gagal. Demi keamanan, silakan coba lagi dalam beberapa menit.'
     });
-  }
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'Username dan password wajib diisi.' });
   }
 
   try {

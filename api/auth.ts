@@ -5,7 +5,7 @@ import registerHandler from './_handlers/auth/register.js';
 import adminUsersHandler from './_handlers/auth/admin/users.js';
 import adminApproveHandler from './_handlers/auth/admin/approve.js';
 import adminResetPasswordHandler from './_handlers/auth/admin/reset-password.js';
-import { resolveSubpath, applyCorsHeaders, isAllowedOrigin } from './_lib/routerHelper.js';
+import { resolveSubpath, handleCorsAndSecurity } from './_lib/routerHelper.js';
 
 interface RouteDefinition {
   methods: string[];
@@ -35,20 +35,10 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 2. CORS Preflight & Headers berbasis Trusted Origin
-  const origin = req.headers?.origin;
-  if (method === 'OPTIONS') {
-    if (origin && !isAllowedOrigin(origin)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Origin tidak diizinkan oleh kebijakan CORS.'
-      });
-    }
-    applyCorsHeaders(req, res, routeDef.methods);
-    return res.status(200).end();
+  // 2. Centralized CORS & Security Policy (Preflight, Mutation Origin Guard, Centralized Headers)
+  if (!handleCorsAndSecurity(req, res, routeDef.methods)) {
+    return;
   }
-
-  applyCorsHeaders(req, res, routeDef.methods);
 
   // 3. HTTP Method Allowlist Check — Method tidak diizinkan wajib 405
   if (!routeDef.methods.includes(method)) {
