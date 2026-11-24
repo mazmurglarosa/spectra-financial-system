@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import { verifySessionToken, parseCookies, validateCsrf } from "../../_lib/auth.js";
-import { hashPassword } from "../../_lib/hash.js";
-import { getSupabaseServerClient } from "../../_lib/supabaseServer.js";
+import { verifySessionToken, parseCookies, validateCsrf } from "../../../_lib/auth.js";
+import { hashPassword } from "../../../_lib/hash.js";
+import { getSupabaseServerClient } from "../../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');

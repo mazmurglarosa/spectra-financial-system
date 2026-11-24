@@ -36,15 +36,10 @@ import { hashPassword } from '../api/_lib/hash.ts';
 import { generateCsrfToken } from '../api/_lib/auth.ts';
 import { setMockSupabaseClient } from '../api/_lib/supabaseServer.ts';
 
-// Import Real Handlers
-import loginHandler from '../api/auth/login.ts';
-import statusHandler from '../api/financial/status.ts';
-import accountsHandler from '../api/financial/accounts.ts';
-import transactionsHandler from '../api/financial/transactions.ts';
-import syncPushHandler from '../api/financial/sync-push.ts';
-import syncPullHandler from '../api/financial/sync-pull.ts';
-import settingsHandler from '../api/financial/settings.ts';
-import spreadsheetSyncHandler from '../api/financial/spreadsheet-sync.ts';
+// Import Real Routers
+import authRouter from '../api/auth/[...route].ts';
+import financialRouter from '../api/financial/[...route].ts';
+import systemRouter from '../api/system/[...route].ts';
 
 // 1. Inisialisasi Kredensial Staging
 const STAGING_URL = 'https://xaafjvmdjdlfqdrljjlr.supabase.co';
@@ -130,22 +125,12 @@ const server = http.createServer(async (req, res) => {
   };
 
   try {
-    if (pathname === '/api/auth/login') {
-      await loginHandler(req, res);
-    } else if (pathname === '/api/financial/status') {
-      await statusHandler(req, res);
-    } else if (pathname === '/api/financial/accounts') {
-      await accountsHandler(req, res);
-    } else if (pathname === '/api/financial/transactions') {
-      await transactionsHandler(req, res);
-    } else if (pathname === '/api/financial/sync-push') {
-      await syncPushHandler(req, res);
-    } else if (pathname === '/api/financial/sync-pull') {
-      await syncPullHandler(req, res);
-    } else if (pathname === '/api/financial/settings') {
-      await settingsHandler(req, res);
-    } else if (pathname === '/api/financial/spreadsheet-sync') {
-      await spreadsheetSyncHandler(req, res);
+    if (pathname.startsWith('/api/auth/')) {
+      await authRouter(req, res);
+    } else if (pathname.startsWith('/api/financial/')) {
+      await financialRouter(req, res);
+    } else if (pathname.startsWith('/api/system/') || pathname === '/api/status' || pathname === '/api/data' || pathname === '/api/sync') {
+      await systemRouter(req, res);
     } else {
       res.statusCode = 404;
       res.end(JSON.stringify({ error: 'Endpoint Not Found' }));

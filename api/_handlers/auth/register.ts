@@ -1,6 +1,6 @@
-import { hashPassword } from "../_lib/hash.js";
-import { checkRateLimitCentralized, getClientIp } from "../_lib/rateLimit.js";
-import { getSupabaseServerClient } from "../_lib/supabaseServer.js";
+import { hashPassword } from "../../_lib/hash.js";
+import { checkRateLimitCentralized, getClientIp } from "../../_lib/rateLimit.js";
+import { getSupabaseServerClient } from "../../_lib/supabaseServer.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');

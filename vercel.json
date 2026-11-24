@@ -4,6 +4,18 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/status",
+      "destination": "/api/system/status"
+    },
+    {
+      "source": "/api/data",
+      "destination": "/api/system/data"
+    },
+    {
+      "source": "/api/sync",
+      "destination": "/api/system/sync"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

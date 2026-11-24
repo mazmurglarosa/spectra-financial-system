@@ -1,10 +1,10 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
 import {
   mapDbAccountToAccount,
   mapDbTransactionToTransaction,
   mapDbContactToContact,
   mapDbCompanySettingsToCompanySettings
-} from '../_lib/accountingMapper.js';
+} from '../../_lib/accountingMapper.js';
 
 /**
  * GET /api/financial/sync-pull

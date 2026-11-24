@@ -1,12 +1,12 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
 import {
   mapAccountToDb,
   mapTransactionToDb,
   mapContactToDb,
   mapCompanySettingsToDb,
   computeTransactionFingerprint
-} from '../_lib/accountingMapper.js';
-import { validateTransactionStrict } from '../_lib/transactionValidator.js';
+} from '../../_lib/accountingMapper.js';
+import { validateTransactionStrict } from '../../_lib/transactionValidator.js';
 
 /**
  * POST /api/financial/sync-push

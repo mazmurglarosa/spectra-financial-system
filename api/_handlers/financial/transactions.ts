@@ -1,6 +1,6 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
-import { mapDbTransactionToTransaction, mapTransactionToDb, computeTransactionFingerprint } from '../_lib/accountingMapper.js';
-import { validateTransactionStrict } from '../_lib/transactionValidator.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
+import { mapDbTransactionToTransaction, mapTransactionToDb, computeTransactionFingerprint } from '../../_lib/accountingMapper.js';
+import { validateTransactionStrict } from '../../_lib/transactionValidator.js';
 
 /**
  * /api/financial/transactions

@@ -1,8 +1,8 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
 import {
   mapDbCompanySettingsToCompanySettings,
   mapCompanySettingsToDb
-} from '../_lib/accountingMapper.js';
+} from '../../_lib/accountingMapper.js';
 
 /**
  * /api/financial/settings

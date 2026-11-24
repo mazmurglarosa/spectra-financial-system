@@ -1,4 +1,4 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
 
 /**
  * /api/financial/logs

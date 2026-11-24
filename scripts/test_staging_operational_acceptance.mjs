@@ -32,16 +32,11 @@ import { hashPassword } from '../api/_lib/hash.ts';
 import { generateCsrfToken } from '../api/_lib/auth.ts';
 import { setMockSupabaseClient } from '../api/_lib/supabaseServer.ts';
 
-// Real Handlers
-import loginHandler from '../api/auth/login.ts';
-import statusHandler from '../api/financial/status.ts';
-import accountsHandler from '../api/financial/accounts.ts';
-import transactionsHandler from '../api/financial/transactions.ts';
-import syncPushHandler from '../api/financial/sync-push.ts';
-import syncPullHandler from '../api/financial/sync-pull.ts';
-import settingsHandler from '../api/financial/settings.ts';
-import driveUploadHandler from '../api/financial/drive-upload.ts';
-import spreadsheetSyncHandler from '../api/financial/spreadsheet-sync.ts';
+// Real Routers
+import authRouter from '../api/auth/[...route].ts';
+import financialRouter from '../api/financial/[...route].ts';
+import scanReceiptHandler from '../api/scan-receipt.ts';
+import systemRouter from '../api/system/[...route].ts';
 
 // Accounting Calculations from utils
 import { 
@@ -114,6 +109,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const mockReq = {
+      url: req.url,
       method: req.method,
       headers: req.headers,
       query: Object.fromEntries(parsedUrl.searchParams),
@@ -149,15 +145,12 @@ const server = http.createServer(async (req, res) => {
     };
 
     try {
-      if (pathname === '/api/auth/login') return await loginHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/status') return await statusHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/accounts') return await accountsHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/transactions') return await transactionsHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/sync-push') return await syncPushHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/sync-pull') return await syncPullHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/settings') return await settingsHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/drive-upload') return await driveUploadHandler(mockReq, mockRes);
-      if (pathname === '/api/financial/spreadsheet-sync') return await spreadsheetSyncHandler(mockReq, mockRes);
+      if (pathname.startsWith('/api/auth/')) return await authRouter(mockReq, mockRes);
+      if (pathname.startsWith('/api/financial/')) return await financialRouter(mockReq, mockRes);
+      if (pathname === '/api/scan-receipt') return await scanReceiptHandler(mockReq, mockRes);
+      if (pathname.startsWith('/api/system/') || pathname === '/api/status' || pathname === '/api/data' || pathname === '/api/sync') {
+        return await systemRouter(mockReq, mockRes);
+      }
 
       mockRes.status(404).json({ success: false, error: 'Endpoint Not Found' });
     } catch (err) {

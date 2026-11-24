@@ -1,5 +1,5 @@
-import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
-import { mapDbAccountToAccount, mapAccountToDb } from '../_lib/accountingMapper.js';
+import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
+import { mapDbAccountToAccount, mapAccountToDb } from '../../_lib/accountingMapper.js';
 
 /**
  * /api/financial/accounts
