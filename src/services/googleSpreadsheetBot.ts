@@ -115,43 +115,68 @@ function doPost(e) {
       throw new Error('Aksi pemindahan berkas massal via webhook publik telah dinonaktifkan demi keamanan. Silakan gunakan menu resmi di dalam Google Sheets: ⚡ SPECTRA Bot -> 📦 Pindahkan Berkas.');
     }
 
-    // 3. AUTENTIKASI SERVER-TO-SERVER (Jika Script Property SPECTRA_BOT_SECRET diaktifkan)
+    // 3. AUTENTIKASI SERVER-TO-SERVER MUTLAK (WAJIB)
     var scriptProps = PropertiesService.getScriptProperties();
     var expectedSecret = scriptProps.getProperty('SPECTRA_BOT_SECRET');
-    if (expectedSecret) {
-      if (!payload.secret || payload.secret !== expectedSecret) {
-        throw new Error('Autentikasi ditolak: Secret key bot tidak valid.');
-      }
-      if (payload.timestamp) {
-        var reqTime = new Date(payload.timestamp).getTime();
-        var nowTime = new Date().getTime();
-        if (isNaN(reqTime) || Math.abs(nowTime - reqTime) > 300000) { // 5 menit
-          throw new Error('Permintaan ditolak: Timestamp kadaluwarsa (Anti-Replay Protection).');
-        }
-      }
+    if (!expectedSecret) {
+      throw new Error('Autentikasi ditolak: SPECTRA_BOT_SECRET belum dikonfigurasi di Script Properties.');
+    }
+    if (!payload.secret || payload.secret !== expectedSecret) {
+      throw new Error('Autentikasi ditolak: Secret key bot tidak valid.');
     }
 
-    // 4. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi / Idempotency)
-    var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
-    if (!rows || rows.length === 0) {
-      throw new Error('Array baris transaksi (rows) kosong.');
+    // 4. VALIDASI TIMESTAMP WAJIB (ANTI-REPLAY: Maksimal 5 Menit)
+    if (!payload.timestamp) {
+      throw new Error('Permintaan ditolak: Timestamp wajib disertakan.');
+    }
+    var reqTime = new Date(payload.timestamp).getTime();
+    var nowTime = new Date().getTime();
+    if (isNaN(reqTime) || Math.abs(nowTime - reqTime) > 300000) { // 5 menit
+      throw new Error('Permintaan ditolak: Timestamp kadaluwarsa atau di luar toleransi 5 menit (Anti-Replay Protection).');
     }
 
-    var sheet = getTargetSheet();
-    var insertResult = insertTransactionRowsIdempotent(sheet, rows);
+    // 5. ATOMIC NONCE VERIFICATION (ANTI-REPLAY VIA CACHESERVICE)
+    if (!payload.nonce || typeof payload.nonce !== 'string' || payload.nonce.length < 8) {
+      throw new Error('Permintaan ditolak: Nonce wajib disertakan dan minimal 8 karakter.');
+    }
+    var cache = CacheService.getScriptCache();
+    var nonceKey = 'nonce_' + payload.nonce;
+    if (cache.get(nonceKey)) {
+      throw new Error('Permintaan ditolak: Nonce telah digunakan sebelumnya (Replay Attack Terdeteksi).');
+    }
+    cache.put(nonceKey, '1', 600); // Kunci selama 10 menit
 
-    var response = {
-      status: 'success',
-      message: 'Berhasil menyinkronkan ' + insertResult.insertedCount + ' baris transaksi (diabaikan duplikat: ' + insertResult.skippedCount + ') ke Google Spreadsheet (A' + insertResult.startRow + ':K' + insertResult.endRow + ').',
-      insertedCount: insertResult.insertedCount,
-      skippedCount: insertResult.skippedCount,
-      startRow: insertResult.startRow,
-      endRow: insertResult.endRow,
-      timestamp: new Date().toISOString()
-    };
+    // 6. CONCURRENCY LOCK (Pencegahan Operasi Paralel Bentrok)
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      throw new Error('Server sibuk: Sedang memproses transaksi lain. Silakan coba kembali.');
+    }
 
-    return ContentService.createTextOutput(JSON.stringify(response))
-      .setMimeType(ContentService.MimeType.JSON);
+    try {
+      // 7. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi Presisi / Idempotency)
+      var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
+      if (!rows || rows.length === 0) {
+        throw new Error('Array baris transaksi (rows) kosong.');
+      }
+
+      var sheet = getTargetSheet();
+      var insertResult = insertTransactionRowsIdempotent(sheet, rows);
+
+      var response = {
+        status: 'success',
+        message: 'Berhasil menyinkronkan ' + insertResult.insertedCount + ' baris transaksi (diabaikan duplikat retry: ' + insertResult.skippedCount + ') ke Google Spreadsheet (A' + insertResult.startRow + ':K' + insertResult.endRow + ').',
+        insertedCount: insertResult.insertedCount,
+        skippedCount: insertResult.skippedCount,
+        startRow: insertResult.startRow,
+        endRow: insertResult.endRow,
+        timestamp: new Date().toISOString()
+      };
+
+      return ContentService.createTextOutput(JSON.stringify(response))
+        .setMimeType(ContentService.MimeType.JSON);
+    } finally {
+      lock.releaseLock();
+    }
 
   } catch (err) {
     var errorResponse = {
@@ -201,32 +226,41 @@ function findNextEmptyRow(sheet) {
 function insertTransactionRowsIdempotent(sheet, rows) {
   var targetRow = findNextEmptyRow(sheet);
 
-  // Baca nomor berkas & nama transaksi yang sudah ada untuk mencegah duplikasi retry
-  var existingRecords = new Set();
+  // Periksa baris-baris yang telah ada di dalam sheet
+  // Hitung jumlah baris per nomor berkas untuk deduplikasi berbasis line-index yang presisi
+  var existingLinesPerBerkas = {};
   var lastRow = sheet.getLastRow();
   if (lastRow >= CONFIG.START_ROW) {
     var numExisting = lastRow - CONFIG.START_ROW + 1;
     var rangeData = sheet.getRange(CONFIG.START_ROW, 1, numExisting, CONFIG.TOTAL_COLS).getValues();
     for (var k = 0; k < rangeData.length; k++) {
-      var existBerkas = String(rangeData[k][8] || '').trim(); // Kolom I
-      var existNama = String(rangeData[k][4] || '').trim();   // Kolom E
+      var existBerkas = String(rangeData[k][8] || '').trim(); // Kolom I: Nomor Berkas
       if (existBerkas) {
-        existingRecords.add(existBerkas + '|' + existNama);
+        existingLinesPerBerkas[existBerkas] = (existingLinesPerBerkas[existBerkas] || 0) + 1;
       }
     }
   }
 
+  // Lacak indeks kemunculan baris untuk setiap nomor berkas di dalam batch saat ini
+  var incomingBatchIndex = {};
   var valuesToInsert = [];
   var skippedCount = 0;
 
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var nomorBerkas = String(r.nomorBerkas || '-').trim();
-    var namaTransaksi = String(r.namaTransaksi || r.nama || '-').trim();
-    var recordKey = nomorBerkas + '|' + namaTransaksi;
 
-    // Idempotency: Jika berkas & nama transaksi sudah ada persis di tabel, jangan tambah ganda
-    if (existingRecords.has(recordKey)) {
+    // Tentukan nomor urut baris dalam berkas ini (1-based index)
+    var currentLineIndex = (incomingBatchIndex[nomorBerkas] || 0) + 1;
+    incomingBatchIndex[nomorBerkas] = currentLineIndex;
+
+    // Jumlah baris untuk berkas ini yang sudah tersimpan di sheet
+    var alreadySavedCount = existingLinesPerBerkas[nomorBerkas] || 0;
+
+    // Jika baris dengan urutan ini sudah ada sebelumnya di sheet untuk berkas tersebut,
+    // maka ini adalah network retry duplikat -> abaikan secara presisi (idempotency)
+    // Dua item dengan nama yang sama dalam struk yang sama TETAP TERCATAT karena memiliki urutan berbeda (currentLineIndex)!
+    if (currentLineIndex <= alreadySavedCount) {
       skippedCount++;
       continue;
     }
@@ -235,6 +269,7 @@ function insertTransactionRowsIdempotent(sheet, rows) {
     var tanggal = r.tanggal ? Number(r.tanggal) : new Date().getDate();
     var bulan = r.bulan ? Number(r.bulan) : (new Date().getMonth() + 1);
     var tahun = r.tahun ? Number(r.tahun) : new Date().getFullYear();
+    var namaTransaksi = String(r.namaTransaksi || r.nama || '-').trim();
     var hargaSatuan = r.hargaSatuan !== null && r.hargaSatuan !== undefined && r.hargaSatuan !== '' ? Number(r.hargaSatuan) : '';
     var kuantitas = r.kuantitas !== null && r.kuantitas !== undefined && r.kuantitas !== '' ? Number(r.kuantitas) : '';
     var hargaTotal = Number(r.hargaTotal || r.totalPrice || 0);
@@ -403,24 +438,29 @@ export function saveSpreadsheetWebhookUrl(url: string): void {
   }
 }
 
-export function getSpreadsheetBotSecret(): string {
-  try {
-    return localStorage.getItem(SPREADSHEET_SECRET_STORAGE_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+// Helper CSRF Double-Submit Token
+function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)spectra_csrf=([^;]+)/);
+  if (match) return decodeURIComponent(match[1]);
+  return sessionStorage.getItem('spectra_csrf') || localStorage.getItem('spectra_csrf') || '';
 }
 
-export function saveSpreadsheetBotSecret(secret: string): void {
+/**
+ * Pengambilan secret bot via localStorage dinonaktifkan permanen demi keamanan enterprise.
+ * Secret SPECTRA_BOT_SECRET dikelola secara aman pada environment backend serverless.
+ */
+export function getSpreadsheetBotSecret(): string {
   try {
-    if (secret) {
-      localStorage.setItem(SPREADSHEET_SECRET_STORAGE_KEY, secret.trim());
-    } else {
-      localStorage.removeItem(SPREADSHEET_SECRET_STORAGE_KEY);
-    }
-  } catch (e) {
-    console.error('Failed to save spreadsheet bot secret:', e);
-  }
+    localStorage.removeItem(SPREADSHEET_SECRET_STORAGE_KEY);
+  } catch (e) {}
+  return '';
+}
+
+export function saveSpreadsheetBotSecret(_secret: string): void {
+  try {
+    localStorage.removeItem(SPREADSHEET_SECRET_STORAGE_KEY);
+  } catch (e) {}
 }
 
 export async function testSpreadsheetWebhook(
@@ -438,6 +478,13 @@ export async function testSpreadsheetWebhook(
     return {
       success: false,
       message: 'Format URL Webhook tidak valid. URL harus dimulai dengan: https://script.google.com/macros/s/.../exec'
+    };
+  }
+
+  if (isExternalSyncDisabledOnPreview()) {
+    return {
+      success: true,
+      message: '[Simulasi Preview] Webhook divalidasi dalam mode isolasi pengujian aman.'
     };
   }
 
@@ -484,7 +531,7 @@ export async function syncRowsToGoogleSpreadsheet(
   rows: SpreadsheetRowData[],
   webhookUrl?: string
 ): Promise<{ success: boolean; message: string; insertedCount?: number; skippedCount?: number; data?: any }> {
-  // FAIL-CLOSED ENVIRONMENT GUARD
+  // 1. FAIL-CLOSED ENVIRONMENT GUARD
   if (isExternalSyncDisabledOnPreview()) {
     const status = getExternalSyncStatus();
     console.info(`[ISOLASI ${status.environmentName.toUpperCase()}] syncRowsToGoogleSpreadsheet ditangguhkan (Mock Mode). Alasan: ${status.reason}`);
@@ -512,48 +559,31 @@ export async function syncRowsToGoogleSpreadsheet(
     };
   }
 
+  // 2. Bersihkan secret dari localStorage browser jika masih tersisa
   try {
-    const secret = getSpreadsheetBotSecret();
-    const payload: any = {
-      action: 'appendRows',
-      timestamp: new Date().toISOString(),
-      nonce: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      rows: rows.map(r => ({
-        no: r.no,
-        tanggal: r.tanggal,
-        bulan: r.bulan,
-        tahun: r.tahun,
-        namaTransaksi: r.namaTransaksi,
-        hargaSatuan: r.hargaSatuan,
-        kuantitas: r.kuantitas,
-        hargaTotal: r.hargaTotal,
-        nomorBerkas: r.nomorBerkas,
-        linkBerkas: r.linkBerkas,
-        pos: r.pos
-      }))
-    };
+    localStorage.removeItem(SPREADSHEET_SECRET_STORAGE_KEY);
+  } catch (e) {}
 
-    if (secret) {
-      payload.secret = secret;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-    const response = await fetch(targetUrl, {
+  // 3. Panggil Serverless Gateway Proxy (/api/financial/spreadsheet-sync)
+  // Secret server (SPECTRA_BOT_SECRET), nonce anti-replay, dan timestamp diterbitkan secara aman di server
+  try {
+    const csrf = getCsrfToken();
+    const proxyRes = await fetch('/api/financial/spreadsheet-sync', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrf
       },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-      redirect: 'follow'
+      credentials: 'include',
+      body: JSON.stringify({
+        webhookUrl: targetUrl,
+        rows
+      })
     });
-    clearTimeout(timeoutId);
 
-    const result = await response.json().catch(() => null);
+    const result = await proxyRes.json().catch(() => null);
 
-    if (result && (result.status === 'success' || result.success)) {
+    if (proxyRes.ok && result && (result.success || result.status === 'success')) {
       return {
         success: true,
         message: result.message || `Berhasil mengisi ${rows.length} baris ke Google Spreadsheet mulai dari baris A6!`,
@@ -561,16 +591,16 @@ export async function syncRowsToGoogleSpreadsheet(
         skippedCount: result.skippedCount || 0,
         data: result
       };
-    } else {
-      return {
-        success: false,
-        message: result?.message || 'Bot Google Apps Script merespon gagal saat memasukkan data.'
-      };
     }
+
+    return {
+      success: false,
+      message: result?.error || result?.message || `Gagal menyinkronkan data via gateway proxy (HTTP ${proxyRes.status}).`
+    };
   } catch (err: any) {
     return {
       success: false,
-      message: `Gagal mengirim data ke Google Spreadsheet: ${err?.message || err}`
+      message: `Gagal mengirim data melalui server proxy: ${err?.message || err}`
     };
   }
 }

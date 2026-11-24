@@ -71,6 +71,43 @@ export default async function handler(req: any, res: any) {
     try {
       const dbRow = mapTransactionToDb(sanitizedTx);
 
+      // Verifikasi Idempotency & Mencegah Overwrite Siluman
+      const { data: existingTx, error: checkErr } = await supabase
+        .from('transactions')
+        .select('id, ref_number, total_debit, total_credit, lines')
+        .eq('id', dbRow.id)
+        .maybeSingle();
+
+      if (checkErr) {
+        throw new Error(`Gagal memverifikasi keunikan transaksi: ${checkErr.message}`);
+      }
+
+      if (existingTx) {
+        // Cek apakah ini retry yang identik (safe idempotent retry)
+        const isIdentical =
+          existingTx.ref_number === dbRow.ref_number &&
+          Math.abs(Number(existingTx.total_debit) - Number(dbRow.total_debit)) < 0.001 &&
+          Math.abs(Number(existingTx.total_credit) - Number(dbRow.total_credit)) < 0.001;
+
+        if (isIdentical) {
+          return res.status(200).json({
+            success: true,
+            message: `Transaksi ${dbRow.ref_number} telah tersimpan sebelumnya (Idempotent OK).`,
+            transaction: sanitizedTx,
+            isIdempotentRetry: true
+          });
+        }
+
+        // Jika rincian berbeda dan bukan update eksplisit, tolak demi mencegah mutasi tidak sah
+        const isExplicitUpdate = req.body?.isUpdate === true || req.query?.isUpdate === 'true';
+        if (!isExplicitUpdate) {
+          return res.status(409).json({
+            success: false,
+            error: `Konflik idempotensi: Transaksi dengan ID "${dbRow.id}" sudah ada di database dengan rincian berbeda. Gunakan parameter pembaruan terotorisasi (isUpdate) jika ingin mengubah data.`
+          });
+        }
+      }
+
       const { error: upsertErr } = await supabase
         .from('transactions')
         .upsert(dbRow, { onConflict: 'id' });

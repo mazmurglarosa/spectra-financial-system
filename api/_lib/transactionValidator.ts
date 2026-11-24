@@ -40,14 +40,25 @@ export async function validateTransactionStrict(
     return { isValid: false, error: 'ID transaksi wajib disertakan.' };
   }
 
-  // 2. Validasi Tanggal (YYYY-MM-DD)
+  // 2. Validasi Tanggal (YYYY-MM-DD Kalender Presisi)
   const dateStr = String(rawTx.date || '').trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return { isValid: false, error: `Format tanggal tidak valid: "${dateStr}". Wajib format YYYY-MM-DD.` };
   }
-  const dateObj = new Date(dateStr);
-  if (isNaN(dateObj.getTime())) {
-    return { isValid: false, error: `Nilai kalender tanggal tidak valid: "${dateStr}".` };
+  const [yStr, mStr, dStr] = dateStr.split('-');
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10);
+  const d = parseInt(dStr, 10);
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1970 || y > 2100) {
+    return { isValid: false, error: `Tanggal kalender di luar jangkauan yang sah: "${dateStr}".` };
+  }
+  // Validasi presisi hari kalender (mencegah tanggal fiktif seperti 2026-02-31 atau 2026-04-31)
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (d > daysInMonth) {
+    return {
+      isValid: false,
+      error: `Tanggal kalender tidak valid: bulan ${m} pada tahun ${y} hanya memiliki ${daysInMonth} hari (diterima: ${d}).`
+    };
   }
 
   // 3. Validasi Nomor Referensi
@@ -70,14 +81,42 @@ export async function validateTransactionStrict(
     };
   }
 
-  // 5. Periksa Akun Terdaftar jika diminta atau tersedia klien database
+  // 5. Periksa Akun Terdaftar secara Fail-Closed
   let validCodes = options.existingAccountCodes;
-  if (!validCodes && options.checkAccountExistence && supabase) {
+  const shouldCheckAccount = options.checkAccountExistence || options.existingAccountCodes !== undefined;
+
+  if (!validCodes && options.checkAccountExistence) {
+    if (!supabase) {
+      return {
+        isValid: false,
+        error: 'Pemeriksaan akun aktif namun klien database tidak tersedia (Fail-Closed).'
+      };
+    }
     const { data: accounts, error: accErr } = await supabase
       .from('accounts')
       .select('code, id');
-    if (!accErr && accounts) {
-      validCodes = new Set(accounts.flatMap(a => [String(a.code).trim(), String(a.id).trim()]));
+
+    if (accErr) {
+      return {
+        isValid: false,
+        error: `Gagal memverifikasi keberadaan akun dari database: ${accErr.message} (Fail-Closed).`
+      };
+    }
+    if (!accounts || accounts.length === 0) {
+      return {
+        isValid: false,
+        error: 'Daftar master akun di database kosong atau belum diinisialisasi. Transaksi ditolak demi keamanan (Fail-Closed).'
+      };
+    }
+    validCodes = new Set(accounts.flatMap(a => [String(a.code).trim(), String(a.id).trim()]));
+  }
+
+  if (shouldCheckAccount) {
+    if (!validCodes || validCodes.size === 0) {
+      return {
+        isValid: false,
+        error: 'Himpunan akun valid kosong atau gagal dimuat. Transaksi ditolak demi integritas akuntansi (Fail-Closed).'
+      };
     }
   }
 
@@ -96,12 +135,15 @@ export async function validateTransactionStrict(
       return { isValid: false, error: `Baris #${i + 1} pada ${refNumber} tidak memiliki kode/ID akun.` };
     }
 
-    // Jika set akun tersedia, pastikan akun benar-benar ada
-    if (validCodes && validCodes.size > 0 && !validCodes.has(accountCode) && !validCodes.has(String(line.accountId || '').trim())) {
-      return {
-        isValid: false,
-        error: `Baris #${i + 1} pada ${refNumber} menggunakan akun yang tidak terdaftar: "${accountCode}".`
-      };
+    // Jika pengecekan akun aktif, wajib ada di himpunan validCodes (Fail-Closed)
+    if (shouldCheckAccount && validCodes) {
+      const lineAccountId = String(line.accountId || '').trim();
+      if (!validCodes.has(accountCode) && (!lineAccountId || !validCodes.has(lineAccountId))) {
+        return {
+          isValid: false,
+          error: `Baris #${i + 1} pada ${refNumber} menggunakan akun yang tidak terdaftar: "${accountCode}".`
+        };
+      }
     }
 
     const debitVal = Number(line.debit);
@@ -171,21 +213,37 @@ export async function validateTransactionStrict(
     };
   }
 
-  // 8. Reconcile Header Total jika diberikan klien
-  const clientDebit = rawTx.totalDebit !== undefined ? Number(rawTx.totalDebit) : undefined;
-  const clientCredit = rawTx.totalCredit !== undefined ? Number(rawTx.totalCredit) : undefined;
-
-  if (clientDebit !== undefined && Number.isFinite(clientDebit) && Math.abs(clientDebit - calculatedDebitSum) >= 0.001) {
-    return {
-      isValid: false,
-      error: `Manipulasi terdeteksi pada ${refNumber}: Total Debit header (${clientDebit}) tidak cocok dengan jumlah baris (${calculatedDebitSum}).`
-    };
+  // 8. Reconcile & Validasi Total Header Klien (Tolak NaN, Infinity, dan Nilai Non-Finite)
+  if (rawTx.totalDebit !== undefined && rawTx.totalDebit !== null) {
+    const clientDebit = Number(rawTx.totalDebit);
+    if (!Number.isFinite(clientDebit) || isNaN(clientDebit)) {
+      return {
+        isValid: false,
+        error: `Header totalDebit tidak valid atau non-finite: "${rawTx.totalDebit}".`
+      };
+    }
+    if (Math.abs(clientDebit - calculatedDebitSum) >= 0.001) {
+      return {
+        isValid: false,
+        error: `Manipulasi terdeteksi pada ${refNumber}: Total Debit header (${clientDebit}) tidak cocok dengan jumlah baris (${calculatedDebitSum}).`
+      };
+    }
   }
-  if (clientCredit !== undefined && Number.isFinite(clientCredit) && Math.abs(clientCredit - calculatedCreditSum) >= 0.001) {
-    return {
-      isValid: false,
-      error: `Manipulasi terdeteksi pada ${refNumber}: Total Kredit header (${clientCredit}) tidak cocok dengan jumlah baris (${calculatedCreditSum}).`
-    };
+
+  if (rawTx.totalCredit !== undefined && rawTx.totalCredit !== null) {
+    const clientCredit = Number(rawTx.totalCredit);
+    if (!Number.isFinite(clientCredit) || isNaN(clientCredit)) {
+      return {
+        isValid: false,
+        error: `Header totalCredit tidak valid atau non-finite: "${rawTx.totalCredit}".`
+      };
+    }
+    if (Math.abs(clientCredit - calculatedCreditSum) >= 0.001) {
+      return {
+        isValid: false,
+        error: `Manipulasi terdeteksi pada ${refNumber}: Total Kredit header (${clientCredit}) tidak cocok dengan jumlah baris (${calculatedCreditSum}).`
+      };
+    }
   }
 
   const now = Date.now();
