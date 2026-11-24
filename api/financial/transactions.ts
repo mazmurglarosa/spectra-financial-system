@@ -109,11 +109,23 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      const { error: upsertErr } = await supabase
-        .from('transactions')
-        .upsert(dbRow, { onConflict: 'id' });
+      const isExplicitUpdate = req.body?.isUpdate === true || req.query?.isUpdate === 'true';
 
-      if (upsertErr) throw new Error(upsertErr.message);
+      // Eksekusi atomik database via RPC dengan row-level locking (SELECT ... FOR UPDATE)
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('post_transaction_atomic', {
+        p_transaction: dbRow,
+        p_is_authorized_update: isExplicitUpdate
+      });
+
+      if (rpcErr) {
+        if (rpcErr.code === '23505' || rpcErr.message.includes('Konflik Idempotensi')) {
+          return res.status(409).json({
+            success: false,
+            error: rpcErr.message
+          });
+        }
+        throw new Error(rpcErr.message);
+      }
 
       // Audit Log
       await supabase.from('activity_logs').insert({

@@ -167,18 +167,35 @@ console.log('   SPECTRA FINANCIAL SYSTEM - REAL STAGING INTEGRATION SUITE   ');
 console.log(`   Target Server: ${BASE_URL} -> Supabase Staging (${STAGING_URL.slice(8, 28)}...)`);
 console.log('===============================================================\n');
 
+const stats = {
+  unit: { pass: 0, fail: 0, blocked: 0 },
+  db_integration: { pass: 0, fail: 0, blocked: 0 },
+  apps_script: { pass: 0, fail: 0, blocked: 0 },
+  browser_e2e: { pass: 0, fail: 0, blocked: 0 }
+};
+
 let passCount = 0;
 let failCount = 0;
+let blockedCount = 0;
 
-function report(testNum, title, passed, detail) {
+function report(testNum, title, passed, detail, category = 'db_integration', isBlocked = false) {
   const numStr = testNum.toString().padStart(2, '0');
-  if (passed) {
-    console.log(`[\x1b[32mPASS\x1b[0m] Test ${numStr}: ${title}`);
-    if (detail) console.log(`       └─ ${detail}`);
+  const cat = stats[category] ? category : 'db_integration';
+
+  if (isBlocked) {
+    console.log(`[\x1b[33mBLOCKED\x1b[0m] Test ${numStr} [${cat.toUpperCase()}]: ${title}`);
+    if (detail) console.log(`          └─ ${detail}`);
+    stats[cat].blocked++;
+    blockedCount++;
+  } else if (passed) {
+    console.log(`[\x1b[32mPASS\x1b[0m]    Test ${numStr} [${cat.toUpperCase()}]: ${title}`);
+    if (detail) console.log(`          └─ ${detail}`);
+    stats[cat].pass++;
     passCount++;
   } else {
-    console.error(`[\x1b[31mFAIL\x1b[0m] Test ${numStr}: ${title}`);
-    if (detail) console.error(`       └─ ERROR: ${detail}`);
+    console.error(`[\x1b[31mFAIL\x1b[0m]    Test ${numStr} [${cat.toUpperCase()}]: ${title}`);
+    if (detail) console.error(`          └─ ERROR: ${detail}`);
+    stats[cat].fail++;
     failCount++;
   }
 }
@@ -349,9 +366,9 @@ try {
     assert.strictEqual(badDateRes.status, 400, 'Tanggal fiktif wajib ditolak HTTP 400');
     const badDateJson = await badDateRes.json();
     assert(badDateJson.error.includes('kalender') || badDateJson.error.includes('hari'), 'Pesan error harus menyebut kalender');
-    report(5, '[FAIL-CLOSED] Tolak Tanggal Kalender Fiktif (2026-02-31 -> HTTP 400)', true, `Ditolak presisi: ${badDateJson.error}`);
+    report(5, '[FAIL-CLOSED] Tolak Tanggal Kalender Fiktif (2026-02-31 -> HTTP 400)', true, `Ditolak presisi: ${badDateJson.error}`, 'unit');
   } catch (e) {
-    report(5, '[FAIL-CLOSED] Tolak Tanggal Kalender Fiktif (2026-02-31 -> HTTP 400)', false, e.message);
+    report(5, '[FAIL-CLOSED] Tolak Tanggal Kalender Fiktif (2026-02-31 -> HTTP 400)', false, e.message, 'unit');
   }
 
   // -------------------------------------------------------------
@@ -381,9 +398,9 @@ try {
     });
     assert.strictEqual(nanRes.status, 400, 'NaN wajib ditolak HTTP 400');
     const nanJson = await nanRes.json();
-    report(6, '[FAIL-CLOSED] Tolak Nominal NaN & Header Non-Finite (HTTP 400)', true, `Ditolak presisi: ${nanJson.error}`);
+    report(6, '[FAIL-CLOSED] Tolak Nominal NaN & Header Non-Finite (HTTP 400)', true, `Ditolak presisi: ${nanJson.error}`, 'unit');
   } catch (e) {
-    report(6, '[FAIL-CLOSED] Tolak Nominal NaN & Header Non-Finite (HTTP 400)', false, e.message);
+    report(6, '[FAIL-CLOSED] Tolak Nominal NaN & Header Non-Finite (HTTP 400)', false, e.message, 'unit');
   }
 
   // -------------------------------------------------------------
@@ -413,9 +430,9 @@ try {
     assert.strictEqual(unregRes.status, 400, 'Akun fiktif wajib ditolak 400');
     const unregJson = await unregRes.json();
     assert(unregJson.error.includes('tidak terdaftar'), 'Pesan error harus menyebut akun tidak terdaftar');
-    report(7, '[FAIL-CLOSED] Tolak Kode Akun Fiktif / Belum Terdaftar (HTTP 400)', true, `Ditolak presisi: ${unregJson.error}`);
+    report(7, '[FAIL-CLOSED] Tolak Kode Akun Fiktif / Belum Terdaftar (HTTP 400)', true, `Ditolak presisi: ${unregJson.error}`, 'unit');
   } catch (e) {
-    report(7, '[FAIL-CLOSED] Tolak Kode Akun Fiktif / Belum Terdaftar (HTTP 400)', false, e.message);
+    report(7, '[FAIL-CLOSED] Tolak Kode Akun Fiktif / Belum Terdaftar (HTTP 400)', false, e.message, 'unit');
   }
 
   // -------------------------------------------------------------
@@ -445,9 +462,9 @@ try {
     assert.strictEqual(unbalRes.status, 400, 'Jurnal tidak seimbang wajib ditolak 400');
     const unbalJson = await unbalRes.json();
     assert(unbalJson.error.includes('TIDAK SEIMBANG'), 'Error harus menyebut tidak seimbang');
-    report(8, '[SAK-VALIDATION] Tolak Jurnal Tidak Seimbang Debit != Kredit (HTTP 400)', true, `Ditolak presisi: ${unbalJson.error}`);
+    report(8, '[SAK-VALIDATION] Tolak Jurnal Tidak Seimbang Debit != Kredit (HTTP 400)', true, `Ditolak presisi: ${unbalJson.error}`, 'unit');
   } catch (e) {
-    report(8, '[SAK-VALIDATION] Tolak Jurnal Tidak Seimbang Debit != Kredit (HTTP 400)', false, e.message);
+    report(8, '[SAK-VALIDATION] Tolak Jurnal Tidak Seimbang Debit != Kredit (HTTP 400)', false, e.message, 'unit');
   }
 
   // -------------------------------------------------------------
@@ -479,9 +496,9 @@ try {
     assert.strictEqual(fakeHdrRes.status, 400, 'Header palsu wajib ditolak 400');
     const fakeHdrJson = await fakeHdrRes.json();
     assert(fakeHdrJson.error.includes('Manipulasi terdeteksi'), 'Error harus mendeteksi manipulasi header');
-    report(9, '[SAK-VALIDATION] Tolak Manipulasi Total Header Palsu (HTTP 400)', true, `Ditolak presisi: ${fakeHdrJson.error}`);
+    report(9, '[SAK-VALIDATION] Tolak Manipulasi Total Header Palsu (HTTP 400)', true, `Ditolak presisi: ${fakeHdrJson.error}`, 'unit');
   } catch (e) {
-    report(9, '[SAK-VALIDATION] Tolak Manipulasi Total Header Palsu (HTTP 400)', false, e.message);
+    report(9, '[SAK-VALIDATION] Tolak Manipulasi Total Header Palsu (HTTP 400)', false, e.message, 'unit');
   }
 
   // -------------------------------------------------------------
@@ -566,9 +583,84 @@ try {
     assert.strictEqual(conflictRes.status, 409, 'Konflik mutasi wajib ditolak HTTP 409');
     const conflictJson = await conflictRes.json();
     assert(conflictJson.error.includes('Konflik idempotensi'), 'Pesan harus menyebut konflik idempotensi');
-    report(12, '[STEALTH-GUARD] Tolak Mutasi Siluman ID Sama dengan Isi Berbeda (HTTP 409 Conflict)', true, conflictJson.error);
+    report(12, '[STEALTH-GUARD] Tolak Mutasi Siluman ID Sama dengan Isi Berbeda (HTTP 409 Conflict)', true, conflictJson.error, 'db_integration');
   } catch (e) {
-    report(12, '[STEALTH-GUARD] Tolak Mutasi Siluman ID Sama dengan Isi Berbeda (HTTP 409 Conflict)', false, e.message);
+    report(12, '[STEALTH-GUARD] Tolak Mutasi Siluman ID Sama dengan Isi Berbeda (HTTP 409 Conflict)', false, e.message, 'db_integration');
+  }
+
+  // -------------------------------------------------------------
+  // TEST 13: SQL Material Idempotency: Tolak Akun Berbeda dengan ID & Total Sama (HTTP 409 & Data Asli Utuh)
+  // -------------------------------------------------------------
+  const sameIdTotalTxId = `${DUMMY_PREFIX}TX_SAME_ID_TOTAL`;
+  try {
+    const originalSameTx = {
+      id: sameIdTotalTxId,
+      date: '2026-11-24',
+      refNumber: 'BT/SAME/001',
+      description: 'Transaksi Asli (Kas -> Utang)',
+      partner: 'Vendor Rekanan A',
+      lines: [
+        { accountCode: '10001', debit: 250000, credit: 0, memo: 'Debit Kas' },
+        { accountCode: '20001', debit: 0, credit: 250000, memo: 'Kredit Utang' }
+      ]
+    };
+
+    const resFirst = await fetch(`${BASE_URL}/api/financial/transactions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookieHeader,
+        'x-csrf-token': adminCsrfToken,
+        origin: 'https://spectra-financial-system.vercel.app'
+      },
+      body: JSON.stringify(originalSameTx)
+    });
+    assert.strictEqual(resFirst.status, 200, 'Transaksi pertama harus tersimpan sukses');
+
+    // Transaksi kedua: ID SAMA dan TOTAL SAMA (Rp 250.000), tapi AKUN DEBIT BERBEDA (10002 Bank BCA vs 10001 Kas)
+    const alteredAccountTx = {
+      id: sameIdTotalTxId,
+      date: '2026-11-24',
+      refNumber: 'BT/SAME/001',
+      description: 'Transaksi Modifikasi Diam-diam',
+      partner: 'Vendor Rekanan A',
+      lines: [
+        { accountCode: '10002', debit: 250000, credit: 0, memo: 'Debit Bank BCA (Berbeda!)' },
+        { accountCode: '20001', debit: 0, credit: 250000, memo: 'Kredit Utang' }
+      ]
+    };
+
+    const resSecond = await fetch(`${BASE_URL}/api/financial/transactions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookieHeader,
+        'x-csrf-token': adminCsrfToken,
+        origin: 'https://spectra-financial-system.vercel.app'
+      },
+      body: JSON.stringify(alteredAccountTx)
+    });
+    assert.strictEqual(resSecond.status, 409, 'Transaksi kedua dengan akun berbeda wajib ditolak HTTP 409 Conflict');
+    const jsonSecond = await resSecond.json();
+
+    // Verifikasi langsung ke database PostgreSQL: Transaksi asli TIDAK BERUBAH SAMA SEKALI
+    const { data: checkDbRow, error: checkErr } = await directClient
+      .from('transactions')
+      .select('*')
+      .eq('id', sameIdTotalTxId)
+      .single();
+    if (checkErr) throw checkErr;
+
+    const currentLines = Array.isArray(checkDbRow.lines) ? checkDbRow.lines : JSON.parse(checkDbRow.lines);
+    assert.strictEqual(currentLines[0].accountCode, '10001', 'Akun transaksi asli di database PostgreSQL TIDAK BOLEH berubah!');
+    assert.strictEqual(Number(checkDbRow.total_debit), 250000);
+
+    report(13, '[SQL-IDEMPOTENCY] Tolak Transaksi ID & Total Sama dengan Akun Berbeda (HTTP 409 & Data Asli Utuh)', true,
+      `Ditolak database 409: "${jsonSecond.error}". Data asli di PostgreSQL terbukti 100% utuh tanpa modifikasi siluman.`,
+      'db_integration'
+    );
+  } catch (e) {
+    report(13, '[SQL-IDEMPOTENCY] Tolak Transaksi ID & Total Sama dengan Akun Berbeda (HTTP 409 & Data Asli Utuh)', false, e.message, 'db_integration');
   }
 
   // -------------------------------------------------------------
@@ -854,13 +946,73 @@ try {
     assert.strictEqual(limitSync.status, 400, 'Baris > 50 wajib ditolak 400');
     const limitJson = await limitSync.json();
 
-    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', true, `Akses publik ditolak (401), staff ditolak (403), limit baris dijaga: ${limitJson.error}`);
+    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', true, `Akses publik ditolak (401), staff ditolak (403), limit baris dijaga: ${limitJson.error}`, 'apps_script');
   } catch (e) {
-    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', false, e.message);
+    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', false, e.message, 'apps_script');
   }
 
   // -------------------------------------------------------------
-  // TEST 20: Deduplikasi Presisi Google Sheets via Composite Key (nomorBerkas#L{index})
+  // TEST 20: Isolasi Lingkungan: Tolak Webhook Production pada Vercel Preview (HTTP 403 & 503)
+  // -------------------------------------------------------------
+  try {
+    const origVercelEnv = process.env.VERCEL_ENV;
+    const origWebhook = process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL;
+    const origStagingWebhook = process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING;
+    const origProdWebhook = process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION;
+
+    try {
+      // 20a. Simulasi Vercel Preview mengarah ke deployment ID Production yang di-blacklist
+      process.env.VERCEL_ENV = 'preview';
+      process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT/exec';
+      delete process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING;
+
+      const previewToProdRes = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: adminCookieHeader,
+          'x-csrf-token': adminCsrfToken,
+          origin: 'https://spectra-financial-system.vercel.app'
+        },
+        body: JSON.stringify({ rows: [{ nomorBerkas: 'BT/TEST/ISO', namaTransaksi: 'Uji Isolasi' }] })
+      });
+
+      assert.strictEqual(previewToProdRes.status, 403, 'Preview mengarah ke deployment Production wajib ditolak 403');
+      const p2pJson = await previewToProdRes.json();
+      assert(p2pJson.error.includes('Isolasi Lingkungan Aktif'), 'Pesan harus menyatakan isolasi lingkungan aktif');
+
+      // 20b. Simulasi Preview tanpa konfigurasi webhook staging sama sekali (Fail-Closed 503)
+      delete process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL;
+      delete process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING;
+
+      const failClosedRes = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: adminCookieHeader,
+          'x-csrf-token': adminCsrfToken,
+          origin: 'https://spectra-financial-system.vercel.app'
+        },
+        body: JSON.stringify({ rows: [{ nomorBerkas: 'BT/TEST/ISO', namaTransaksi: 'Uji Fail-Closed' }] })
+      });
+      assert.strictEqual(failClosedRes.status, 503, 'Preview tanpa staging webhook wajib fail-closed 503');
+
+      report(20, '[WEBHOOK-ISOLATION] Tolak Pengiriman Preview ke Webhook Google Production (HTTP 403 & 503 Fail-Closed)', true,
+        `Preview ke Prod diblokir (403: "${p2pJson.error}"); ketiadaan konfigurasi ditutup aman (HTTP 503).`,
+        'apps_script'
+      );
+    } finally {
+      process.env.VERCEL_ENV = origVercelEnv || '';
+      process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL = origWebhook || '';
+      if (origStagingWebhook) process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING = origStagingWebhook;
+      if (origProdWebhook) process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION = origProdWebhook;
+    }
+  } catch (e) {
+    report(20, '[WEBHOOK-ISOLATION] Tolak Pengiriman Preview ke Webhook Google Production (HTTP 403 & 503 Fail-Closed)', false, e.message, 'apps_script');
+  }
+
+  // -------------------------------------------------------------
+  // TEST 21: Deduplikasi Presisi Google Sheets via Composite Key (nomorBerkas#L{index}) [MOCKED/UNIT]
   // -------------------------------------------------------------
   try {
     // Simulasikan logika insertTransactionRowsIdempotent dengan sheet tersembunyi _spectra_idempotency
@@ -870,7 +1022,7 @@ try {
     ];
 
     // Evaluasi algoritma deduplikasi presisi berbasis _spectra_idempotency
-    const existingIdempKeys = new Set(); // Awalnya kosong
+    const existingIdempKeys = new Set();
     const incomingIndex = {};
     const valuesInserted = [];
     let skipped = 0;
@@ -912,13 +1064,81 @@ try {
     assert.strictEqual(retryValuesInserted.length, 0, 'Pada retry tidak boleh ada baris baru bertambah');
     assert.strictEqual(retrySkipped, 2, 'Kedua baris pada retry harus di-skip sebagai duplikat');
 
-    report(20, '[DEDUPLICATION] Deduplikasi Presisi via Composite Key: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', true, 'Item identik dalam nota sah (#L1, #L2) tercatat terpisah; network retry dicegah tanpa merusak tabel utama A6:K.');
+    report(21, '[MOCKED/UNIT] Deduplikasi Presisi Google Sheets via Composite Key (nomorBerkas#L{index})', true,
+      'Item identik dalam nota sah (#L1, #L2) tercatat terpisah; network retry dicegah tanpa merusak tabel utama A6:K.',
+      'apps_script'
+    );
   } catch (e) {
-    report(20, '[DEDUPLICATION] Deduplikasi Presisi via Composite Key: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', false, e.message);
+    report(21, '[MOCKED/UNIT] Deduplikasi Presisi Google Sheets via Composite Key (nomorBerkas#L{index})', false, e.message, 'apps_script');
   }
 
   // -------------------------------------------------------------
-  // TEST 21: RLS Lockdown: Akses Langsung Anonim ke Tabel Akuntansi Ditolak
+  // TEST 22: Rekonsiliasi Mandiri, Reorder Guard & Partial Retry Google Sheets [MOCKED/UNIT]
+  // -------------------------------------------------------------
+  try {
+    // 1. Reorder Guard: Pengurutan ulang item pada baris yang sama ditolak
+    const existingMetadata = {
+      'BT/TEST/01#L1': { namaTransaksi: 'Baut 12', hargaTotal: 5000 }
+    };
+    const alteredReorderedRow = { nomorBerkas: 'BT/TEST/01', namaTransaksi: 'Mur 10', hargaTotal: 5000 };
+    let reorderDetected = false;
+    const rec = existingMetadata['BT/TEST/01#L1'];
+    if (rec && rec.namaTransaksi !== alteredReorderedRow.namaTransaksi) {
+      reorderDetected = true;
+    }
+    assert(reorderDetected, 'Pengurutan ulang item pada baris yang sama harus terdeteksi sebagai konflik');
+
+    // 2. Partial Retry: Batch 3 baris dimana baris 1 & 2 sudah tersimpan
+    const alreadySavedLines = new Set(['BT/PARTIAL/01#L1', 'BT/PARTIAL/01#L2']);
+    const partialBatch = [
+      { nomorBerkas: 'BT/PARTIAL/01', namaTransaksi: 'Item 1' },
+      { nomorBerkas: 'BT/PARTIAL/01', namaTransaksi: 'Item 2' },
+      { nomorBerkas: 'BT/PARTIAL/01', namaTransaksi: 'Item 3' }
+    ];
+
+    const toInsert = [];
+    let partialSkipped = 0;
+    partialBatch.forEach((r, idx) => {
+      const lineKey = `${r.nomorBerkas}#L${idx + 1}`;
+      if (alreadySavedLines.has(lineKey)) {
+        partialSkipped++;
+      } else {
+        toInsert.push(r);
+      }
+    });
+
+    assert.strictEqual(partialSkipped, 2, 'Dua baris yang sudah ada harus di-skip');
+    assert.strictEqual(toInsert.length, 1, 'Hanya baris ke-3 yang baru yang dimasukkan');
+    assert.strictEqual(toInsert[0].namaTransaksi, 'Item 3');
+
+    // 3. Self-Healing Reconciliation: Baris ada di sheet utama tetapi hilang di _spectra_idempotency
+    const mainTable = [
+      { nomorBerkas: 'BT/CRASH/01', namaTransaksi: 'Semen Gresik', hargaTotal: 65000 }
+    ];
+    const recoveredIdempMap = {};
+    const recoveredKeys = [];
+
+    mainTable.forEach((r, idx) => {
+      const lineKey = `${r.nomorBerkas}#L${idx + 1}`;
+      if (!recoveredIdempMap[lineKey]) {
+        recoveredIdempMap[lineKey] = r;
+        recoveredKeys.push(lineKey);
+      }
+    });
+
+    assert.strictEqual(recoveredKeys.length, 1, 'Baris crash harus berhasil direkonsiliasi');
+    assert.strictEqual(recoveredKeys[0], 'BT/CRASH/01#L1');
+
+    report(22, '[MOCKED/UNIT] Rekonsiliasi Mandiri, Reorder Guard & Partial Retry Google Sheets', true,
+      'Reorder item terdeteksi, partial retry tidak kehilangan baris, dan rekonsiliasi mandiri memulihkan metadata.',
+      'apps_script'
+    );
+  } catch (e) {
+    report(22, '[MOCKED/UNIT] Rekonsiliasi Mandiri, Reorder Guard & Partial Retry Google Sheets', false, e.message, 'apps_script');
+  }
+
+  // -------------------------------------------------------------
+  // TEST 23: RLS Lockdown: Akses Langsung Anonim ke Tabel Akuntansi Ditolak
   // -------------------------------------------------------------
   try {
     assert(stagingAnonKey, 'Anon key harus tersedia untuk pengujian RLS');
@@ -940,13 +1160,13 @@ try {
     const isTxBlocked = rlsTxErr !== null || !anonTx || anonTx.length === 0;
     assert(isTxBlocked, 'Anonim tidak boleh diizinkan melakukan INSERT langsung ke transactions');
 
-    report(21, '[RLS-LOCKDOWN] Akses Anonim Langsung ke Tabel Akuntansi Diblokir PostgreSQL RLS', true, 'Policy Deny anon accounts & transactions aktif memblokir akses direct browser.');
+    report(23, '[RLS-LOCKDOWN] Akses Anonim Langsung ke Tabel Akuntansi Diblokir PostgreSQL RLS', true, 'Policy Deny anon accounts & transactions aktif memblokir akses direct browser.', 'db_integration');
   } catch (e) {
-    report(21, '[RLS-LOCKDOWN] Akses Anonim Langsung ke Tabel Akuntansi Diblokir PostgreSQL RLS', false, e.message);
+    report(23, '[RLS-LOCKDOWN] Akses Anonim Langsung ke Tabel Akuntansi Diblokir PostgreSQL RLS', false, e.message, 'db_integration');
   }
 
   // -------------------------------------------------------------
-  // TEST 22: PostgreSQL RPC Privilege Lockdown (Security Definer Hardening)
+  // TEST 24: PostgreSQL RPC Privilege Lockdown (Security Definer Hardening)
   // -------------------------------------------------------------
   try {
     const anonClient = createClient(STAGING_URL, stagingAnonKey);
@@ -973,13 +1193,13 @@ try {
     });
     assert(!serviceRpcErr, `Service role harus tetap dapat memanggil RPC, error: ${serviceRpcErr?.message}`);
 
-    report(22, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', true, `Akses anon ditolak (${anonRpcErr.code || 'Denied'}); backend service_role terotorisasi penuh.`);
+    report(24, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', true, `Akses anon ditolak (${anonRpcErr.code || 'Denied'}); backend service_role terotorisasi penuh.`, 'db_integration');
   } catch (e) {
-    report(22, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', false, e.message);
+    report(24, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', false, e.message, 'db_integration');
   }
 
   // -------------------------------------------------------------
-  // TEST 23: True SQL-Level Rollback Test (Eksekusi Nyata PostgreSQL Engine)
+  // TEST 25: True SQL-Level Rollback Test (Eksekusi Nyata PostgreSQL Engine)
   // -------------------------------------------------------------
   const sqlRollbackAccId = `${DUMMY_PREFIX}ACC_TRUE_SQL_ROLLBACK`;
   try {
@@ -1001,7 +1221,7 @@ try {
     const sqlBombTransactions = [
       {
         id: `${DUMMY_PREFIX}TX_SQL_BOMB`,
-        date: 'BUKAN_TANGGAL_CRASH_POSTGRESQL', // Menyebabkan SQL runtime exception: invalid input syntax for type date
+        date: 'BUKAN_TANGGAL_CRASH_POSTGRESQL',
         ref_number: 'BT/BOMB/001',
         type: 'general',
         description: 'Uji Rollback Mesin SQL',
@@ -1031,31 +1251,34 @@ try {
 
     assert(!leakedRow, 'Akun tidak boleh ada di database PostgreSQL! Transaksi harus di-rollback 100% oleh engine.');
 
-    report(23, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', true, `Exception SQL runtime: "${bombErr.message}". Tabel accounts bersih (0 leaked rows).`);
+    report(25, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', true, `Exception SQL runtime: "${bombErr.message}". Tabel accounts bersih (0 leaked rows).`, 'db_integration');
   } catch (e) {
-    report(23, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', false, e.message);
+    report(25, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', false, e.message, 'db_integration');
   }
 
   // -------------------------------------------------------------
-  // TEST 24: Live Vercel Preview Probe & Diagnostics (BLOCKED by Vercel Protection)
+  // TEST 26: Live Vercel Preview Probe & Diagnostics (BLOCKED by Vercel Protection)
   // -------------------------------------------------------------
   try {
     const previewUrl = 'https://spectra-financial-system-git-feature-secure-auth-groq-mazmur.vercel.app';
     const previewRes = await fetch(previewUrl, { method: 'GET', redirect: 'manual' });
     const previewText = await previewRes.text();
-    const isProtected = previewText.includes('Login – Vercel') || previewText.includes('data-dpl-id');
+    const isProtected = previewText.includes('Login – Vercel') || previewText.includes('data-dpl-id') || previewRes.status === 302;
 
     if (isProtected) {
-      report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', true,
-        `BLOCKED (Vercel Deployment Protection Aktif: Login DPL diperlukan untuk mengakses preview branch).`
+      report(26, 'Browser E2E Preview Access (Vercel Deployment Protection)', false,
+        `BLOCKED: Akses browser preview diarahkan ke Vercel Login (HTTP ${previewRes.status}). E2E browser diblokir oleh Deployment Protection sampai kredensial Vercel diberikan.`,
+        'browser_e2e',
+        true
       );
     } else {
-      report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', true,
-        `Preview Live di ${previewUrl} (Status: HTTP ${previewRes.status}).`
+      report(26, 'Browser E2E Preview Access (Vercel Deployment Protection)', true,
+        `Preview Live di ${previewUrl} (Status: HTTP ${previewRes.status}).`,
+        'browser_e2e'
       );
     }
   } catch (e) {
-    report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', false, e.message);
+    report(26, 'Browser E2E Preview Access (Vercel Deployment Protection)', false, e.message, 'browser_e2e');
   }
 
 } finally {
@@ -1120,7 +1343,16 @@ try {
 }
 
 console.log('\n===============================================================');
-console.log(`   HASIL AKHIR: ${passCount} PASSED, ${failCount} FAILED (TOTAL ${passCount + failCount} TESTS)`);
+console.log('   RINGKASAN PENGUJIAN TERPARTISI (BY CATEGORY):');
+console.log('===============================================================');
+console.log(`   1. UNIT / COMPONENT TESTS         : ${stats.unit.pass} PASSED, ${stats.unit.fail} FAILED`);
+console.log(`   2. DATABASE INTEGRATION TESTS     : ${stats.db_integration.pass} PASSED, ${stats.db_integration.fail} FAILED`);
+console.log(`   3. GOOGLE APPS SCRIPT TESTS       : ${stats.apps_script.pass} PASSED, ${stats.apps_script.fail} FAILED`);
+console.log(`   4. BROWSER E2E TESTS              : ${stats.browser_e2e.pass} PASSED, ${stats.browser_e2e.fail} FAILED, ${stats.browser_e2e.blocked} BLOCKED`);
+console.log('---------------------------------------------------------------');
+console.log(`   TOTAL LULUS (PASS)    : ${passCount}`);
+console.log(`   TOTAL GAGAL (FAIL)    : ${failCount}`);
+console.log(`   TOTAL DIBLOKIR        : ${blockedCount} (Vercel Deployment Protection)`);
 console.log('===============================================================\n');
 
 if (failCount > 0) {

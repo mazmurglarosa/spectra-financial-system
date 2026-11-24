@@ -2,18 +2,77 @@ import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
 import { checkRateLimitCentralized, getClientIp } from '../_lib/rateLimit.js';
 import crypto from 'crypto';
 
+// Known Production Webhook Identifiers (Blacklist untuk lingkungan non-produksi)
+const KNOWN_PRODUCTION_DEPLOYMENT_IDS = new Set([
+  'AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT'
+]);
+
+export function detectServerEnvironment(req: any, supabaseUrl?: string): {
+  isProduction: boolean;
+  isStagingOrPreview: boolean;
+  environmentName: 'production' | 'preview' | 'staging' | 'development' | 'test';
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+  const vercelEnv = (process.env.VERCEL_ENV || '').toLowerCase().trim();
+  const nodeEnv = (process.env.NODE_ENV || '').toLowerCase().trim();
+  const host = String(req.headers?.['x-forwarded-host'] || req.headers?.host || '').toLowerCase().trim();
+  const activeDbUrl = (supabaseUrl || process.env.SUPABASE_URL || '').toLowerCase().trim();
+
+  const isStagingDb = activeDbUrl.includes('xaafjvmdjdlfqdrljjlr');
+  const isProdDb = activeDbUrl.includes('drsqwxkkcfqvooqzoyvm');
+
+  const isVercelPreview = vercelEnv === 'preview';
+  const isVercelProd = vercelEnv === 'production';
+  const isPreviewHost = host.includes('-git-') || /^[a-z0-9-]+-[a-z0-9]{9,}-.+\.vercel\.app$/.test(host);
+  const isLocalHost = host.includes('localhost') || host.includes('127.0.0.1') || host.includes('::1') || host === '';
+
+  // Multi-Factor Check: Strict Production mewajibkan VERCEL_ENV=production, Database Production, dan domain non-preview
+  const isStrictProduction = isVercelProd && isProdDb && !isStagingDb && !isPreviewHost && !isLocalHost;
+
+  let environmentName: 'production' | 'preview' | 'staging' | 'development' | 'test' = 'preview';
+
+  if (isStrictProduction) {
+    environmentName = 'production';
+    reasons.push('VERCEL_ENV=production, Production Database, non-preview host');
+  } else if (isVercelPreview || isPreviewHost) {
+    environmentName = 'preview';
+    reasons.push('Vercel Preview environment / preview host');
+  } else if (isStagingDb) {
+    environmentName = 'staging';
+    reasons.push('Supabase Staging (xaafjvmdjdlfqdrljjlr) terhubung');
+  } else if (isLocalHost || nodeEnv === 'test') {
+    environmentName = 'test';
+    reasons.push('Localhost / Test runner environment');
+  } else {
+    environmentName = 'preview';
+    reasons.push('Default secure fail-closed environment');
+  }
+
+  return {
+    isProduction: isStrictProduction,
+    isStagingOrPreview: !isStrictProduction,
+    environmentName,
+    reasons
+  };
+}
+
 /**
  * POST /api/financial/spreadsheet-sync
  * Endpoint Vercel Serverless terautentikasi untuk menyinkronkan bukti transaksi ke Google Apps Script Bot.
  *
- * KEAMANAN TINGKAT TINGGI (ZERO-TRUST PROXY):
- * 1. Secret Bot (SPECTRA_BOT_SECRET) disimpan HANYA di environment server (tanpa fallback hardcode).
- * 2. URL Webhook (SPECTRA_SPREADSHEET_WEBHOOK_URL) dikonfigurasi HANYA dari server (Larang webhook arbitrer dari browser).
- * 3. Otorisasi Ketat: Wajib sesi aktif, validasi CSRF, dan pengguna wajib memiliki hak otorisasi keuangan / admin.
- * 4. Rate Limiting: Membatasi mutasi per pengguna/IP untuk mencegah spamming ke Google Workspace.
- * 5. Validasi Baris Presisi: Memeriksa struktur, batasan jumlah baris (maks 50), nominal finite/positif, nomor berkas, dan POS.
- * 6. Anti-Replay: Menerbitkan timestamp terverifikasi (toleransi 5 menit) dan nonce kriptografis unik.
- * 7. Audit Logging: Mencatat setiap sinkronisasi resmi ke tabel activity_logs.
+ * KEAMANAN TINGKAT TINGGI (ZERO-TRUST PROXY & ISOLASI LINGKUNGAN):
+ * 1. Isolasi Lingkungan Backend Eksplisit:
+ *    - Preview & Staging hanya boleh mengakses Webhook Staging.
+ *    - Penolakan mutlak jika konfigurasi Preview mengarah ke deployment Google Production (HTTP 403).
+ *    - Fail-closed (HTTP 503) jika konfigurasi Staging tidak tersedia.
+ * 2. Secret Bot disimpan HANYA di environment server (tanpa fallback hardcode).
+ * 3. URL Webhook dikonfigurasi HANYA dari server (Larang webhook arbitrer dari browser).
+ * 4. Otorisasi Ketat: Wajib sesi aktif, validasi CSRF, dan pengguna wajib memiliki hak otorisasi keuangan / admin.
+ * 5. Rate Limiting: Membatasi mutasi per pengguna/IP untuk mencegah spamming ke Google Workspace.
+ * 6. Validasi Baris Presisi: Memeriksa struktur, batasan jumlah baris (maks 50), nominal finite/positif, nomor berkas, dan POS.
+ * 7. Anti-Replay: Menerbitkan timestamp terverifikasi (toleransi 5 menit) dan nonce kriptografis unik.
+ * 8. Audit Logging: Mencatat setiap sinkronisasi resmi ke tabel activity_logs.
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -137,18 +196,48 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 5. Verifikasi URL Webhook Server-Side Saja (Larang input dari browser)
-  const serverWebhookUrl = process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL;
-  if (!serverWebhookUrl || typeof serverWebhookUrl !== 'string' || !serverWebhookUrl.trim()) {
-    return res.status(503).json({
-      success: false,
-      error: 'Sinkronisasi spreadsheet dinonaktifkan: URL Webhook server belum dikonfigurasi (Fail-Closed).'
-    });
+  // 5. Isolasi Lingkungan & Resolusi Webhook Server-Side
+  const envCtx = detectServerEnvironment(req, (supabase as any)?.supabaseUrl);
+
+  let targetWebhookUrl = '';
+  let targetBotSecret = '';
+
+  if (envCtx.isProduction) {
+    targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
+    targetBotSecret = (process.env.SPECTRA_BOT_SECRET_PRODUCTION || process.env.SPECTRA_BOT_SECRET || '').trim();
+
+    if (!targetWebhookUrl || !targetBotSecret) {
+      return res.status(503).json({
+        success: false,
+        error: 'Konfigurasi Google Workspace Production belum lengkap di server (SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION / SPECTRA_BOT_SECRET_PRODUCTION belum disetel).'
+      });
+    }
+  } else {
+    // PREVIEW / STAGING / TEST: Wajib mengarah ke resource Staging
+    targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
+    targetBotSecret = (process.env.SPECTRA_BOT_SECRET_STAGING || process.env.SPECTRA_BOT_SECRET || '').trim();
+
+    if (!targetWebhookUrl || !targetBotSecret) {
+      return res.status(503).json({
+        success: false,
+        error: `Sinkronisasi spreadsheet dinonaktifkan pada lingkungan ${envCtx.environmentName.toUpperCase()}: Webhook Google Workspace Staging belum dikonfigurasi (Fail-Closed demi melindungi data perusahaan).`
+      });
+    }
+
+    // PROTEKSI MUTLAK: Tolak jika Preview/Staging mengarah ke URL Production
+    const prodWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION || '').trim();
+    if (prodWebhookUrl && targetWebhookUrl === prodWebhookUrl) {
+      return res.status(403).json({
+        success: false,
+        error: `Isolasi Lingkungan Aktif: Lingkungan ${envCtx.environmentName.toUpperCase()} DITOLAK mengarah ke Webhook Google Apps Script Production demi mencegah data percobaan masuk ke spreadsheet resmi.`
+      });
+    }
   }
 
-  // Validasi format URL resmi Google Apps Script
+  // Validasi Format & Ekstraksi Deployment ID
+  let deploymentId = '';
   try {
-    const urlObj = new URL(serverWebhookUrl.trim());
+    const urlObj = new URL(targetWebhookUrl);
     if (urlObj.protocol !== 'https:') {
       return res.status(500).json({
         success: false,
@@ -161,12 +250,14 @@ export default async function handler(req: any, res: any) {
         error: 'Konfigurasi Webhook server harus mengarah ke host resmi script.google.com.'
       });
     }
-    if (!urlObj.pathname.startsWith('/macros/s/')) {
+    const match = urlObj.pathname.match(/^\/macros\/s\/([a-zA-Z0-9_-]+)\/exec$/);
+    if (!match || !match[1]) {
       return res.status(500).json({
         success: false,
-        error: 'Konfigurasi Webhook server harus mengarah ke endpoint web app /macros/s/.'
+        error: 'Format endpoint Google Apps Script harus berformat /macros/s/{deploymentId}/exec.'
       });
     }
+    deploymentId = match[1];
   } catch (urlErr) {
     return res.status(500).json({
       success: false,
@@ -174,12 +265,11 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 6. Secret Server-Side Saja (Tanpa Fallback Hardcode)
-  const serverBotSecret = process.env.SPECTRA_BOT_SECRET;
-  if (!serverBotSecret || typeof serverBotSecret !== 'string' || !serverBotSecret.trim()) {
-    return res.status(503).json({
+  // Jika di lingkungan non-produksi, pastikan deploymentId bukan ID deployment Production yang di-blacklist
+  if (!envCtx.isProduction && KNOWN_PRODUCTION_DEPLOYMENT_IDS.has(deploymentId)) {
+    return res.status(403).json({
       success: false,
-      error: 'Konfigurasi keamanan Google Apps Script backend belum lengkap (SPECTRA_BOT_SECRET tidak disetel di server).'
+      error: `Isolasi Lingkungan Aktif: Deployment ID "${deploymentId}" adalah resource Google Production. Pengiriman dari lingkungan ${envCtx.environmentName.toUpperCase()} diblokir ketat.`
     });
   }
 
@@ -190,7 +280,7 @@ export default async function handler(req: any, res: any) {
 
     const botPayload = {
       action: 'appendRows',
-      secret: serverBotSecret,
+      secret: targetBotSecret,
       timestamp,
       nonce,
       idempotencyKey,
@@ -201,7 +291,7 @@ export default async function handler(req: any, res: any) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 28000);
 
-    const appsScriptResponse = await fetch(serverWebhookUrl.trim(), {
+    const appsScriptResponse = await fetch(targetWebhookUrl.trim(), {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'

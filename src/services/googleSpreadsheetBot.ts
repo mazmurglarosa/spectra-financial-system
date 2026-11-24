@@ -239,25 +239,72 @@ function getIdempotencySheet(ss) {
 }
 
 function insertTransactionRowsIdempotent(sheet, rows) {
-  var targetRow = findNextEmptyRow(sheet);
   var ss = sheet.getParent();
   var idempSheet = getIdempotencySheet(ss);
 
-  // Periksa line_key yang telah tercatat di sheet _spectra_idempotency
-  var existingKeys = {};
+  // 1. Baca metadata dari sheet _spectra_idempotency
+  var existingIdempMap = {};
   var lastIdempRow = idempSheet.getLastRow();
   if (lastIdempRow > 1) {
     var numKeys = lastIdempRow - 1;
-    var keysRange = idempSheet.getRange(2, 1, numKeys, 1).getValues();
+    var keysRange = idempSheet.getRange(2, 1, numKeys, 5).getValues();
     for (var k = 0; k < keysRange.length; k++) {
-      var keyVal = String(keysRange[k][0] || '').trim();
-      if (keyVal) {
-        existingKeys[keyVal] = true;
+      var kKey = String(keysRange[k][0] || '').trim();
+      if (kKey) {
+        existingIdempMap[kKey] = {
+          nomorBerkas: String(keysRange[k][1] || '').trim(),
+          lineIndex: Number(keysRange[k][2]) || 0,
+          namaTransaksi: String(keysRange[k][3] || '').trim(),
+          hargaTotal: Number(keysRange[k][4]) || 0
+        };
       }
     }
   }
 
-  // Lacak indeks kemunculan baris untuk setiap nomor berkas di dalam batch saat ini
+  // 2. REKONSILIASI MANDIRI (Self-Healing Scanner dari Sheet Utama A6:K)
+  // Memeriksa apakah ada baris di sheet utama yang belum tercatat di _spectra_idempotency
+  // (misal akibat kegagalan koneksi sebelum metadata sempat ditulis pada eksekusi sebelumnya)
+  var lastMainRow = sheet.getLastRow();
+  var mainLineCountsPerBerkas = {};
+  var missingIdempBackfill = [];
+
+  if (lastMainRow >= CONFIG.START_ROW) {
+    var numMain = lastMainRow - CONFIG.START_ROW + 1;
+    var mainData = sheet.getRange(CONFIG.START_ROW, 1, numMain, CONFIG.TOTAL_COLS).getValues();
+    for (var m = 0; m < mainData.length; m++) {
+      var mBerkas = String(mainData[m][8] || '').trim(); // Kolom I: Nomor Berkas
+      var mNama = String(mainData[m][4] || '').trim();    // Kolom E: Nama Transaksi
+      var mTotal = Number(mainData[m][7]) || 0;          // Kolom H: Harga Total
+
+      if (mBerkas && mBerkas !== '-') {
+        var mLineIdx = (mainLineCountsPerBerkas[mBerkas] || 0) + 1;
+        mainLineCountsPerBerkas[mBerkas] = mLineIdx;
+        var mKey = mBerkas + '#L' + mLineIdx;
+
+        if (!existingIdempMap[mKey]) {
+          // Baris ada di sheet utama tetapi hilang di idempotency sheet -> Rekonsiliasi otomatis
+          existingIdempMap[mKey] = {
+            nomorBerkas: mBerkas,
+            lineIndex: mLineIdx,
+            namaTransaksi: mNama,
+            hargaTotal: mTotal
+          };
+          missingIdempBackfill.push([
+            mKey, mBerkas, mLineIdx, mNama, mTotal, new Date().toISOString()
+          ]);
+        }
+      }
+    }
+
+    // Tulis pemulihan rekonsiliasi ke _spectra_idempotency jika ada baris yang tertinggal
+    if (missingIdempBackfill.length > 0) {
+      var backfillRow = idempSheet.getLastRow() + 1;
+      idempSheet.getRange(backfillRow, 1, missingIdempBackfill.length, 6).setValues(missingIdempBackfill);
+    }
+  }
+
+  // 3. Evaluasi Batch Masuk (Membedakan Retry Identik vs Perubahan/Reorder)
+  var targetRow = findNextEmptyRow(sheet);
   var incomingBatchIndex = {};
   var valuesToInsert = [];
   var idempRowsToInsert = [];
@@ -266,29 +313,38 @@ function insertTransactionRowsIdempotent(sheet, rows) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var nomorBerkas = String(r.nomorBerkas || '-').trim();
-
-    // Tentukan nomor urut baris dalam berkas ini (1-based index)
     var currentLineIndex = (incomingBatchIndex[nomorBerkas] || 0) + 1;
     incomingBatchIndex[nomorBerkas] = currentLineIndex;
 
-    // Line key unik komposit: nomorBerkas#L{index} (contoh: BT/0001/24XI26#L1, BT/0001/24XI26#L2)
     var lineKey = nomorBerkas + '#L' + currentLineIndex;
+    var namaTransaksi = String(r.namaTransaksi || r.nama || '-').trim();
+    var hargaTotal = Number(r.hargaTotal || r.totalPrice || 0);
 
-    // Jika lineKey sudah tercatat di _spectra_idempotency, ini retry network duplikat
-    // Dua pesanan identik ("Baut 12") dalam nota yang sama TETAP TERCATAT karena memiliki #L1 dan #L2!
-    if (existingKeys[lineKey]) {
-      skippedCount++;
-      continue;
+    // Cek apakah lineKey sudah tersimpan
+    var existingRecord = existingIdempMap[lineKey];
+    if (existingRecord) {
+      // Verifikasi integritas: pastikan bukan mutasi atau reorder yang berbeda
+      var isExactItemMatch = (
+        existingRecord.namaTransaksi.toLowerCase() === namaTransaksi.toLowerCase() &&
+        Math.abs(existingRecord.hargaTotal - hargaTotal) < 0.01
+      );
+
+      if (isExactItemMatch) {
+        // Safe Idempotent Retry: abaikan baris ini (sudah tercatat sempurna sebelumnya)
+        skippedCount++;
+        continue;
+      } else {
+        // PERINGATAN REORDER / PERUBAHAN ISI NOTA PADA LINE INDEX YANG SAMA
+        throw new Error('Konflik Integritas Nota ' + nomorBerkas + ': Baris #' + currentLineIndex + ' ("' + namaTransaksi + '", Rp ' + hargaTotal + ') berbeda dari riwayat tersimpan ("' + existingRecord.namaTransaksi + '", Rp ' + existingRecord.hargaTotal + '). Pengurutan ulang atau pengubahan isi nota ditolak tanpa reset resmi.');
+      }
     }
 
     var no = r.no !== undefined && r.no !== null ? Number(r.no) : (targetRow - CONFIG.START_ROW + valuesToInsert.length + 1);
     var tanggal = r.tanggal ? Number(r.tanggal) : new Date().getDate();
     var bulan = r.bulan ? Number(r.bulan) : (new Date().getMonth() + 1);
     var tahun = r.tahun ? Number(r.tahun) : new Date().getFullYear();
-    var namaTransaksi = String(r.namaTransaksi || r.nama || '-').trim();
     var hargaSatuan = r.hargaSatuan !== null && r.hargaSatuan !== undefined && r.hargaSatuan !== '' ? Number(r.hargaSatuan) : '';
     var kuantitas = r.kuantitas !== null && r.kuantitas !== undefined && r.kuantitas !== '' ? Number(r.kuantitas) : '';
-    var hargaTotal = Number(r.hargaTotal || r.totalPrice || 0);
     var linkBerkas = r.linkBerkas || '';
     var pos = r.pos || 'A';
 
@@ -304,7 +360,12 @@ function insertTransactionRowsIdempotent(sheet, rows) {
     idempRowsToInsert.push([
       lineKey, nomorBerkas, currentLineIndex, namaTransaksi, hargaTotal, new Date().toISOString()
     ]);
-    existingKeys[lineKey] = true;
+    existingIdempMap[lineKey] = {
+      nomorBerkas: nomorBerkas,
+      lineIndex: currentLineIndex,
+      namaTransaksi: namaTransaksi,
+      hargaTotal: hargaTotal
+    };
   }
 
   if (valuesToInsert.length === 0) {
@@ -316,15 +377,21 @@ function insertTransactionRowsIdempotent(sheet, rows) {
     };
   }
 
+  // 4. Penulisan ke Sheet Utama & Metadata Atomik (All-or-Nothing Recovery)
   var numRows = valuesToInsert.length;
   var range = sheet.getRange(targetRow, CONFIG.START_COL, numRows, CONFIG.TOTAL_COLS);
   range.setValues(valuesToInsert);
   formatTableRange(sheet, targetRow, numRows);
 
-  // Catat baris baru ke sheet hidden _spectra_idempotency secara atomik
-  if (idempRowsToInsert.length > 0) {
-    var nextIdempRow = idempSheet.getLastRow() + 1;
-    idempSheet.getRange(nextIdempRow, 1, idempRowsToInsert.length, 6).setValues(idempRowsToInsert);
+  try {
+    if (idempRowsToInsert.length > 0) {
+      var nextIdempRow = idempSheet.getLastRow() + 1;
+      idempSheet.getRange(nextIdempRow, 1, idempRowsToInsert.length, 6).setValues(idempRowsToInsert);
+    }
+  } catch (idempErr) {
+    // ATOMIC ROLLBACK: Batalkan penulisan di sheet utama agar tidak terjadi inkonsistensi
+    range.clearContent();
+    throw new Error('Gagal mencatat metadata idempotensi (' + idempErr.toString() + '). Baris baru pada sheet utama dibatalkan demi konsistensi data.');
   }
 
   return {

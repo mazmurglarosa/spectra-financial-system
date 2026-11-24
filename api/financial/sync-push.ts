@@ -236,15 +236,24 @@ export default async function handler(req: any, res: any) {
     // TAHAP 2: EKSEKUSI DATABASE ATOMIK (ALL-OR-NOTHING VIA RPC)
     // =========================================================================
 
+    const isExplicitUpdate = payload?.isUpdate === true || req.body?.isUpdate === true || req.query?.isUpdate === 'true';
+
     const { data: rpcResult, error: rpcError } = await supabase.rpc('sync_push_atomic', {
       p_accounts: validatedAccountRows.length > 0 ? validatedAccountRows : null,
       p_transactions: validatedTxRows.length > 0 ? validatedTxRows : null,
       p_contacts: validatedContactRows.length > 0 ? validatedContactRows : null,
-      p_settings: validatedSettingsRow ? validatedSettingsRow : null
+      p_settings: validatedSettingsRow ? validatedSettingsRow : null,
+      p_is_authorized_update: isExplicitUpdate
     });
 
     if (rpcError) {
       console.error('[SyncPushAtomicError]', rpcError.message);
+      if (rpcError.code === '23505' || rpcError.message.includes('Konflik Idempotensi')) {
+        return res.status(409).json({
+          success: false,
+          error: rpcError.message
+        });
+      }
       return res.status(500).json({
         success: false,
         error: `Operasi sinkronisasi atomik gagal dieksekusi dan di-rollback penuh: ${rpcError.message}`
