@@ -41,3 +41,23 @@ Sikeu lama/
 supabase/.temp/
 supabase/migrations/*staging*.sql
 supabase/migrations/*bootstrap*.sql
+
+# Binary documentation and audit logbooks
+Daftar_Pencapaian_Dan_Pekerjaan_SPECTRA.docx
+Logbook_Perubahan_Sistem_SPECTRA.xlsx
+*.docx
+*.xlsx
+
+# Local inspection and staging runner scripts
+scripts/inspect_*
+scripts/set_staging_*
+scripts/staging_mcp_*
+scripts/staging_schema.json
+scripts/apply_staging_*
+scripts/verify_staging_post_*
+scripts/verify_staging_token_*
+scripts/fetch_vercel_*
+scripts/fix_api_*
+scripts/generate_*
+scripts/test_backend_*
+scripts/verify_staging_gateway_e2e.mjs

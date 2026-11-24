@@ -1,4 +1,5 @@
 import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { mapDbAccountToAccount, mapAccountToDb } from '../_lib/accountingMapper.js';
 
 /**
  * /api/financial/accounts
@@ -23,8 +24,11 @@ export default async function handler(req: any, res: any) {
         .order('code', { ascending: true });
 
       if (error) throw new Error(error.message);
-      return res.status(200).json({ success: true, accounts: data || [] });
+
+      const accounts = (data || []).map(mapDbAccountToAccount);
+      return res.status(200).json({ success: true, accounts });
     } catch (err: any) {
+      console.error('[GetAccountsError]', err?.message);
       return res.status(500).json({ success: false, error: 'Gagal mengambil data akun.' });
     }
   }
@@ -43,28 +47,14 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-      const rows = accountsInput.map((a: any) => ({
-        id: String(a.id || a.code),
-        code: String(a.code || '').trim(),
-        name: String(a.name || '').trim(),
-        category: String(a.category || ''),
-        normal_balance: a.normalBalance === 'Kredit' ? 'Kredit' : 'Debit',
-        report_type: a.reportType === 'Laba Rugi' ? 'Laba Rugi' : 'Neraca',
-        initial_debit: Number(a.initialDebit) || 0,
-        initial_credit: Number(a.initialCredit) || 0,
-        current_debit: Number(a.currentDebit) || 0,
-        current_credit: Number(a.currentCredit) || 0,
-        balance: Number(a.balance) || 0,
-        is_system: Boolean(a.isSystem),
-        description: a.description || ''
-      }));
+      const rows = accountsInput.map(mapAccountToDb);
 
       const { error: upsertErr } = await supabase.from('accounts').upsert(rows, { onConflict: 'id' });
       if (upsertErr) throw new Error(upsertErr.message);
 
       // Audit Log
       await supabase.from('activity_logs').insert({
-        id: `log-acc-${Date.now()}`,
+        id: `log-acc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         username: dbUser.username,
         full_name: dbUser.fullName,
@@ -73,10 +63,14 @@ export default async function handler(req: any, res: any) {
         detail: `Menyimpan ${rows.length} akun (misal: ${rows[0].code} - ${rows[0].name})`
       });
 
-      return res.status(200).json({ success: true, message: `Berhasil menyimpan ${rows.length} akun.` });
+      return res.status(200).json({
+        success: true,
+        message: `Berhasil menyimpan ${rows.length} akun.`,
+        accounts: rows.map(mapDbAccountToAccount)
+      });
     } catch (err: any) {
       console.error('[PostAccError]', err?.message);
-      return res.status(500).json({ success: false, error: 'Gagal menyimpan akun ke database.' });
+      return res.status(500).json({ success: false, error: `Gagal menyimpan akun: ${err.message}` });
     }
   }
 
@@ -98,13 +92,13 @@ export default async function handler(req: any, res: any) {
 
       // Audit Log
       await supabase.from('activity_logs').insert({
-        id: `log-accdel-${Date.now()}`,
+        id: `log-del-acc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         username: dbUser.username,
         full_name: dbUser.fullName,
         position: dbUser.position,
-        action: 'Hapus Akun',
-        detail: `Menghapus akun ID ${id}`
+        action: 'Penghapusan Akun',
+        detail: `Menghapus akun ID: ${id}`
       });
 
       return res.status(200).json({ success: true, message: `Akun ${id} berhasil dihapus.` });

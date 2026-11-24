@@ -99,7 +99,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [nomorBerkas, setNomorBerkas] = useState<string>(() => generateFileCode(getNextDocumentSequence(transactions)));
 
   // Groq Vision Backend Status (Neutral until verified by actual request or backend verification)
-  const [groqBackendStatus, setGroqBackendStatus] = useState<'verified' | 'neutral'>('neutral');
+  const [groqStatus, setGroqStatus] = useState<'standby' | 'verified' | 'error'>('standby');
 
   // Pipeline Status & Stage (tahap1, tahap2, riwayat)
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
@@ -487,7 +487,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setDiscrepancyMessage(extractionResult.discrepancyMessage || '');
       setActiveSourceEngine(extractionResult.sourceEngine);
       if (extractionResult.sourceEngine === 'groq_vision') {
-        setGroqBackendStatus('verified');
+        setGroqStatus('verified');
+      } else if (extractionResult.sourceEngine === 'tesseract_ocr') {
+        setGroqStatus('error');
       }
 
       setExtractStep('4/4: Sinkronisasi Google Drive & Penamaan Otomatis (' + nomorBerkas + ')...');
@@ -533,6 +535,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setCurrentStage('tahap2');
     } catch (err: any) {
       console.error('Extraction error:', err);
+      setGroqStatus('error');
       setIsExtracting(false);
       alert('Terjadi kesalahan saat memproses ekstraksi: ' + (err?.message || String(err)));
     }
@@ -926,14 +929,48 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
             {/* Baris 2: Status Integrasi Sistem (Groq Vision & Bot Google Sheet) */}
             <div className="flex items-center gap-2">
-              {/* Status Keaktifan Groq AI */}
+              {/* Status Keaktifan Groq AI Berbasis Kondisi Nyata */}
               <div
-                className="h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border bg-slate-800/80 text-emerald-300 border-emerald-500/40 shadow-xs whitespace-nowrap"
-                title="Groq AI Vision aktif sebagai mesin OCR utama bukti transaksi (didukung fallback offline Tesseract.js)"
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all whitespace-nowrap shadow-xs ${
+                  groqStatus === 'verified'
+                    ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/40'
+                    : groqStatus === 'error'
+                    ? 'bg-slate-800/80 text-amber-300 border-amber-500/40'
+                    : 'bg-slate-800/80 text-sky-300 border-sky-500/30'
+                }`}
+                title={
+                  groqStatus === 'verified'
+                    ? 'Groq AI Vision terverifikasi aktif & sukses mengekstrak bukti transaksi.'
+                    : groqStatus === 'error'
+                    ? 'Layanan Groq AI tidak merespons, beralih ke OCR Offline Tesseract.js.'
+                    : 'Groq AI Vision backend tersedia (siaga / belum diverifikasi).'
+                }
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-                <span>Groq AI: Aktif</span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    groqStatus === 'verified'
+                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                      : groqStatus === 'error'
+                      ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]'
+                      : 'bg-sky-400'
+                  }`}
+                />
+                <Sparkles
+                  className={`w-3 h-3 ${
+                    groqStatus === 'verified'
+                      ? 'text-emerald-400'
+                      : groqStatus === 'error'
+                      ? 'text-amber-400'
+                      : 'text-sky-400'
+                  }`}
+                />
+                <span>
+                  {groqStatus === 'verified'
+                    ? 'Groq AI: Terverifikasi'
+                    : groqStatus === 'error'
+                    ? 'Groq AI: Fallback Offline'
+                    : 'Groq AI: Standby'}
+                </span>
               </div>
 
               {/* Status Bot Apps Script */}

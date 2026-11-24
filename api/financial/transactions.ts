@@ -1,10 +1,12 @@
 import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import { mapDbTransactionToTransaction, mapTransactionToDb } from '../_lib/accountingMapper.js';
+import { validateTransactionStrict } from '../_lib/transactionValidator.js';
 
 /**
  * /api/financial/transactions
  * CRUD Transaksi Keuangan:
- * GET: Ambil daftar transaksi
- * POST: Simpan / perbarui transaksi (wajib seimbang debit & kredit)
+ * GET: Ambil daftar transaksi (mendukung filter query ?id=...)
+ * POST: Simpan / perbarui transaksi (wajib seimbang debit & kredit, akun valid)
  * DELETE: Hapus transaksi berdasarkan ID (wajib otorisasi keuangan)
  */
 export default async function handler(req: any, res: any) {
@@ -29,7 +31,7 @@ export default async function handler(req: any, res: any) {
         if (error) throw new Error(error.message);
         if (!data) return res.status(404).json({ success: false, error: 'Transaksi tidak ditemukan.' });
 
-        return res.status(200).json({ success: true, transaction: data });
+        return res.status(200).json({ success: true, transaction: mapDbTransactionToTransaction(data) });
       }
 
       const { data, error } = await supabase
@@ -38,8 +40,11 @@ export default async function handler(req: any, res: any) {
         .order('date', { ascending: true });
 
       if (error) throw new Error(error.message);
-      return res.status(200).json({ success: true, transactions: data || [] });
+
+      const transactions = (data || []).map(mapDbTransactionToTransaction);
+      return res.status(200).json({ success: true, transactions });
     } catch (err: any) {
+      console.error('[GetTransactionsError]', err?.message);
       return res.status(500).json({ success: false, error: 'Gagal mengambil data transaksi.' });
     }
   }
@@ -50,58 +55,47 @@ export default async function handler(req: any, res: any) {
     if (!auth) return;
 
     const { supabase, dbUser } = auth;
-    const t = req.body;
+    const rawTx = req.body;
 
-    if (!t || !t.id || !t.refNumber || !t.date || !Array.isArray(t.lines)) {
+    // VALIDASI TERPUSAT: Struktur, Akun, Nilai Finite/Positif, Keseimbangan SAK
+    const validation = await validateTransactionStrict(rawTx, supabase, { checkAccountExistence: true });
+    if (!validation.isValid || !validation.sanitizedTransaction) {
       return res.status(400).json({
         success: false,
-        error: 'Data transaksi tidak lengkap: id, date, refNumber, dan lines wajib diisi.'
+        error: validation.error || 'Validasi transaksi gagal.'
       });
     }
 
-    const totalDebit = Number(t.totalDebit) || 0;
-    const totalCredit = Number(t.totalCredit) || 0;
-
-    if (totalDebit <= 0 || totalCredit <= 0 || Math.abs(totalDebit - totalCredit) !== 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Transaksi tidak seimbang atau bernilai 0. Total debit harus sama dengan total kredit.'
-      });
-    }
+    const sanitizedTx = validation.sanitizedTransaction;
 
     try {
-      const row = {
-        id: String(t.id),
-        date: String(t.date).slice(0, 10),
-        ref_number: String(t.refNumber),
-        type: String(t.type || 'general'),
-        description: String(t.description || ''),
-        lines: t.lines,
-        total_debit: totalDebit,
-        total_credit: totalCredit,
-        partner: String(t.partner || '-'),
-        created_at: t.createdAt || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      const dbRow = mapTransactionToDb(sanitizedTx);
 
-      const { error: upsertErr } = await supabase.from('transactions').upsert(row, { onConflict: 'id' });
+      const { error: upsertErr } = await supabase
+        .from('transactions')
+        .upsert(dbRow, { onConflict: 'id' });
+
       if (upsertErr) throw new Error(upsertErr.message);
 
       // Audit Log
       await supabase.from('activity_logs').insert({
-        id: `log-tx-${Date.now()}`,
+        id: `log-tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         username: dbUser.username,
         full_name: dbUser.fullName,
         position: dbUser.position,
         action: 'Posting Transaksi',
-        detail: `Menyimpan transaksi ${row.ref_number}: Rp ${totalDebit.toLocaleString('id-ID')} (${row.description})`
+        detail: `Menyimpan transaksi ${dbRow.ref_number}: Rp ${sanitizedTx.totalDebit.toLocaleString('id-ID')} (${dbRow.description})`
       });
 
-      return res.status(200).json({ success: true, message: 'Transaksi berhasil disimpan.', id: row.id });
+      return res.status(200).json({
+        success: true,
+        message: `Transaksi ${dbRow.ref_number} berhasil disimpan secara seimbang.`,
+        transaction: sanitizedTx
+      });
     } catch (err: any) {
-      console.error('[PostTxError]', err?.message);
-      return res.status(500).json({ success: false, error: 'Gagal menyimpan transaksi ke database.' });
+      console.error('[PostTransactionError]', err?.message);
+      return res.status(500).json({ success: false, error: `Gagal menyimpan transaksi ke database: ${err.message}` });
     }
   }
 
@@ -111,15 +105,7 @@ export default async function handler(req: any, res: any) {
     if (!auth) return;
 
     const { supabase, dbUser } = auth;
-    const { id, all } = req.query;
-
-    if (all === 'true') {
-      // STRICT SECURITY: Penghapusan massal lewat endpoint API publik DITOLAK
-      return res.status(403).json({
-        success: false,
-        error: 'Operasi penghapusan massal seluruh transaksi diblokir demi keamanan data keuangan.'
-      });
-    }
+    const { id } = req.query;
 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ success: false, error: 'Parameter ID transaksi wajib disertakan.' });
@@ -131,18 +117,18 @@ export default async function handler(req: any, res: any) {
 
       // Audit Log
       await supabase.from('activity_logs').insert({
-        id: `log-txdel-${Date.now()}`,
+        id: `log-del-tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         username: dbUser.username,
         full_name: dbUser.fullName,
         position: dbUser.position,
-        action: 'Hapus Transaksi',
-        detail: `Menghapus transaksi ID ${id}`
+        action: 'Penghapusan Transaksi',
+        detail: `Menghapus transaksi ID: ${id}`
       });
 
       return res.status(200).json({ success: true, message: `Transaksi ${id} berhasil dihapus.` });
     } catch (err: any) {
-      console.error('[DelTxError]', err?.message);
+      console.error('[DelTransactionError]', err?.message);
       return res.status(500).json({ success: false, error: 'Gagal menghapus transaksi dari database.' });
     }
   }

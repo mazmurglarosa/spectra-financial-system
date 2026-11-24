@@ -1,5 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+const STAGING_PROJECT_REF = 'xaafjvmdjdlfqdrljjlr';
+const PRODUCTION_PROJECT_REF = 'drsqwxkkcfqvooqzoyvm';
+
 let serverClient: SupabaseClient | null = null;
 
 export function getSupabaseServerClient(): SupabaseClient {
@@ -7,26 +10,34 @@ export function getSupabaseServerClient(): SupabaseClient {
     return serverClient;
   }
 
-  const isPublicEnv = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
-  const rawUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-                 process.env.SUPABASE_SERVICE_KEY || 
-                 process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  // Wajib Service Role Key — HAPUS fallback ke VITE_SUPABASE_ANON_KEY demi keamanan RLS
+  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '').trim();
 
-  // DI LINGKUNGAN VERCEL / PRODUCTION: Wajib mendefinisikan SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY
-  if (isPublicEnv) {
-    if (!rawUrl) {
-      throw new Error('[CRITICAL SECURITY] SUPABASE_URL tidak didefinisikan pada environment Vercel. Koneksi dicegah.');
-    }
-    if (!rawKey) {
-      throw new Error('[CRITICAL SECURITY] SUPABASE_SERVICE_ROLE_KEY tidak didefinisikan pada environment Vercel.');
+  const isVercel = Boolean(process.env.VERCEL);
+  const vercelEnv = process.env.VERCEL_ENV || ''; // 'production', 'preview', or 'development'
+  const gitBranch = process.env.VERCEL_GIT_COMMIT_REF || '';
+
+  // 1. Validasi Keberadaan Kredensial (Fail-Closed)
+  if (!supabaseUrl) {
+    throw new Error('[SECURITY FATAL] SUPABASE_URL tidak didefinisikan pada backend serverless.');
+  }
+  if (!serviceRoleKey) {
+    throw new Error('[SECURITY FATAL] SUPABASE_SERVICE_ROLE_KEY wajib didefinisikan. Backend menolak fallback ke anon key.');
+  }
+
+  // 2. Isolasi Environment: Pastikan Preview HANYA mengakses Staging
+  const isPreview = isVercel && (vercelEnv === 'preview' || gitBranch === 'feature/secure-auth-groq');
+  if (isPreview) {
+    if (supabaseUrl.includes(PRODUCTION_PROJECT_REF)) {
+      throw new Error(
+        `[CRITICAL ISOLATION BLOCKED] Vercel Preview (${gitBranch}) dilarang keras terhubung ke Supabase Production (${PRODUCTION_PROJECT_REF}). Eksekusi backend dihentikan.`
+      );
     }
   }
 
-  const supabaseUrl = rawUrl || '';
-  const supabaseKey = rawKey || '';
-
-  serverClient = createClient(supabaseUrl, supabaseKey, {
+  // Inisialisasi Supabase Server Client dengan Service Role
+  serverClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false
@@ -54,5 +65,5 @@ export interface DbUserRecord {
   session_version?: number;
   failed_login_attempts?: number;
   locked_until?: string | null;
+  last_login_at?: string | null;
 }
-

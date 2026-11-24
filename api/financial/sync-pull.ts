@@ -1,9 +1,16 @@
 import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
+import {
+  mapDbAccountToAccount,
+  mapDbTransactionToTransaction,
+  mapDbContactToContact,
+  mapDbCompanySettingsToCompanySettings
+} from '../_lib/accountingMapper.js';
 
 /**
  * GET /api/financial/sync-pull
  * Menarik seluruh data pembukuan keuangan (Accounts, Transactions, Contacts, Settings)
  * Terproteksi penuh: hanya pengguna aktif yang terautentikasi dapat membaca data.
+ * Memetakan seluruh data database secara semantik identik dengan model TypeScript SPECTRA.
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
@@ -50,61 +57,11 @@ export default async function handler(req: any, res: any) {
 
     if (setErr) throw new Error(`Settings query failed: ${setErr.message}`);
 
-    // Mapping ke format model frontend SPECTRA
-    const accounts = (rawAccounts || []).map((r: any) => ({
-      id: r.id,
-      code: r.code,
-      name: r.name,
-      category: r.category,
-      normalBalance: r.normal_balance,
-      reportType: r.report_type,
-      initialDebit: Number(r.initial_debit) || 0,
-      initialCredit: Number(r.initial_credit) || 0,
-      currentDebit: Number(r.current_debit) || 0,
-      currentCredit: Number(r.current_credit) || 0,
-      balance: Number(r.balance) || 0,
-      isSystem: Boolean(r.is_system),
-      description: r.description || ''
-    }));
-
-    const transactions = (rawTx || []).map((r: any) => ({
-      id: r.id,
-      date: r.date,
-      refNumber: r.ref_number,
-      type: r.type,
-      description: r.description,
-      lines: Array.isArray(r.lines) ? r.lines : (typeof r.lines === 'string' ? JSON.parse(r.lines) : []),
-      totalDebit: Number(r.total_debit) || 0,
-      totalCredit: Number(r.total_credit) || 0,
-      partner: r.partner || '-',
-      createdAt: r.created_at,
-      updatedAt: r.updated_at
-    }));
-
-    const contacts = (rawContacts || []).map((r: any) => ({
-      id: r.id,
-      code: r.code,
-      name: r.name,
-      type: r.type,
-      phone: r.phone || '',
-      balance: Number(r.balance) || 0
-    }));
-
-    const settings = rawSettings ? {
-      companyName: rawSettings.company_name,
-      businessType: rawSettings.business_type,
-      fiscalPeriod: rawSettings.fiscal_period,
-      fiscalYear: rawSettings.fiscal_year,
-      currency: rawSettings.currency || 'IDR',
-      taxRatePercent: Number(rawSettings.tax_rate_percent) || 11,
-      address: rawSettings.address || '',
-      phone: rawSettings.phone || '',
-      email: rawSettings.email || '',
-      directorName: rawSettings.director_name || '',
-      directorTitle: rawSettings.director_title || '',
-      accountantName: rawSettings.accountant_name || '',
-      accountantTitle: rawSettings.accountant_title || ''
-    } : null;
+    // Mapping terpusat ke format model frontend SPECTRA (src/types/accounting.ts)
+    const accounts = (rawAccounts || []).map(mapDbAccountToAccount);
+    const transactions = (rawTx || []).map(mapDbTransactionToTransaction);
+    const contacts = (rawContacts || []).map(mapDbContactToContact);
+    const settings = rawSettings ? mapDbCompanySettingsToCompanySettings(rawSettings) : null;
 
     return res.status(200).json({
       success: true,
@@ -112,15 +69,14 @@ export default async function handler(req: any, res: any) {
         accounts,
         transactions,
         contacts,
-        settings,
-        pulledAt: new Date().toISOString()
+        settings
       }
     });
   } catch (err: any) {
     console.error('[SyncPullError]', err?.message);
     return res.status(500).json({
       success: false,
-      error: 'Gagal mengambil data pembukuan dari server.'
+      error: 'Gagal menarik data pembukuan dari cloud server.'
     });
   }
 }

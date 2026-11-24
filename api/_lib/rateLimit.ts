@@ -90,7 +90,20 @@ export async function checkRateLimitCentralized(
         };
       }
 
-      // 2. Fallback jika RPC belum terdaftar (single-transaction fallback)
+      // KETENTUAN KEAMANAN MUTLAK:
+      // Pada lingkungan Vercel/Produksi, jika RPC gagal, DILARANG fallback ke mekanisme non-atomik.
+      // Sistem wajib Fail-Closed demi mencegah eksploitasi rate-limit bypass.
+      if (isPublicEnv) {
+        console.error('[RateLimitAtomicError] RPC check_and_increment_rate_limit gagal di serverless:', rpcErr?.message);
+        return {
+          allowed: false,
+          remaining: 0,
+          resetAt: now + 60000,
+          error: 'Rate limit atomik tidak tersedia. Permintaan diblokir demi keamanan.'
+        };
+      }
+
+      // 2. Fallback lokal HANYA untuk lingkungan pengujian/dev offline jika tabel belum siap
       const { data: record, error: fetchErr } = await supabase
         .from('rate_limits')
         .select('key, count, reset_at')

@@ -140,7 +140,14 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
           latencyMs: res.latencyMs
         };
       }
+      throw new Error(res?.error || 'Uji status backend gateway gagal.');
     } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        return {
+          success: false,
+          message: `Koneksi Backend Gateway gagal: ${e.message}`
+        };
+      }
       console.warn('[SupabaseClient] Uji via backend gateway gagal, mencoba fallback direct client:', e?.message);
     }
   }
@@ -242,6 +249,12 @@ async function sanitizeSettingsForSupabase(s: CompanySettings): Promise<CompanyS
   return sanitized;
 }
 
+function isRemoteEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host !== 'localhost' && host !== '127.0.0.1';
+}
+
 // Synchronisation helpers
 export async function syncPushAllToSupabase(payload: {
   accounts: Account[];
@@ -249,7 +262,7 @@ export async function syncPushAllToSupabase(payload: {
   contacts?: Contact[];
   settings?: CompanySettings;
 }): Promise<{ success: boolean; message: string }> {
-  // 1. Prioritas Utama: Unggah melalui Backend API Gateway (/api/financial/sync-push)
+  // 1. Pada deployment remote / Vercel: Wajib 100% melalui Backend API Gateway
   if (typeof window !== 'undefined') {
     try {
       const res = await callFinancialGateway('/api/financial/sync-push', {
@@ -263,8 +276,16 @@ export async function syncPushAllToSupabase(payload: {
           message: res.message || 'Seluruh data berhasil diunggah dan disinkronkan ke Supabase Cloud!'
         };
       }
+      throw new Error(res?.error || 'Sinkronisasi backend gagal diproses.');
     } catch (err: any) {
-      console.warn('[SupabaseClient] Push via backend gateway gagal, mencoba fallback direct client:', err?.message);
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal sinkronisasi data melalui gateway:', err?.message);
+        return {
+          success: false,
+          message: `Gagal sinkronisasi cloud: ${err.message}. Akses langsung klien dicegah demi keamanan data.`
+        };
+      }
+      console.warn('[SupabaseClient] Gateway gagal di mode lokal, mencoba direct client:', err?.message);
     }
   }
 
@@ -406,8 +427,16 @@ export async function syncPullAllFromSupabase(): Promise<{
           data: res.data
         };
       }
+      throw new Error(res?.error || 'Tarikan data dari gateway gagal.');
     } catch (err: any) {
-      console.warn('[SupabaseClient] Pull via backend gateway gagal, mencoba fallback direct client:', err?.message);
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal menarik data melalui gateway:', err?.message);
+        return {
+          success: false,
+          message: `Gagal menarik data cloud: ${err.message}. Akses langsung klien dicegah demi keamanan data.`
+        };
+      }
+      console.warn('[SupabaseClient] Pull via gateway gagal di mode lokal, mencoba direct client:', err?.message);
     }
   }
 
@@ -534,8 +563,12 @@ export async function pushTransactionToSupabase(tx: Transaction): Promise<void> 
         body: JSON.stringify(tx)
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Push tx via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan transaksi:', e?.message);
+        throw new Error(`Gagal menyimpan transaksi ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push tx via gateway failed in local mode, fallback to client:', e);
     }
   }
 
@@ -568,8 +601,12 @@ export async function deleteTransactionFromSupabase(id: string): Promise<void> {
         method: 'DELETE'
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Delete tx via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal hapus transaksi:', e?.message);
+        throw new Error(`Gagal menghapus transaksi dari cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Delete tx via gateway failed in local mode, fallback to client:', e);
     }
   }
 
@@ -611,8 +648,12 @@ export async function pushSettingsToSupabase(rawSettings: CompanySettings): Prom
         body: JSON.stringify(s)
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Push settings via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan settings:', e?.message);
+        throw new Error(`Gagal menyimpan pengaturan ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push settings via gateway failed in local mode, fallback to client:', e);
     }
   }
 
@@ -669,8 +710,12 @@ export async function pushAccountToSupabase(a: Account): Promise<void> {
         body: JSON.stringify(a)
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Push account via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan akun:', e?.message);
+        throw new Error(`Gagal menyimpan akun ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push account via gateway failed in local mode, fallback to client:', e);
     }
   }
 
@@ -705,8 +750,12 @@ export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promi
         body: JSON.stringify({ accounts })
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Push multiple accounts via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan akun massal:', e?.message);
+        throw new Error(`Gagal menyimpan akun massal ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push multiple accounts via gateway failed in local mode, fallback to client:', e);
     }
   }
 
@@ -740,8 +789,12 @@ export async function deleteAccountFromSupabase(id: string): Promise<void> {
         method: 'DELETE'
       });
       return;
-    } catch (e) {
-      console.warn('[SupabaseClient] Delete account via gateway failed, fallback to client:', e);
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal hapus akun:', e?.message);
+        throw new Error(`Gagal menghapus akun dari cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Delete account via gateway failed in local mode, fallback to client:', e);
     }
   }
 
