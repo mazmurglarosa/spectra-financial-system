@@ -73,6 +73,8 @@ import {
   RealOcrExtractionResult
 } from '../services/autoRecordService';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
+import { convertPdfToImages, isPdfFile, isPdfDataUri } from '../services/receiptMediaService';
+import { getExternalSyncStatus, isExternalSyncDisabledOnPreview } from '../services/externalSyncGuard';
 import { 
   getSpreadsheetWebhookUrl, 
   saveSpreadsheetWebhookUrl, 
@@ -95,6 +97,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [keterangan, setKeterangan] = useState<string>('');
   const [receiptImage, setReceiptImage] = useState<string>('');
   const [receiptFileName, setReceiptFileName] = useState<string>('');
+  const [renderedPdfPages, setRenderedPdfPages] = useState<string[]>([]);
+  const [currentPdfPagePreview, setCurrentPdfPagePreview] = useState<number>(0);
+  const [isRenderingPdf, setIsRenderingPdf] = useState<boolean>(false);
   const [seqNumber, setSeqNumber] = useState<number>(() => getNextDocumentSequence(transactions));
   const [nomorBerkas, setNomorBerkas] = useState<string>(() => generateFileCode(getNextDocumentSequence(transactions)));
 
@@ -111,6 +116,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [currentStage, setCurrentStage] = useState<'tahap1' | 'tahap2' | 'riwayat'>('tahap1');
   const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'bt' | 'other'>('all');
   const [riwayatSearch, setRiwayatSearch] = useState<string>('');
+  const isExternalSyncDisabled = isExternalSyncDisabledOnPreview();
+  const syncStatus = getExternalSyncStatus();
 
   // Tahap 2: Extraction & Verification States
   const [extractedItems, setExtractedItems] = useState<ExtractedItem[]>([]);
@@ -367,6 +374,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const loadSampleData = () => {
     setReceiptImage(SAMPLE_RECEIPT_DATA.sampleImage);
     setReceiptFileName(SAMPLE_RECEIPT_DATA.receiptFileName);
+    setRenderedPdfPages([]);
+    setCurrentPdfPagePreview(0);
     setSelectedPosCode(SAMPLE_RECEIPT_DATA.posCode);
     setKeterangan(SAMPLE_RECEIPT_DATA.keterangan);
     
@@ -389,6 +398,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran berkas terlalu besar. Batas maksimal adalah 15 MB.');
+      return;
+    }
+
     setReceiptFileName(file.name);
     // Reset hasil ekstraksi lama agar murni membaca file baru yang diunggah
     setExtractedItems([]);
@@ -396,9 +410,35 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setSpreadsheetRows([]);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const dataUri = event.target?.result as string;
       setReceiptImage(dataUri);
+
+      // Jika berkas adalah PDF, render pratinjau halaman dengan PDF.js
+      if (isPdfFile(file.name, file.type) || isPdfDataUri(dataUri)) {
+        setIsRenderingPdf(true);
+        try {
+          const pdfRes = await convertPdfToImages(dataUri, { maxPages: 10, scale: 1.5 });
+          if (pdfRes.success && pdfRes.pageImages.length > 0) {
+            setRenderedPdfPages(pdfRes.pageImages);
+            setCurrentPdfPagePreview(0);
+          } else {
+            setRenderedPdfPages([]);
+            if (pdfRes.error) {
+              alert(pdfRes.error);
+              setReceiptImage('');
+              setReceiptFileName('');
+            }
+          }
+        } catch (err) {
+          console.warn('Gagal merender pratinjau PDF:', err);
+          setRenderedPdfPages([]);
+        } finally {
+          setIsRenderingPdf(false);
+        }
+      } else {
+        setRenderedPdfPages([]);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -465,7 +505,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           const driveRes = await uploadHeavyFileToDrive(
             receiptImage,
             `${nomorBerkas.replace(/\//g, '_')}_${receiptFileName}`,
-            'image/jpeg',
+            receiptFileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
             {
               documentCode: nomorBerkas,
               title: `Bukti Transaksi - ${keterangan}`,
@@ -893,6 +933,21 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           </div>
         </div>
 
+        {/* Banner Isolasi Preview & Staging */}
+        {isExternalSyncDisabled && (
+          <div className="relative z-10 mx-4 md:mx-6 my-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span>
+                <strong>Mode Isolasi Pengujian ({syncStatus.environmentName.toUpperCase()}):</strong> Pengiriman ke Google Drive &amp; Google Spreadsheet perusahaan dialihkan ke simulasi lokal (Mock Mode). Data pembukuan produksi terlindungi 100%.
+              </span>
+            </div>
+            <span className="text-[10px] bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded border border-amber-400/30 shrink-0 self-start sm:self-auto font-bold">
+              Perusahaan Asli Aman
+            </span>
+          </div>
+        )}
+
         {/* Tab Indicator: Tahap 1 vs Tahap 2 vs Riwayat Transaksi */}
         <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto touch-scroll-x no-scrollbar">
           <button
@@ -1108,7 +1163,43 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
               {/* Receipt View Container */}
               <div className="w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center min-h-[360px] max-h-[460px] p-2 relative group">
-                {receiptImage ? (
+                {isRenderingPdf ? (
+                  <div className="text-center text-xs text-slate-500 p-8 space-y-2">
+                    <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="font-semibold text-slate-700">Membaca &amp; merender pratinjau PDF...</p>
+                  </div>
+                ) : renderedPdfPages.length > 0 ? (
+                  <div className="flex flex-col items-center justify-center w-full h-full relative">
+                    <img
+                      src={renderedPdfPages[currentPdfPagePreview]}
+                      alt={`Halaman PDF ${currentPdfPagePreview + 1}`}
+                      className="max-h-[390px] max-w-full object-contain rounded shadow-xs"
+                    />
+                    {renderedPdfPages.length > 1 && (
+                      <div className="absolute bottom-2 inset-x-0 flex items-center justify-center gap-2 bg-black/75 backdrop-blur-xs py-1 px-3 rounded-full mx-auto w-fit text-white text-[11px] font-medium shadow-md">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPdfPagePreview(p => Math.max(0, p - 1))}
+                          disabled={currentPdfPagePreview === 0}
+                          className="px-2 py-0.5 hover:bg-white/20 rounded disabled:opacity-30 cursor-pointer font-bold"
+                          title="Halaman Sebelumnya"
+                        >
+                          ◀
+                        </button>
+                        <span>Hal {currentPdfPagePreview + 1} dari {renderedPdfPages.length}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPdfPagePreview(p => Math.min(renderedPdfPages.length - 1, p + 1))}
+                          disabled={currentPdfPagePreview === renderedPdfPages.length - 1}
+                          className="px-2 py-0.5 hover:bg-white/20 rounded disabled:opacity-30 cursor-pointer font-bold"
+                          title="Halaman Berikutnya"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : receiptImage ? (
                   <img 
                     src={receiptImage} 
                     alt="Receipt Preview" 
@@ -1122,8 +1213,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 )}
 
                 {/* Badge Nomor Berkas */}
-                <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-amber-300 font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
-                  {nomorBerkas}
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <div className="bg-black/70 backdrop-blur-md text-amber-300 font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
+                    {nomorBerkas}
+                  </div>
+                  {renderedPdfPages.length > 0 && (
+                    <div className="bg-blue-600/90 backdrop-blur-md text-white font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
+                      PDF ({renderedPdfPages.length} Hal)
+                    </div>
+                  )}
                 </div>
               </div>
 

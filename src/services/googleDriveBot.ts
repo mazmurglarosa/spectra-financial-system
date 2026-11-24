@@ -11,6 +11,8 @@
  * 3. Kapasitas database Supabase dijamin jauh di bawah ambang batas gratis (500 MB)
  */
 
+import { isExternalSyncDisabledOnPreview, getExternalSyncStatus } from './externalSyncGuard';
+
 // FOLDER 1: WEB ASSETS & SYSTEM SETTINGS ONLY (data_web)
 // Digunakan HANYA untuk aset website, background login, background booting, corporate logo, dll.
 export const SPECTRA_WEB_DRIVE_FOLDER_ID = '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn';
@@ -34,6 +36,7 @@ export interface DriveUploadResponse {
   fileName?: string;
   error?: string;
   message?: string;
+  isMocked?: boolean;
 }
 
 /**
@@ -65,6 +68,19 @@ export async function uploadHeavyFileToDrive(
     folderId?: string;
   }
 ): Promise<DriveUploadResponse> {
+  // FAIL-CLOSED ENVIRONMENT GUARD
+  // Pada Vercel Preview, Staging DB, atau Localhost, isolasi Google Drive perusahaan asli
+  if (isExternalSyncDisabledOnPreview()) {
+    const status = getExternalSyncStatus();
+    console.info(`[ISOLASI ${status.environmentName.toUpperCase()}] uploadHeavyFileToDrive ditangguhkan (Mock Mode). Alasan: ${status.reason}`);
+    return {
+      success: false,
+      error: 'ISOLASI_PREVIEW_AKTIF',
+      message: `[Simulasi Preview - Data Perusahaan Aman] Pengunggahan ke Google Drive dinonaktifkan pada lingkungan ${status.environmentName.toUpperCase()}.`,
+      isMocked: true
+    };
+  }
+
   try {
     const cleanBase64 = base64OrDataUri.includes(',')
       ? base64OrDataUri.split(',')[1]

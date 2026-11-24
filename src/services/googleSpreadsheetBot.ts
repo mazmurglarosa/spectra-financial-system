@@ -7,6 +7,7 @@
  */
 
 import { SpreadsheetRowData } from './autoRecordService';
+import { isExternalSyncDisabledOnPreview, getExternalSyncStatus } from './externalSyncGuard';
 
 export const SPREADSHEET_WEBHOOK_STORAGE_KEY = 'spectra_spreadsheet_webhook_url';
 
@@ -92,6 +93,19 @@ export async function syncRowsToGoogleSpreadsheet(
   rows: SpreadsheetRowData[],
   webhookUrl?: string
 ): Promise<{ success: boolean; message: string; insertedCount?: number; data?: any }> {
+  // FAIL-CLOSED ENVIRONMENT GUARD
+  // Pada Vercel Preview, Staging DB, atau Localhost, isolasi Google Spreadsheet perusahaan asli
+  if (isExternalSyncDisabledOnPreview()) {
+    const status = getExternalSyncStatus();
+    console.info(`[ISOLASI ${status.environmentName.toUpperCase()}] syncRowsToGoogleSpreadsheet ditangguhkan (Mock Mode). Alasan: ${status.reason}`);
+    return {
+      success: false,
+      insertedCount: 0,
+      message: `[Simulasi Preview - Data Perusahaan Aman] Pengiriman ke Google Spreadsheet dinonaktifkan pada lingkungan ${status.environmentName.toUpperCase()}.`,
+      data: { isMocked: true, rowsCount: rows.length, environment: status.environmentName }
+    };
+  }
+
   const targetUrl = webhookUrl || getSpreadsheetWebhookUrl();
 
   if (!targetUrl) {

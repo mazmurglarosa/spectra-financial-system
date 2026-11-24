@@ -16,6 +16,7 @@
 
 import { Account, AccountCategory, NormalBalance, ReportType, Transaction, TransactionLine, TransactionType } from '../types/accounting';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_ID, SPECTRA_DRIVE_FOLDER_URL } from './googleDriveBot';
+import { isPdfDataUri, isPdfFile, convertPdfToImages, optimizeReceiptImage } from './receiptMediaService';
 
 export interface PosRule {
   id: string;
@@ -1689,24 +1690,21 @@ export async function extractTransactionWithOfflineOcr(
 }
 
 /**
- * Orkestrator Ekstraksi Bukti Transaksi Nyata
- * Multi-Provider Pipeline:
- * 1. Groq Vision API (Vercel Serverless Function /api/scan-receipt)
- * 2. Gemini Multimodal Vision AI (Fallback 1)
- * 3. Offline OCR Tesseract.js & Smart Parser (Fallback 2)
+ * Pipeline Ekstraksi Citra Tunggal (Groq Vision -> Gemini Vision -> Tesseract OCR)
  */
-export async function extractTransactionFromFile(params: {
-  fileDataUri: string;
-  fileName: string;
+async function extractSingleImageViaPipeline(params: {
+  imageUri: string;
   posCode: string;
   userDescription: string;
   accounts: Account[];
   onProgress?: (step: string) => void;
+  pageLabel?: string;
 }): Promise<RealOcrExtractionResult> {
-  const { fileDataUri, posCode, userDescription, accounts, onProgress } = params;
+  const { imageUri, posCode, userDescription, accounts, onProgress, pageLabel } = params;
+  const prefix = pageLabel ? `[${pageLabel}] ` : '';
 
   // 1. Prioritas 1: Cloud Serverless Groq Vision API (/api/scan-receipt)
-  onProgress?.('2/4: Memproses dengan Groq Vision AI (Serverless Cloud)...');
+  onProgress?.(`2/4: ${prefix}Memproses dengan Groq Vision AI (Serverless Cloud)...`);
   try {
     const groqRes = await fetch('/api/scan-receipt', {
       method: 'POST',
@@ -1715,7 +1713,7 @@ export async function extractTransactionFromFile(params: {
       },
       credentials: 'include',
       body: JSON.stringify({
-        image: fileDataUri,
+        image: imageUri,
         posCode,
         userDescription
       })
@@ -1724,7 +1722,7 @@ export async function extractTransactionFromFile(params: {
     if (groqRes.ok) {
       const data = await groqRes.json();
       if (data.success && data.data) {
-        onProgress?.('2/4: Berhasil mengekstrak data struk via Groq Vision!');
+        onProgress?.(`2/4: ${prefix}Berhasil mengekstrak data struk via Groq Vision!`);
         return {
           ...data.data,
           sourceEngine: 'groq_vision' as const
@@ -1734,26 +1732,219 @@ export async function extractTransactionFromFile(params: {
       const errJson = await groqRes.json().catch(() => null);
       const errMsg = errJson?.error || `HTTP ${groqRes.status}`;
       console.warn(`Groq Vision API gagal (${errMsg}), beralih ke provider cadangan...`);
-      onProgress?.(`2/4: Groq Vision (${errMsg}), beralih ke provider cadangan...`);
+      onProgress?.(`2/4: ${prefix}Groq Vision (${errMsg}), beralih ke provider cadangan...`);
     }
   } catch (groqErr: any) {
     console.warn('Groq Vision backend unreachable/offline, beralih ke provider cadangan:', groqErr);
-    onProgress?.('2/4: Backend Groq offline, beralih ke provider cadangan...');
+    onProgress?.(`2/4: ${prefix}Backend Groq offline, beralih ke provider cadangan...`);
   }
 
   // 2. Prioritas 2 (Fallback): Gemini Multimodal Vision AI
   const apiKey = getGeminiApiKey();
   if (apiKey) {
-    onProgress?.('2/4: Memproses dengan Gemini Multimodal Vision AI...');
+    onProgress?.(`2/4: ${prefix}Memproses dengan Gemini Multimodal Vision AI...`);
     try {
-      const result = await callGeminiVisionExtraction(fileDataUri, posCode, userDescription, accounts, apiKey);
+      const result = await callGeminiVisionExtraction(imageUri, posCode, userDescription, accounts, apiKey);
       return result;
     } catch (err: any) {
       console.warn('Gemini Vision API gagal, beralih ke OCR lokal:', err);
-      onProgress?.('2/4: Gemini Vision sibuk/gagal, beralih ke OCR lokal...');
+      onProgress?.(`2/4: ${prefix}Gemini Vision sibuk/gagal, beralih ke OCR lokal...`);
     }
   }
 
   // 3. Prioritas 3 (Fallback Terakhir): Offline OCR Tesseract.js & Smart Parser
-  return extractTransactionWithOfflineOcr(fileDataUri, posCode, userDescription, accounts, onProgress);
+  return extractTransactionWithOfflineOcr(imageUri, posCode, userDescription, accounts, onProgress);
+}
+
+/**
+ * Orkestrator Ekstraksi Bukti Transaksi Nyata
+ * Multi-Provider & Multi-Format Pipeline:
+ * - Dukungan PDF (1 s.d. 5 halaman) via konversi cerdas PDF.js ke gambar JPEG beresolusi tinggi
+ * - Optimasi & kompresi cerdas gambar struk (JPEG/PNG/WebP/kamera) agar di bawah batas Vercel 4.5MB
+ * - Multi-tier AI: Groq Vision -> Gemini Multimodal -> Offline Tesseract.js
+ */
+export async function extractTransactionFromFile(params: {
+  fileDataUri: string;
+  fileName: string;
+  posCode: string;
+  userDescription: string;
+  accounts: Account[];
+  onProgress?: (step: string) => void;
+}): Promise<RealOcrExtractionResult> {
+  const { fileDataUri, fileName, posCode, userDescription, accounts, onProgress } = params;
+
+  // =========================================================================
+  // KASUS 1: BERKAS MERUPAKAN DOKUMEN PDF
+  // =========================================================================
+  if (isPdfDataUri(fileDataUri) || isPdfFile(fileName)) {
+    onProgress?.('1/4: Membaca & merender dokumen PDF dengan PDF.js...');
+    const pdfRes = await convertPdfToImages(fileDataUri, {
+      maxPages: 5,
+      scale: 1.8,
+      onProgress: (cur, tot) => onProgress?.(`1/4: Merender halaman PDF ${cur} dari ${tot}...`)
+    });
+
+    if (!pdfRes.success || pdfRes.pageImages.length === 0) {
+      return {
+        detectedType: 'lainnya',
+        sellerOrRecipient: userDescription || 'Dokumen PDF',
+        extractedItems: [],
+        declaredGrandTotal: 0,
+        calculatedSum: 0,
+        mathDiscrepancy: false,
+        discrepancyMessage: pdfRes.error || 'Gagal membaca isi dokumen PDF.',
+        sourceEngine: 'smart_parser'
+      };
+    }
+
+    // Jika PDF hanya 1 halaman
+    if (pdfRes.pageImages.length === 1) {
+      const singleRes = await extractSingleImageViaPipeline({
+        imageUri: pdfRes.pageImages[0],
+        posCode,
+        userDescription,
+        accounts,
+        onProgress,
+        pageLabel: 'Hal 1/1'
+      });
+      return singleRes;
+    }
+
+    // Jika PDF Multipage (2 s/d 10 halaman)
+    const allItems: ExtractedItem[] = [];
+    let detectedSeller = '';
+    let detectedDate = '';
+    let detectedType: RealOcrExtractionResult['detectedType'] = 'faktur';
+    let primarySourceEngine: RealOcrExtractionResult['sourceEngine'] = 'groq_vision';
+    const pageDeclaredTotals: { pageNum: number; declaredTotal: number }[] = [];
+
+    for (let pIdx = 0; pIdx < pdfRes.pageImages.length; pIdx++) {
+      const pageNum = pIdx + 1;
+      const pageImage = pdfRes.pageImages[pIdx];
+
+      // Beri jeda kecil (300ms) antar-request serverless jika multi-halaman
+      if (pIdx > 0) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      const pageRes = await extractSingleImageViaPipeline({
+        imageUri: pageImage,
+        posCode,
+        userDescription,
+        accounts,
+        onProgress,
+        pageLabel: `Hal ${pageNum}/${pdfRes.pageImages.length}`
+      });
+
+      // VALIDASI KEUTUHAN HALAMAN:
+      // Jika salah satu halaman gagal total (tidak ada item dan tidak ada total), batalkan seluruhnya
+      // demi mencegah hilangnya item transaksi atau pajak secara sepihak.
+      if (!pageRes || (!pageRes.extractedItems.length && !pageRes.declaredGrandTotal)) {
+        return {
+          detectedType: 'lainnya',
+          sellerOrRecipient: userDescription || 'Dokumen PDF',
+          extractedItems: [],
+          declaredGrandTotal: 0,
+          calculatedSum: 0,
+          mathDiscrepancy: true,
+          discrepancyMessage: `Gagal mengekstrak data pada halaman ${pageNum} dari ${pdfRes.pageImages.length}. Pemrosesan dibatalkan demi mencegah transaksi parsial/tidak lengkap.`,
+          sourceEngine: 'smart_parser'
+        };
+      }
+
+      if (!detectedSeller && pageRes.sellerOrRecipient) {
+        detectedSeller = pageRes.sellerOrRecipient;
+      }
+      if (!detectedDate && pageRes.transactionDate) {
+        detectedDate = pageRes.transactionDate;
+      }
+      if (pageRes.detectedType && detectedType === 'faktur') {
+        detectedType = pageRes.detectedType;
+      }
+      primarySourceEngine = pageRes.sourceEngine;
+
+      if (pageRes.declaredGrandTotal > 0) {
+        pageDeclaredTotals.push({ pageNum, declaredTotal: pageRes.declaredGrandTotal });
+      }
+
+      // KOREKSI MULTI-HALAMAN & PERLINDUNGAN ITEM SEBENARNYA:
+      // 1. Beri ID terisolasi unik per halaman: `p${pageNum}-...`
+      // 2. HANYA filter baris jika secara eksplisit merupakan baris teks subtotal/pindahan halaman.
+      // 3. Item transaksi riil dengan nama & harga identik yang memang dibeli berulang TETAP DIPERTAHANKAN 100%!
+      pageRes.extractedItems.forEach((item, itemIdx) => {
+        const lowerName = (item.name || '').toLowerCase().trim();
+        const isExplicitSubtotalLine =
+          lowerName.includes('subtotal') ||
+          lowerName.includes('sub-total') ||
+          lowerName.includes('sub total') ||
+          lowerName.includes('jumlah sementara') ||
+          lowerName.includes('pindahan') ||
+          lowerName.includes('jumlah dipindahkan') ||
+          lowerName.includes('balance brought forward') ||
+          lowerName.includes('carried forward');
+
+        // Jika halaman > 1 dan baris adalah pengulangan subtotal dari halaman sebelumnya, abaikan agar tidak double count
+        if (pIdx > 0 && isExplicitSubtotalLine) {
+          return;
+        }
+
+        allItems.push({
+          ...item,
+          id: `p${pageNum}-${item.id || itemIdx + 1}`
+        });
+      });
+    }
+
+    // RESOLUSI GRAND TOTAL MULTI-HALAMAN:
+    // Pada faktur komersial multipage, Grand Total final tercantum pada halaman terakhir (setelah PPN/Diskon),
+    // atau merupakan penjumlahan item. DILARANG KERAS menjumlahkan declaredGrandTotal antar-halaman secara naif.
+    const calculatedSum = allItems.reduce((acc, it) => acc + (Number(it.totalPrice) || 0), 0);
+    const lastPageTotal = pageDeclaredTotals.find(p => p.pageNum === pdfRes.pageImages.length)?.declaredTotal || 0;
+
+    let resolvedGrandTotal = calculatedSum;
+    if (lastPageTotal > 0 && (Math.abs(lastPageTotal - calculatedSum) <= 1 || lastPageTotal >= calculatedSum * 0.7)) {
+      // Halaman terakhir memuat grand total kumulatif seluruh faktur
+      resolvedGrandTotal = lastPageTotal;
+    } else {
+      // Cari apakah ada halaman yang secara eksplisit memuat total kumulatif yang cocok dengan sum
+      const matchingPage = pageDeclaredTotals.find(p => Math.abs(p.declaredTotal - calculatedSum) <= 1);
+      if (matchingPage) {
+        resolvedGrandTotal = matchingPage.declaredTotal;
+      }
+    }
+
+    // Verifikasi deterministik hasil gabungan seluruh halaman
+    const verif = runTwoWayDeterministicVerification(allItems, resolvedGrandTotal);
+    const note = `Hasil gabungan dari ${pdfRes.pageImages.length} halaman dokumen PDF (Seluruh halaman terproses lengkap).`;
+
+    return {
+      detectedType,
+      sellerOrRecipient: detectedSeller || userDescription || 'Rekanan / Penjual',
+      transactionDate: detectedDate,
+      extractedItems: verif.verifiedItems,
+      declaredGrandTotal: verif.grandTotal,
+      calculatedSum: verif.calculatedSum,
+      mathDiscrepancy: verif.mathDiscrepancy,
+      discrepancyMessage: verif.discrepancyMessage ? `${note} ${verif.discrepancyMessage}` : note,
+      sourceEngine: primarySourceEngine
+    };
+  }
+
+  // =========================================================================
+  // KASUS 2: BERKAS MERUPAKAN GAMBAR BIASA (JPG/PNG/WEBP/KAMERA)
+  // =========================================================================
+  onProgress?.('1/4: Mengoptimasi resolusi & ukuran gambar struk...');
+  const optimizedDataUri = await optimizeReceiptImage(fileDataUri, {
+    maxDimension: 2048,
+    targetMaxBytes: 2 * 1024 * 1024,
+    quality: 0.88
+  });
+
+  return extractSingleImageViaPipeline({
+    imageUri: optimizedDataUri,
+    posCode,
+    userDescription,
+    accounts,
+    onProgress
+  });
 }
