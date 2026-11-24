@@ -143,17 +143,17 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Jika webhook staging belum disetel, terapkan isolasi aman (Mock Mode) tanpa merusak alur aplikasi
+    // Jika webhook staging belum disetel, terapkan isolasi aman (Mock Mode) dengan status eksplisit SIMULATED
     if (!targetWebhookUrl) {
-      const mockFileId = `staging_mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       return res.status(200).json({
         success: true,
-        fileId: mockFileId,
-        directUrl: `https://lh3.googleusercontent.com/d/${mockFileId}`,
-        viewUrl: `https://drive.google.com/file/d/${mockFileId}/view`,
+        status: 'SIMULATED',
+        isMocked: true,
+        fileId: null,
+        directUrl: null,
+        viewUrl: null,
         fileName: cleanFileName,
-        message: `[ISOLASI PREVIEW / ${envInfo.environmentName.toUpperCase()}] Berkas disimulasikan aman tanpa menyentuh Google Drive Production.`,
-        isMocked: true
+        message: `[SIMULASI ISOLASI ${envInfo.environmentName.toUpperCase()}] Berkas disimpan aman di browser/IndexedDB (TIDAK diunggah ke Google Drive eksternal demi perlindungan data produksi).`
       });
     }
   }

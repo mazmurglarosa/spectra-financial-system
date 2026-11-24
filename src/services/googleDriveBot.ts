@@ -28,6 +28,7 @@ export const SPECTRA_DRIVE_FOLDER_URL = SPECTRA_WEB_DRIVE_FOLDER_URL;
 
 export interface DriveUploadResponse {
   success: boolean;
+  status?: 'UPLOADED' | 'SIMULATED';
   fileId?: string;
   directUrl?: string;
   viewUrl?: string;
@@ -78,14 +79,14 @@ export async function uploadHeavyFileToDrive(
   if (isExternalSyncDisabledOnPreview()) {
     const status = getExternalSyncStatus();
     console.info(`[ISOLASI ${status.environmentName.toUpperCase()}] uploadHeavyFileToDrive dialihkan ke mock aman. Alasan: ${status.reason}`);
-    const mockFileId = `mock_preview_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     return {
       success: true,
-      fileId: mockFileId,
-      directUrl: formatDriveDirectUrl(mockFileId),
-      viewUrl: `https://drive.google.com/file/d/${mockFileId}/view`,
+      status: 'SIMULATED',
+      fileId: undefined,
+      directUrl: undefined,
+      viewUrl: undefined,
       fileName: fileName,
-      message: `[Simulasi Preview - Data Perusahaan Aman] Pengunggahan ke Google Drive dialihkan ke mock pada lingkungan ${status.environmentName.toUpperCase()}.`,
+      message: `[Simulasi Preview - Data Perusahaan Aman] Pengunggahan ke Google Drive dialihkan ke penyimpanan lokal/IndexedDB pada lingkungan ${status.environmentName.toUpperCase()}.`,
       isMocked: true
     };
   }
@@ -125,16 +126,18 @@ export async function uploadHeavyFileToDrive(
 
     const result = await response.json().catch(() => null);
 
-    if (response.ok && result && (result.success || result.status === 'success')) {
-      const fileId = result.fileId;
+    if (response.ok && result && (result.success || result.status === 'success' || result.status === 'SIMULATED')) {
+      const isSimulated = result.status === 'SIMULATED' || result.isMocked === true;
+      const fileId = isSimulated ? undefined : (result.fileId || undefined);
       return {
         success: true,
+        status: isSimulated ? 'SIMULATED' : 'UPLOADED',
         fileId: fileId,
-        directUrl: result.directUrl || formatDriveDirectUrl(fileId),
-        viewUrl: result.viewUrl || `https://drive.google.com/file/d/${fileId}/view`,
+        directUrl: isSimulated ? undefined : (result.directUrl || (fileId ? formatDriveDirectUrl(fileId) : undefined)),
+        viewUrl: isSimulated ? undefined : (result.viewUrl || (fileId ? `https://drive.google.com/file/d/${fileId}/view` : undefined)),
         fileName: result.fileName || fileName,
-        message: result.message || 'Berkas berhasil dialihkan & tersimpan di Google Drive!',
-        isMocked: result.isMocked || false
+        message: result.message || 'Berkas berhasil diproses.',
+        isMocked: isSimulated
       };
     } else {
       return {

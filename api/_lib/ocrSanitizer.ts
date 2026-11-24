@@ -40,6 +40,7 @@ export interface RealOcrExtractionResult {
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
   sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
+  usedModel?: string;
   rawResponse?: any;
 }
 

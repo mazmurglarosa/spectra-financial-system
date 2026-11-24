@@ -41,6 +41,7 @@ import {
   getPendingJournalDraft,
   clearPendingJournalDraft,
   deleteRecordedReceipt,
+  resolveReceiptImage,
   RecordedReceipt,
   SAMPLE_RECEIPT_DATA,
   SPREADSHEET_CONFIG
@@ -93,6 +94,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       setKeterangan(draft.keterangan || '');
       setTransactionDate(draft.date || new Date().toISOString().slice(0, 10));
       setReceiptImage(draft.receiptImage || '');
+      if (draft.receiptImage && draft.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+        resolveReceiptImage(draft as any).then(img => {
+          if (img) setReceiptImage(img);
+        });
+      }
       setGoogleDriveLink(draft.googleDriveLink || '');
       setItems(draft.extractedItems || []);
       setGrandTotal(draft.grandTotal || 0);
@@ -175,6 +181,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
     setKeterangan(receipt.keterangan);
     setTransactionDate(receipt.date || new Date().toISOString().slice(0, 10));
     setReceiptImage(receipt.receiptImage || '');
+    if (receipt.receiptImage && receipt.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+      resolveReceiptImage(receipt).then(img => {
+        if (img) setReceiptImage(img);
+      });
+    }
     setGoogleDriveLink(receipt.googleDriveLink || '');
     setItems(receipt.extractedItems || []);
     setGrandTotal(receipt.grandTotal);

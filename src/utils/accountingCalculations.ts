@@ -435,8 +435,9 @@ export function generateBalanceSheet(accounts: Account[], transactions: Transact
       utangJangkaPanjang.push({ code: acc.code, name: acc.name, amount: endingBalance });
       totalUtangJangkaPanjang += endingBalance;
     } else if (acc.category === 'EKUITAS') {
-      // Prive is contra-equity
-      const adjustedAmount = acc.sn === 'Db' ? -Math.abs(endingBalance) : endingBalance;
+      // Akun Prive / Pengambilan Pribadi adalah contra-equity yang mengurangi ekuitas
+      const isContra = acc.name?.toLowerCase().includes('prive') || acc.code === '30002';
+      const adjustedAmount = isContra ? -Math.abs(endingBalance) : Math.abs(endingBalance);
       ekuitas.push({ code: acc.code, name: acc.name, amount: adjustedAmount });
       totalEkuitas += adjustedAmount;
     }

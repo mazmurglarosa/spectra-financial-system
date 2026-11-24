@@ -163,6 +163,29 @@ const STORAGE_KEYS = {
   FISCAL: 'spectra_fiscal_reconciliation_v1'
 };
 
+const SPECTRA_DELETED_TOMBSTONES_KEY = 'spectra_deleted_tx_ids';
+
+function getDeletedTxTombstones(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(SPECTRA_DELETED_TOMBSTONES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+}
+
+function recordDeletedTxTombstone(id: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedTxTombstones();
+    set.add(id);
+    localStorage.setItem(SPECTRA_DELETED_TOMBSTONES_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
 const BROADCAST_CHANNEL_NAME = 'spectra_realtime_sync_channel';
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -651,11 +674,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 }
               });
 
-              // Transaksi lokal yang belum ada di cloud
+              // Transaksi lokal yang belum ada di cloud (dengan proteksi tombstone anti-resurrection)
+              const tombstones = getDeletedTxTombstones();
               prevLocal.forEach(lt => {
+                // 1. Jika transaksi telah dihapus (tombstone), jangan dibangkitkan kembali!
+                if (tombstones.has(lt.id)) {
+                  return;
+                }
+                // 2. Jika tidak ada di cloud, hanya sinkronkan jika memang draft offline baru (isPendingSync)
                 if (!cloudMap.has(lt.id)) {
-                  merged.push(lt);
-                  pushTransactionToSupabase(lt, false).catch(console.error);
+                  if ((lt as any).isPendingSync) {
+                    merged.push(lt);
+                    pushTransactionToSupabase(lt, false).catch(console.error);
+                  }
                 }
               });
 
@@ -837,7 +868,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     try {
-      await pushTransactionToSupabase(merged, true);
+      await pushTransactionToSupabase(merged, true, existing.updatedAt);
 
       setTransactions(prev => {
         const updated = prev.map(t => t.id === id ? merged : t);
@@ -863,6 +894,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const target = transactions.find(t => t.id === id);
     try {
       await deleteTransactionFromSupabase(id);
+      recordDeletedTxTombstone(id);
 
       setTransactions(prev => {
         const updated = prev.filter(t => t.id !== id);

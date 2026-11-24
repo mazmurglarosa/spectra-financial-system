@@ -553,15 +553,23 @@ export async function syncPullAllFromSupabase(): Promise<{
   }
 }
 
-export async function pushTransactionToSupabase(tx: Transaction, isUpdate: boolean = false): Promise<{ success: boolean; message?: string }> {
+export async function pushTransactionToSupabase(
+  tx: Transaction,
+  isUpdate: boolean = false,
+  expectedUpdatedAt?: number
+): Promise<{ success: boolean; message?: string }> {
   // 1. Gateway Serverless
   if (typeof window !== 'undefined') {
     try {
       const endpoint = isUpdate ? '/api/financial/transactions?isUpdate=true' : '/api/financial/transactions';
+      const payload: any = { ...tx };
+      if (isUpdate && (expectedUpdatedAt || tx.updatedAt)) {
+        payload.expectedUpdatedAt = expectedUpdatedAt || tx.updatedAt;
+      }
       const res = await callFinancialGateway(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tx)
+        body: JSON.stringify(payload)
       });
       return { success: true, message: res?.message };
     } catch (e: any) {

@@ -161,16 +161,72 @@ export default async function handler(req: any, res: any) {
   if (!groqApiKey) {
     return res.status(500).json({
       success: false,
-      error: 'Konfigurasi GROQ_API_KEY belum tersedia di environment server Vercel.'
+      errorCode: 'GROQ_API_KEY_MISSING',
+      error: 'Konfigurasi GROQ_API_KEY belum tersedia di environment server Vercel. Sistem dapat beralih ke OCR Offline Tesseract.js.'
     });
   }
 
-  // Model Vision Candidates dengan Fallback Otomatis
-  const candidateModels = [
-    process.env.GROQ_VISION_MODEL,
-    'llama-3.2-11b-vision-preview',
-    'llama-3.2-90b-vision-preview'
-  ].filter(Boolean) as string[];
+  // Model Vision Candidates dengan Fallback Otomatis & Konfigurasi Fleksibel
+  // Catatan: Model deprecated llama-3.2-11b-vision-preview & llama-3.2-90b-vision-preview telah DIHAPUS PERMANEN (dihentikan Groq per 14 April 2025).
+  const envConfiguredModels = process.env.GROQ_VISION_MODELS
+    ? process.env.GROQ_VISION_MODELS.split(',').map(m => m.trim()).filter(Boolean)
+    : [];
+
+  const singleEnvModel = process.env.GROQ_VISION_MODEL?.trim();
+
+  // Model Vision didukung dokumentasi resmi Groq saat ini
+  const defaultVisionCandidates = ['qwen/qwen3.8-27b'];
+
+  let candidateModels = Array.from(new Set([
+    ...envConfiguredModels,
+    ...(singleEnvModel ? [singleEnvModel] : []),
+    ...defaultVisionCandidates
+  ])).filter(Boolean);
+
+  // Verifikasi Ketersediaan Model Vision via endpoint resmi /openai/v1/models di server-side
+  try {
+    const modelCheckController = new AbortController();
+    const modelCheckTimeout = setTimeout(() => modelCheckController.abort(), 4000);
+    const modelsResp = await fetch('https://api.groq.com/openai/v1/models', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      signal: modelCheckController.signal
+    });
+    clearTimeout(modelCheckTimeout);
+
+    if (modelsResp.ok) {
+      const modelsData: any = await modelsResp.json();
+      const availableModels: string[] = Array.isArray(modelsData.data)
+        ? modelsData.data.map((m: any) => String(m.id || '').trim()).filter(Boolean)
+        : [];
+
+      if (availableModels.length > 0) {
+        // Filter: Model vision yang didukung (BUKAN model text-only seperti llama-3.3-70b-versatile atau mixtral)
+        const activeVisionModels = availableModels.filter(id => {
+          const lower = id.toLowerCase();
+          // Cek apakah model adalah vision-capable dan bukan text-only
+          const isTextOnly = lower.includes('versatile') || lower.includes('distill') || lower.includes('instruct') && !lower.includes('vision') && !lower.includes('vl');
+          const isVision = lower.includes('vision') || lower.includes('qwen') || lower.includes('vl') || lower.includes('multimodal');
+          return isVision && !isTextOnly;
+        });
+
+        // Jika model kandidat yang kita inginkan aktif di akun pengguna, prioritaskan
+        const verifiedCandidates = candidateModels.filter(m => availableModels.includes(m));
+        if (verifiedCandidates.length > 0) {
+          candidateModels = verifiedCandidates;
+        } else if (activeVisionModels.length > 0) {
+          // Gunakan vision model aktif pertama yang tersedia di akun
+          candidateModels = activeVisionModels;
+        }
+      }
+    }
+  } catch (checkErr: any) {
+    // Jika pengecekan model timeout/gagal, tetap lanjutkan dengan kandidat terkonfigurasi
+    console.warn('[Groq Model Discovery Warning]: Menggunakan daftar model fallback statis:', checkErr?.message);
+  }
 
   const dataUri = `data:${mime};base64,${cleanBase64}`;
 
@@ -215,9 +271,9 @@ WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
 Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand total secara presisi dan kembalikan dalam format JSON.`;
 
   // 7. Panggil Groq Vision API dengan Fallback Antar Model dan Timeout 15s
-  let lastError: any = null;
+  let lastError: { errorCode: string; message: string; status?: number } | null = null;
   let parsed: any = null;
-  let usedModel = candidateModels[0] || 'llama-3.2-11b-vision-preview';
+  let usedModel = candidateModels[0] || 'qwen/qwen3.8-27b';
 
   for (const modelToTry of candidateModels) {
     usedModel = modelToTry;
@@ -259,15 +315,10 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
         const errText = await groqResponse.text();
         console.warn(`[Groq API Model ${modelToTry} Error]:`, groqResponse.status, errText);
 
-        if (groqResponse.status === 404 || groqResponse.status === 503) {
-          // Model dihentikan atau service unavailable -> coba kandidat model berikutnya
-          lastError = new Error(`Model ${modelToTry} tidak aktif (${groqResponse.status}).`);
-          continue;
-        }
-
         if (groqResponse.status === 401) {
           return res.status(500).json({
             success: false,
+            errorCode: 'GROQ_AUTH_ERROR',
             error: 'Autentikasi ke Groq Vision API gagal. Kunci GROQ_API_KEY tidak valid.'
           });
         }
@@ -275,11 +326,25 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
         if (groqResponse.status === 429) {
           return res.status(429).json({
             success: false,
-            error: 'Groq API sedang melayani beban puncak (rate limited). Silakan coba lagi beberapa saat.'
+            errorCode: 'GROQ_RATE_LIMIT',
+            error: 'Groq API sedang melayani beban puncak (rate limited). Silakan coba lagi beberapa saat atau beralih ke OCR Offline.'
           });
         }
 
-        lastError = new Error(`Groq status ${groqResponse.status}`);
+        if (groqResponse.status === 404 || groqResponse.status === 503) {
+          lastError = {
+            errorCode: 'GROQ_MODEL_UNAVAILABLE',
+            status: groqResponse.status,
+            message: `Model ${modelToTry} tidak tersedia (${groqResponse.status}): ${errText.slice(0, 120)}`
+          };
+          continue;
+        }
+
+        lastError = {
+          errorCode: 'GROQ_SERVER_ERROR',
+          status: groqResponse.status,
+          message: `Groq mengembalikan status ${groqResponse.status}: ${errText.slice(0, 120)}`
+        };
         continue;
       }
 
@@ -291,19 +356,33 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
         break; // Berhasil mendapatkan dan mem-parse JSON
       } catch (parseErr) {
         console.error('[Groq JSON Parse Error]: Raw content was:', contentText);
-        lastError = new Error('Hasil model Vision bukan format JSON valid.');
+        lastError = {
+          errorCode: 'GROQ_INVALID_JSON',
+          message: `Output dari model ${modelToTry} bukan format JSON akuntansi yang valid.`
+        };
         continue;
       }
     } catch (fetchErr: any) {
       clearTimeout(timeoutTimer);
+      if (fetchErr.name === 'AbortError') {
+        lastError = {
+          errorCode: 'GROQ_TIMEOUT',
+          message: `Permintaan ke model ${modelToTry} melampaui batas waktu ${GROQ_TIMEOUT_MS / 1000} detik.`
+        };
+      } else {
+        lastError = {
+          errorCode: 'GROQ_NETWORK_ERROR',
+          message: `Gagal menghubungi Groq API (${fetchErr.message})`
+        };
+      }
       console.warn(`[Groq Fetch Error with ${modelToTry}]:`, fetchErr.message);
-      lastError = fetchErr;
     }
   }
 
   if (!parsed || typeof parsed !== 'object') {
     return res.status(502).json({
       success: false,
+      errorCode: lastError?.errorCode || 'GROQ_ALL_MODELS_FAILED',
       error: `Layanan Groq Vision API tidak dapat menyelesaikan pemindaian (${lastError?.message || 'semua model kandidat gagal'}). Sistem dapat beralih ke OCR Offline Tesseract.js.`
     });
   }
@@ -373,6 +452,10 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
   // PERINGATAN INTEGRITAS: Endpoint ini TIDAK boleh otomatis menyimpan transaksi ke database!
   return res.status(200).json({
     success: true,
-    data: extractionResult
+    usedModel,
+    data: {
+      ...extractionResult,
+      usedModel
+    }
   });
 }

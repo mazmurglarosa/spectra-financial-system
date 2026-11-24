@@ -58,6 +58,7 @@ export interface RealOcrExtractionResult {
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
   sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
+  usedModel?: string;
   rawResponse?: any;
 }
 
@@ -1054,6 +1055,8 @@ export interface RecordedReceipt {
   status: 'pending_journal' | 'journalized';
   createdAt: string;
   journalTxId?: string;
+  archiveStatus?: 'local' | 'indexeddb' | 'cloud_permanent' | 'simulated';
+  imageHash?: string;
 }
 
 export const SPECTRA_RECORDED_RECEIPTS_KEY = 'spectra_recorded_receipts_list';
@@ -1083,33 +1086,58 @@ function openReceiptIdb(): Promise<IDBDatabase | null> {
 }
 
 export async function storeReceiptImageAsync(id: string, imageData: string): Promise<boolean> {
+  if (!id || !imageData) return false;
   try {
     const db = await openReceiptIdb();
     if (!db) return false;
     return new Promise((resolve) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(imageData, id);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
+      try {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        const putReq = store.put(imageData, id);
+        putReq.onsuccess = () => resolve(true);
+        putReq.onerror = () => resolve(false);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
     });
-  } catch {
+  } catch (err) {
+    console.warn('[IndexedDB Write Error]:', err);
     return false;
   }
 }
 
 export async function getReceiptImageAsync(id: string): Promise<string | null> {
+  if (!id) return null;
   try {
     const db = await openReceiptIdb();
     if (!db) return null;
     return new Promise((resolve) => {
-      const tx = db.transaction(IDB_STORE, 'readonly');
-      const req = tx.objectStore(IDB_STORE).get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(null);
+      try {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
     });
   } catch {
     return null;
   }
+}
+
+export async function resolveReceiptImage(receipt: RecordedReceipt): Promise<string> {
+  if (!receipt) return '';
+  if (receipt.receiptImage && !receipt.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+    return receipt.receiptImage;
+  }
+  const docKey = receipt.nomorBerkas || receipt.id;
+  const fromIdb = await getReceiptImageAsync(docKey);
+  return fromIdb || (receipt.receiptImage && !receipt.receiptImage.startsWith('[') ? receipt.receiptImage : '');
 }
 
 export function getRecordedReceipts(): RecordedReceipt[] {
@@ -1122,11 +1150,22 @@ export function getRecordedReceipts(): RecordedReceipt[] {
   return [];
 }
 
-export function saveRecordedReceipt(receipt: RecordedReceipt): { success: boolean; error?: string } {
+export async function saveRecordedReceipt(receipt: RecordedReceipt): Promise<{
+  success: boolean;
+  error?: string;
+  storageMode?: 'local' | 'indexeddb' | 'hybrid';
+  archiveStatus?: 'local' | 'indexeddb' | 'cloud_permanent' | 'simulated';
+}> {
   try {
-    // Simpan gambar berat ke IndexedDB di background
+    const docKey = receipt.nomorBerkas || receipt.id;
+    let idbSaved = false;
+
+    // 1. Jika terdapat gambar berkas berat, simpan ke IndexedDB dan TUNGGU hingga selesai!
     if (receipt.receiptImage && receipt.receiptImage.startsWith('data:') && receipt.receiptImage.length > 500) {
-      storeReceiptImageAsync(receipt.nomorBerkas || receipt.id, receipt.receiptImage).catch(() => {});
+      idbSaved = await storeReceiptImageAsync(docKey, receipt.receiptImage);
+      if (idbSaved) {
+        receipt.archiveStatus = receipt.archiveStatus || 'indexeddb';
+      }
     }
 
     const list = getRecordedReceipts();
@@ -1137,20 +1176,44 @@ export function saveRecordedReceipt(receipt: RecordedReceipt): { success: boolea
       list.unshift(receipt);
     }
 
+    // 2. Simpan metadata ke localStorage
     try {
       localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
-      return { success: true };
+      return {
+        success: true,
+        storageMode: idbSaved ? 'hybrid' : 'local',
+        archiveStatus: receipt.archiveStatus || (idbSaved ? 'indexeddb' : 'local')
+      };
     } catch (quotaErr) {
       console.warn('[STORAGE] localStorage kuota terlampaui. Menerapkan optimasi hybrid: simpan metadata tanpa base64 berat.');
-      // Simpan versi ringan tanpa base64 image (gambar tetap aman di IndexedDB)
+      // Simpan versi ringan tanpa base64 image (gambar telah diverifikasi tersimpan di IndexedDB)
       const lightweightList = list.map(r => {
         if (r.receiptImage && r.receiptImage.length > 5000) {
           return { ...r, receiptImage: `[STORED_IN_INDEXEDDB:${r.nomorBerkas || r.id}]` };
         }
         return r;
       });
-      localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(lightweightList));
-      return { success: true };
+
+      try {
+        localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(lightweightList));
+        if (!idbSaved && receipt.receiptImage && receipt.receiptImage.length > 500) {
+          // IndexedDB gagal DAN localStorage kuota penuh -> jangan beri sukses palsu!
+          return {
+            success: false,
+            error: 'Gagal mengamankan berkas gambar: Kuota localStorage penuh dan IndexedDB tidak tersedia.'
+          };
+        }
+        return {
+          success: true,
+          storageMode: 'hybrid',
+          archiveStatus: 'indexeddb'
+        };
+      } catch (critErr: any) {
+        return {
+          success: false,
+          error: `Gagal menyimpan metadata bukti transaksi: ${critErr?.message || critErr}`
+        };
+      }
     }
   } catch (err: any) {
     console.error('[STORAGE ERROR] Gagal menyimpan bukti transaksi:', err);

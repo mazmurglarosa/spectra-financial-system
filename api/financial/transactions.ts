@@ -107,6 +107,19 @@ export default async function handler(req: any, res: any) {
             error: `Konflik idempotensi: Transaksi dengan ID "${dbRow.id}" (${dbRow.ref_number}) sudah ada di database dengan rincian material berbeda (fingerprint mismatch). Gunakan parameter pembaruan terotorisasi (isUpdate) jika ingin memperbarui data.`
           });
         }
+
+        // P1.1: Optimistic Concurrency Control — Cegah overwriting data oleh klien dengan timestamp basi
+        if (isExplicitUpdate && req.body?.expectedUpdatedAt !== undefined) {
+          const incomingExpected = Number(req.body.expectedUpdatedAt);
+          const currentUpdated = Number(existingTx.updated_at || existingTx.created_at || 0);
+          if (incomingExpected && currentUpdated && incomingExpected < currentUpdated) {
+            return res.status(409).json({
+              success: false,
+              conflict: true,
+              error: `Konflik pembaruan konkuren: Transaksi telah dimodifikasi oleh perangkat/pengguna lain (timestamp cloud: ${currentUpdated}, timestamp klien: ${incomingExpected}). Silakan muat ulang data terbaru terlebih dahulu.`
+            });
+          }
+        }
       }
 
       const isExplicitUpdate = req.body?.isUpdate === true || req.query?.isUpdate === 'true';

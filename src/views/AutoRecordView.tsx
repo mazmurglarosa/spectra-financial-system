@@ -517,6 +517,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           if (driveRes.success && driveRes.viewUrl) {
             driveLink = driveRes.viewUrl;
             setGoogleDriveLink(driveLink);
+          } else if (driveRes.status === 'SIMULATED' || driveRes.isMocked) {
+            driveLink = '[ARSIP_LOKAL_INDEXEDDB]';
+            setGoogleDriveLink(driveLink);
           }
         } catch (err) {
           console.warn('Google Drive background sync info:', err);
@@ -725,7 +728,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   };
 
   // PROCEED TO AUTO JOURNAL & SAVE RECEIPT
-  const handleProceedToAutoJournal = () => {
+  const handleProceedToAutoJournal = async () => {
     // Validasi ketat: Cegah posting nominal nol atau OCR yang belum tervalidasi, namun izinkan diskon dan bonus gratis yang sah
     const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
     const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
@@ -751,7 +754,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
-    saveRecordedReceipt(recordPayload);
+
+    const saveRes = await saveRecordedReceipt(recordPayload);
+    if (!saveRes.success) {
+      alert(`Peringatan: Gagal menyimpan bukti transaksi ke penyimpanan (${saveRes.error || 'kesalahan storage'}). Draft dan berkas gambar tetap dipertahankan.`);
+      return;
+    }
 
     setPendingJournalDraft({
       nomorBerkas,
@@ -786,7 +794,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setActiveTab('auto-journal');
   };
 
-  const handleSaveRecordedReceiptOnly = () => {
+  const handleSaveRecordedReceiptOnly = async () => {
     // Validasi ketat: Cegah penyimpanan nominal nol atau fiktif, namun izinkan diskon dan bonus gratis yang sah
     const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
     const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
@@ -812,7 +820,13 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
-    saveRecordedReceipt(recordPayload);
+
+    const saveRes = await saveRecordedReceipt(recordPayload);
+    if (!saveRes.success) {
+      alert(`Gagal menyimpan rekaman bukti: ${saveRes.error || 'Penyimpanan gagal'}. Draft tetap dipertahankan.`);
+      return;
+    }
+
     commitDocumentSequence(seqNumber);
 
     // Auto-sync ke Google Spreadsheet jika webhook sudah disetel

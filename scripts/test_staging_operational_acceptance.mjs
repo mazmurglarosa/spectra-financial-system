@@ -50,6 +50,7 @@ import {
   calculateProfitAndLoss, 
   generateCashFlowStatement,
   calculateWorksheet,
+  calculateAccountBalance,
   formatRupiah 
 } from '../src/utils/accountingCalculations.ts';
 
@@ -273,7 +274,7 @@ try {
         status: 'posted',
         lines: [
           { id: 'l1', accountCode: '10001', accountName: 'Kas Utama', debit: 50000000, credit: 0 },
-          { id: 'l2', accountCode: '30001', accountName: 'Modal Pemilik', debit: 0, credit: 50000000 }
+          { id: 'l2', accountCode: '30000', accountName: 'Modal/Ekuitas', debit: 0, credit: 50000000 }
         ]
       }
     })
@@ -335,15 +336,8 @@ try {
   // MODUL 07: Neraca (Balance Sheet - SAK)
   // -------------------------------------------------------------
   const balanceSheet = calculateBalanceSheet(accounts, transactions);
-  console.log('BalanceSheet Debug:', {
-    totalAset: balanceSheet.totalAssets,
-    totalKewajiban: balanceSheet.totalLiabilities,
-    totalEkuitas: balanceSheet.totalEquity,
-    diff: balanceSheet.diff,
-    netIncome: calculateProfitAndLoss(accounts, transactions).netIncome
-  });
-  const isBsBalanced = Math.abs(balanceSheet.diff) < 1;
-  record(7, 'Neraca', 'Persamaan Dasar Akuntansi (Aset = Kewajiban + Ekuitas)', true, `Aset: Rp ${formatRupiah(balanceSheet.totalAssets)} == Pasiva: Rp ${formatRupiah(balanceSheet.totalLiabilitiesAndEquity)} (Status: ${isBsBalanced ? 'Seimbang' : 'Terdeteksi Saldo Awal Unbalanced di Staging'})`);
+  assert.strictEqual(balanceSheet.diff, 0, 'Neraca WAJIB seimbang 100% (Aset == Kewajiban + Ekuitas, diff harus 0)');
+  record(7, 'Neraca', 'Persamaan Dasar Akuntansi (Aset = Kewajiban + Ekuitas)', true, `Aset: Rp ${formatRupiah(balanceSheet.totalAssets)} == Pasiva: Rp ${formatRupiah(balanceSheet.totalLiabilitiesAndEquity)} (Diff: Rp 0, 100% Seimbang)`);
 
   // -------------------------------------------------------------
   // MODUL 08: Laba Rugi Komersial (P&L SAK)
@@ -482,25 +476,94 @@ try {
   });
   assert.strictEqual(uploadRes.status, 200);
   assert.ok(uploadRes.data.success);
-  record(16, 'Auto Record & OCR', 'Backend Proxy Google Drive Upload & Mock Isolasi', true, `Unggah bukti berhasil via server proxy (${uploadRes.data.fileName}).`);
+  assert.strictEqual(uploadRes.data.status, 'SIMULATED', 'Mode isolasi staging harus menghasilkan status SIMULATED');
+  assert.strictEqual(uploadRes.data.isMocked, true, 'isMocked harus bernilai true');
+  assert.strictEqual(uploadRes.data.fileId, null, 'fileId harus null');
+  assert.strictEqual(uploadRes.data.directUrl, null, 'directUrl harus null');
+  assert.strictEqual(uploadRes.data.viewUrl, null, 'viewUrl harus null');
+  record(16, 'Auto Record Storage', 'Backend Proxy Google Drive Upload & Isolasi Mock Eksplisit', true, `Isolasi aman terverifikasi: status=SIMULATED, isMocked=true, fileId=null.`);
 
   // -------------------------------------------------------------
-  // BONUS VERIFIKASI: Concurrency & Document Sequence Safety
+  // MODUL 17: Concurrency & Sequence Safety (Paralel Execution)
   // -------------------------------------------------------------
-  const latestTxRes = await testFetch('/api/financial/transactions');
-  const latestTransactions = latestTxRes.data.transactions || [];
-
-  const currentMaxSeq = latestTransactions
-    .filter(t => t.refNumber && t.refNumber.includes('BT/'))
-    .map(t => {
-      const match = t.refNumber.match(/BT\/(?:.*\/)?(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+  const concurrentCalls = [1, 2, 3].map(i => testFetch('/api/financial/transactions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      transaction: {
+        id: `TEST_OPER_TX_CONC_${Date.now()}_${i}`,
+        date: '2026-10-30',
+        refNumber: `BT/CONC/000${i}`,
+        description: `Transaksi Konkuren Uji ${i}`,
+        type: 'pengeluaran',
+        category: 'Operasional',
+        totalDebit: 100000 * i,
+        totalCredit: 100000 * i,
+        status: 'posted',
+        lines: [
+          { id: `c1_${i}`, accountCode: '50001', accountName: 'Beban Operasional', debit: 100000 * i, credit: 0 },
+          { id: `c2_${i}`, accountCode: '10001', accountName: 'Kas Utama', debit: 0, credit: 100000 * i }
+        ]
+      }
     })
-    .reduce((max, cur) => Math.max(max, cur), 0);
+  }));
+  const concResults = await Promise.all(concurrentCalls);
+  const allConcSuccess = concResults.every(r => r.status === 200);
+  assert.ok(allConcSuccess, 'Semua request konkuren harus berhasil disimpan');
+  record(17, 'Sequence & Concurrency', 'Pencegahan Deadlock & Integritas Penomoran Konkuren', true, `${concResults.length} transaksi konkuren diproses paralel tanpa tabrakan.`);
 
-  const nextSeq = currentMaxSeq + 1;
-  assert.ok(nextSeq >= 2, `Penomoran dokumen sequential aman terhadap duplikasi (Next: BT/${String(nextSeq).padStart(4, '0')})`);
-  record(17, 'Sequence Safety', 'Pencegahan Duplikasi Nomor Berkas BT/ Paralel', true, `Next sequence terverifikasi unik: BT/${String(nextSeq).padStart(4, '0')}`);
+  // -------------------------------------------------------------
+  // MODUL 18: Multi-Device Sync Conflict Resolution (Optimistic Lock)
+  // -------------------------------------------------------------
+  const staleConflictRes = await testFetch('/api/financial/transactions?isUpdate=true', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      isUpdate: true,
+      expectedUpdatedAt: 1000,
+      transaction: {
+        id: 'TEST_OPER_TX_JU_01',
+        date: '2026-10-25',
+        refNumber: txRef,
+        description: 'Setoran Modal Pemilik Dimodifikasi Perangkat Lain',
+        type: 'jurnal-umum',
+        category: 'Modal',
+        totalDebit: 60000000,
+        totalCredit: 60000000,
+        status: 'posted',
+        lines: [
+          { id: 'l1', accountCode: '10001', accountName: 'Kas Utama', debit: 60000000, credit: 0 },
+          { id: 'l2', accountCode: '30000', accountName: 'Modal/Ekuitas', debit: 0, credit: 60000000 }
+        ]
+      }
+    })
+  });
+  assert.strictEqual(staleConflictRes.status, 409, 'Pembaruan dengan timestamp usang harus ditolak dengan 409 Conflict');
+  assert.ok(staleConflictRes.data?.conflict, 'Respons harus menyertakan flag conflict: true');
+  record(18, 'Sync Conflict', 'Optimistic Concurrency Control (Deteksi Konflik Multi-Perangkat)', true, 'Pembaruan dengan timestamp basi berhasil ditolak (HTTP 409 Conflict).');
+
+  // -------------------------------------------------------------
+  // MODUL 19: Groq Vision OCR Integration / Fallback Status
+  // -------------------------------------------------------------
+  const sampleTinyReceiptBase64 = 'data:image/jpeg;base64,' + Buffer.from('SPECTRA_SAMPLE_RECEIPT_STAGING_OCR').toString('base64');
+  const ocrRes = await testFetch('/api/scan-receipt', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      imageBase64: sampleTinyReceiptBase64,
+      fileName: 'test_receipt_operational.jpg'
+    })
+  });
+
+  if (process.env.GROQ_API_KEY) {
+    if (ocrRes.status === 200 && ocrRes.data?.success) {
+      record(19, 'Groq Vision Live', `Model Aktif: ${ocrRes.data.usedModel || 'qwen/qwen3.8-27b'}`, true, `Ekstraksi struk nyata via Groq Vision berhasil (${ocrRes.data.items?.length || 0} item).`);
+    } else {
+      record(19, 'Groq Vision Live', 'Groq Vision OCR Request', false, `[FAIL] Groq response: ${ocrRes.data?.error || ocrRes.status}`);
+    }
+  } else {
+    record(19, 'Groq Vision Live', 'Uji Live OCR Struk Nyata via Groq Vision', false, '[BLOCKED] GROQ_API_KEY belum disetel di serverless environment. Fallback offline Tesseract.js siap siaga.');
+  }
 
 } catch (err) {
   console.error('\x1b[31m[ERROR DALAM PENGUJIAN OPERASIONAL]:\x1b[0m', err);
@@ -515,7 +578,17 @@ try {
 }
 
 const passed = results.filter(r => r.pass).length;
+const blocked = results.filter(r => !r.pass && String(r.detail).includes('[BLOCKED]')).length;
+const failed = results.filter(r => !r.pass && !String(r.detail).includes('[BLOCKED]')).length;
 const total = results.length;
 console.log('===============================================================');
-console.log(`   HASIL AKHIR OPERATIONAL ACCEPTANCE: ${passed}/${total} MODUL LULUS (${Math.round(passed / total * 100)}%)`);
+console.log(`   HASIL AKHIR OPERATIONAL ACCEPTANCE:`);
+console.log(`   PASS   : ${passed} MODUL`);
+console.log(`   BLOCKED: ${blocked} MODUL (Ketergantungan API Eksternal/Kredensial)`);
+console.log(`   FAIL   : ${failed} MODUL`);
+console.log(`   TOTAL  : ${total} MODUL`);
 console.log('===============================================================\n');
+
+if (failed > 0) {
+  process.exitCode = 1;
+}
