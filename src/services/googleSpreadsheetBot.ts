@@ -135,25 +135,25 @@ function doPost(e) {
       throw new Error('Permintaan ditolak: Timestamp kadaluwarsa atau di luar toleransi 5 menit (Anti-Replay Protection).');
     }
 
-    // 5. ATOMIC NONCE VERIFICATION (ANTI-REPLAY VIA CACHESERVICE)
-    if (!payload.nonce || typeof payload.nonce !== 'string' || payload.nonce.length < 8) {
-      throw new Error('Permintaan ditolak: Nonce wajib disertakan dan minimal 8 karakter.');
-    }
-    var cache = CacheService.getScriptCache();
-    var nonceKey = 'nonce_' + payload.nonce;
-    if (cache.get(nonceKey)) {
-      throw new Error('Permintaan ditolak: Nonce telah digunakan sebelumnya (Replay Attack Terdeteksi).');
-    }
-    cache.put(nonceKey, '1', 600); // Kunci selama 10 menit
-
-    // 6. CONCURRENCY LOCK (Pencegahan Operasi Paralel Bentrok)
+    // 5. CONCURRENCY LOCK PERTAMA (Eliminasi Race Condition & Paralel Replay)
     var lock = LockService.getScriptLock();
     if (!lock.tryLock(30000)) {
       throw new Error('Server sibuk: Sedang memproses transaksi lain. Silakan coba kembali.');
     }
 
     try {
-      // 7. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi Presisi / Idempotency)
+      // 6. ATOMIC NONCE VERIFICATION (ANTI-REPLAY VIA CACHESERVICE DI BAWAH LOCK)
+      if (!payload.nonce || typeof payload.nonce !== 'string' || payload.nonce.length < 8) {
+        throw new Error('Permintaan ditolak: Nonce wajib disertakan dan minimal 8 karakter.');
+      }
+      var cache = CacheService.getScriptCache();
+      var nonceKey = 'nonce_' + payload.nonce;
+      if (cache.get(nonceKey)) {
+        throw new Error('Permintaan ditolak: Nonce telah digunakan sebelumnya (Replay Attack Terdeteksi).');
+      }
+      cache.put(nonceKey, '1', 600); // Kunci selama 10 menit
+
+      // 7. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi Presisi / Idempotency via _spectra_idempotency)
       var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
       if (!rows || rows.length === 0) {
         throw new Error('Array baris transaksi (rows) kosong.');
@@ -223,20 +223,36 @@ function findNextEmptyRow(sheet) {
   return lastRow + 1;
 }
 
+function getIdempotencySheet(ss) {
+  var IDEMP_SHEET_NAME = '_spectra_idempotency';
+  var idempSheet = ss.getSheetByName(IDEMP_SHEET_NAME);
+  if (!idempSheet) {
+    idempSheet = ss.insertSheet(IDEMP_SHEET_NAME);
+    try {
+      idempSheet.hideSheet();
+    } catch (e) {}
+    idempSheet.getRange(1, 1, 1, 6).setValues([
+      ['line_key', 'nomor_berkas', 'line_index', 'nama_transaksi', 'harga_total', 'inserted_at']
+    ]);
+  }
+  return idempSheet;
+}
+
 function insertTransactionRowsIdempotent(sheet, rows) {
   var targetRow = findNextEmptyRow(sheet);
+  var ss = sheet.getParent();
+  var idempSheet = getIdempotencySheet(ss);
 
-  // Periksa baris-baris yang telah ada di dalam sheet
-  // Hitung jumlah baris per nomor berkas untuk deduplikasi berbasis line-index yang presisi
-  var existingLinesPerBerkas = {};
-  var lastRow = sheet.getLastRow();
-  if (lastRow >= CONFIG.START_ROW) {
-    var numExisting = lastRow - CONFIG.START_ROW + 1;
-    var rangeData = sheet.getRange(CONFIG.START_ROW, 1, numExisting, CONFIG.TOTAL_COLS).getValues();
-    for (var k = 0; k < rangeData.length; k++) {
-      var existBerkas = String(rangeData[k][8] || '').trim(); // Kolom I: Nomor Berkas
-      if (existBerkas) {
-        existingLinesPerBerkas[existBerkas] = (existingLinesPerBerkas[existBerkas] || 0) + 1;
+  // Periksa line_key yang telah tercatat di sheet _spectra_idempotency
+  var existingKeys = {};
+  var lastIdempRow = idempSheet.getLastRow();
+  if (lastIdempRow > 1) {
+    var numKeys = lastIdempRow - 1;
+    var keysRange = idempSheet.getRange(2, 1, numKeys, 1).getValues();
+    for (var k = 0; k < keysRange.length; k++) {
+      var keyVal = String(keysRange[k][0] || '').trim();
+      if (keyVal) {
+        existingKeys[keyVal] = true;
       }
     }
   }
@@ -244,6 +260,7 @@ function insertTransactionRowsIdempotent(sheet, rows) {
   // Lacak indeks kemunculan baris untuk setiap nomor berkas di dalam batch saat ini
   var incomingBatchIndex = {};
   var valuesToInsert = [];
+  var idempRowsToInsert = [];
   var skippedCount = 0;
 
   for (var i = 0; i < rows.length; i++) {
@@ -254,13 +271,12 @@ function insertTransactionRowsIdempotent(sheet, rows) {
     var currentLineIndex = (incomingBatchIndex[nomorBerkas] || 0) + 1;
     incomingBatchIndex[nomorBerkas] = currentLineIndex;
 
-    // Jumlah baris untuk berkas ini yang sudah tersimpan di sheet
-    var alreadySavedCount = existingLinesPerBerkas[nomorBerkas] || 0;
+    // Line key unik komposit: nomorBerkas#L{index} (contoh: BT/0001/24XI26#L1, BT/0001/24XI26#L2)
+    var lineKey = nomorBerkas + '#L' + currentLineIndex;
 
-    // Jika baris dengan urutan ini sudah ada sebelumnya di sheet untuk berkas tersebut,
-    // maka ini adalah network retry duplikat -> abaikan secara presisi (idempotency)
-    // Dua item dengan nama yang sama dalam struk yang sama TETAP TERCATAT karena memiliki urutan berbeda (currentLineIndex)!
-    if (currentLineIndex <= alreadySavedCount) {
+    // Jika lineKey sudah tercatat di _spectra_idempotency, ini retry network duplikat
+    // Dua pesanan identik ("Baut 12") dalam nota yang sama TETAP TERCATAT karena memiliki #L1 dan #L2!
+    if (existingKeys[lineKey]) {
       skippedCount++;
       continue;
     }
@@ -284,6 +300,11 @@ function insertTransactionRowsIdempotent(sheet, rows) {
     valuesToInsert.push([
       no, tanggal, bulan, tahun, namaTransaksi, hargaSatuan, kuantitas, hargaTotal, nomorBerkas, linkVal, pos
     ]);
+
+    idempRowsToInsert.push([
+      lineKey, nomorBerkas, currentLineIndex, namaTransaksi, hargaTotal, new Date().toISOString()
+    ]);
+    existingKeys[lineKey] = true;
   }
 
   if (valuesToInsert.length === 0) {
@@ -299,6 +320,12 @@ function insertTransactionRowsIdempotent(sheet, rows) {
   var range = sheet.getRange(targetRow, CONFIG.START_COL, numRows, CONFIG.TOTAL_COLS);
   range.setValues(valuesToInsert);
   formatTableRange(sheet, targetRow, numRows);
+
+  // Catat baris baru ke sheet hidden _spectra_idempotency secara atomik
+  if (idempRowsToInsert.length > 0) {
+    var nextIdempRow = idempSheet.getLastRow() + 1;
+    idempSheet.getRange(nextIdempRow, 1, idempRowsToInsert.length, 6).setValues(idempRowsToInsert);
+  }
 
   return {
     startRow: targetRow,
@@ -576,7 +603,6 @@ export async function syncRowsToGoogleSpreadsheet(
       },
       credentials: 'include',
       body: JSON.stringify({
-        webhookUrl: targetUrl,
         rows
       })
     });

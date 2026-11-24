@@ -1,5 +1,5 @@
 import { authenticateFinancialRequest } from '../_lib/financialAuth.js';
-import { mapDbTransactionToTransaction, mapTransactionToDb } from '../_lib/accountingMapper.js';
+import { mapDbTransactionToTransaction, mapTransactionToDb, computeTransactionFingerprint } from '../_lib/accountingMapper.js';
 import { validateTransactionStrict } from '../_lib/transactionValidator.js';
 
 /**
@@ -71,10 +71,10 @@ export default async function handler(req: any, res: any) {
     try {
       const dbRow = mapTransactionToDb(sanitizedTx);
 
-      // Verifikasi Idempotency & Mencegah Overwrite Siluman
+      // Verifikasi Idempotency & Mencegah Overwrite Siluman dengan Canonical Fingerprint
       const { data: existingTx, error: checkErr } = await supabase
         .from('transactions')
-        .select('id, ref_number, total_debit, total_credit, lines')
+        .select('*')
         .eq('id', dbRow.id)
         .maybeSingle();
 
@@ -83,18 +83,19 @@ export default async function handler(req: any, res: any) {
       }
 
       if (existingTx) {
-        // Cek apakah ini retry yang identik (safe idempotent retry)
-        const isIdentical =
-          existingTx.ref_number === dbRow.ref_number &&
-          Math.abs(Number(existingTx.total_debit) - Number(dbRow.total_debit)) < 0.001 &&
-          Math.abs(Number(existingTx.total_credit) - Number(dbRow.total_credit)) < 0.001;
+        const existingFingerprint = computeTransactionFingerprint(existingTx);
+        const incomingFingerprint = computeTransactionFingerprint(sanitizedTx);
+
+        // Cek apakah ini retry yang identik secara material (safe idempotent retry)
+        const isIdentical = existingFingerprint === incomingFingerprint;
 
         if (isIdentical) {
           return res.status(200).json({
             success: true,
             message: `Transaksi ${dbRow.ref_number} telah tersimpan sebelumnya (Idempotent OK).`,
             transaction: sanitizedTx,
-            isIdempotentRetry: true
+            isIdempotentRetry: true,
+            fingerprint: incomingFingerprint
           });
         }
 
@@ -103,7 +104,7 @@ export default async function handler(req: any, res: any) {
         if (!isExplicitUpdate) {
           return res.status(409).json({
             success: false,
-            error: `Konflik idempotensi: Transaksi dengan ID "${dbRow.id}" sudah ada di database dengan rincian berbeda. Gunakan parameter pembaruan terotorisasi (isUpdate) jika ingin mengubah data.`
+            error: `Konflik idempotensi: Transaksi dengan ID "${dbRow.id}" (${dbRow.ref_number}) sudah ada di database dengan rincian material berbeda (fingerprint mismatch). Gunakan parameter pembaruan terotorisasi (isUpdate) jika ingin memperbarui data.`
           });
         }
       }

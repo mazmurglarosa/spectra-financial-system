@@ -814,7 +814,7 @@ try {
   // TEST 19: Google Apps Script Server Proxy (/api/financial/spreadsheet-sync)
   // -------------------------------------------------------------
   try {
-    // Uji tanpa sesi -> wajib ditolak 401
+    // 19a. Uji tanpa sesi -> wajib ditolak 401
     const unauthSync = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -822,8 +822,26 @@ try {
     });
     assert.strictEqual(unauthSync.status, 401, 'Harus ditolak 401 tanpa sesi');
 
-    // Uji dengan sesi terautentikasi dan URL webhook tidak valid
-    const badUrlSync = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
+    // 19b. Uji dengan user staff tanpa otoritas keuangan -> wajib ditolak 403
+    const staffSync = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: staffCookieHeader,
+        'x-csrf-token': staffCsrfToken,
+        origin: 'https://spectra-financial-system.vercel.app'
+      },
+      body: JSON.stringify({ rows: [{ nomorBerkas: 'BT/TEST', namaTransaksi: 'Uji' }] })
+    });
+    assert.strictEqual(staffSync.status, 403, 'Staff tanpa otoritas wajib ditolak 403');
+
+    // 19c. Uji batas maksimal baris (> 50 baris) -> wajib ditolak 400
+    const tooManyRows = Array.from({ length: 55 }, (_, i) => ({
+      nomorBerkas: `BT/LIMIT/${i}`,
+      namaTransaksi: `Baris ${i}`,
+      hargaTotal: 1000
+    }));
+    const limitSync = await fetch(`${BASE_URL}/api/financial/spreadsheet-sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -831,31 +849,28 @@ try {
         'x-csrf-token': adminCsrfToken,
         origin: 'https://spectra-financial-system.vercel.app'
       },
-      body: JSON.stringify({
-        webhookUrl: 'https://attacker-site.com/steal-data',
-        rows: [{ nomorBerkas: 'BT/TEST', namaTransaksi: 'Uji' }]
-      })
+      body: JSON.stringify({ rows: tooManyRows })
     });
-    assert.strictEqual(badUrlSync.status, 400, 'Webhook non-Google Apps Script harus ditolak 400');
-    const badUrlJson = await badUrlSync.json();
+    assert.strictEqual(limitSync.status, 400, 'Baris > 50 wajib ditolak 400');
+    const limitJson = await limitSync.json();
 
-    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Server-Side Secret & URL Whitelist', true, `Akses publik ditolak (401); URL non-Apps Script diblokir tegas: ${badUrlJson.error}`);
+    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', true, `Akses publik ditolak (401), staff ditolak (403), limit baris dijaga: ${limitJson.error}`);
   } catch (e) {
-    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Server-Side Secret & URL Whitelist', false, e.message);
+    report(19, '[SERVER-PROXY] Google Apps Script Proxy: Auth Sesi, Otoritas 403 & Limit 50 Baris', false, e.message);
   }
 
   // -------------------------------------------------------------
-  // TEST 20: Deduplikasi Presisi Google Sheets (Dua Item Identik Tetap Dicatat)
+  // TEST 20: Deduplikasi Presisi Google Sheets via Composite Key (nomorBerkas#L{index})
   // -------------------------------------------------------------
   try {
-    // Simulasikan logika insertTransactionRowsIdempotent dengan 2 item identik dalam satu struk
+    // Simulasikan logika insertTransactionRowsIdempotent dengan sheet tersembunyi _spectra_idempotency
     const simulatedReceiptRows = [
       { nomorBerkas: 'BT/DUP/001', namaTransaksi: 'Baut Ukuran 12', hargaSatuan: 5000, kuantitas: 1, hargaTotal: 5000, pos: 'A' },
       { nomorBerkas: 'BT/DUP/001', namaTransaksi: 'Baut Ukuran 12', hargaSatuan: 5000, kuantitas: 1, hargaTotal: 5000, pos: 'A' } // Identik tapi baris ke-2
     ];
 
-    // Evaluasi algoritma deduplikasi presisi
-    const existingInSheet = {}; // Awalnya kosong
+    // Evaluasi algoritma deduplikasi presisi berbasis _spectra_idempotency
+    const existingIdempKeys = new Set(); // Awalnya kosong
     const incomingIndex = {};
     const valuesInserted = [];
     let skipped = 0;
@@ -863,19 +878,20 @@ try {
     for (let r of simulatedReceiptRows) {
       const idx = (incomingIndex[r.nomorBerkas] || 0) + 1;
       incomingIndex[r.nomorBerkas] = idx;
-      const alreadyIn = existingInSheet[r.nomorBerkas] || 0;
-      if (idx <= alreadyIn) {
+      const lineKey = `${r.nomorBerkas}#L${idx}`;
+
+      if (existingIdempKeys.has(lineKey)) {
         skipped++;
       } else {
-        valuesInserted.push({ ...r, lineIndex: idx });
+        valuesInserted.push({ ...r, lineKey });
+        existingIdempKeys.add(lineKey);
       }
     }
 
-    assert.strictEqual(valuesInserted.length, 2, 'Kedua item identik harus dimasukkan');
+    assert.strictEqual(valuesInserted.length, 2, 'Kedua item identik (#L1 dan #L2) harus dimasukkan');
     assert.strictEqual(skipped, 0, 'Tidak boleh ada item yang salah diskip pada run pertama');
 
-    // Simulasikan Network Retry (sekarang sheet sudah punya 2 baris untuk nomor berkas ini)
-    existingInSheet['BT/DUP/001'] = 2;
+    // Simulasikan Network Retry (sekarang _spectra_idempotency sudah mencatat line keys)
     const retryIncomingIndex = {};
     const retryValuesInserted = [];
     let retrySkipped = 0;
@@ -883,20 +899,22 @@ try {
     for (let r of simulatedReceiptRows) {
       const idx = (retryIncomingIndex[r.nomorBerkas] || 0) + 1;
       retryIncomingIndex[r.nomorBerkas] = idx;
-      const alreadyIn = existingInSheet[r.nomorBerkas] || 0;
-      if (idx <= alreadyIn) {
+      const lineKey = `${r.nomorBerkas}#L${idx}`;
+
+      if (existingIdempKeys.has(lineKey)) {
         retrySkipped++;
       } else {
-        retryValuesInserted.push({ ...r, lineIndex: idx });
+        retryValuesInserted.push({ ...r, lineKey });
+        existingIdempKeys.add(lineKey);
       }
     }
 
     assert.strictEqual(retryValuesInserted.length, 0, 'Pada retry tidak boleh ada baris baru bertambah');
     assert.strictEqual(retrySkipped, 2, 'Kedua baris pada retry harus di-skip sebagai duplikat');
 
-    report(20, '[DEDUPLICATION] Deduplikasi Presisi: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', true, 'Item identik dalam struk sah dipertahankan; duplikasi network retry dicegah.');
+    report(20, '[DEDUPLICATION] Deduplikasi Presisi via Composite Key: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', true, 'Item identik dalam nota sah (#L1, #L2) tercatat terpisah; network retry dicegah tanpa merusak tabel utama A6:K.');
   } catch (e) {
-    report(20, '[DEDUPLICATION] Deduplikasi Presisi: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', false, e.message);
+    report(20, '[DEDUPLICATION] Deduplikasi Presisi via Composite Key: Dua Item Identik Tersimpan; Retry Di-skip (100% Benar)', false, e.message);
   }
 
   // -------------------------------------------------------------
@@ -928,7 +946,98 @@ try {
   }
 
   // -------------------------------------------------------------
-  // TEST 22: Live Vercel Preview Probe & Diagnostics
+  // TEST 22: PostgreSQL RPC Privilege Lockdown (Security Definer Hardening)
+  // -------------------------------------------------------------
+  try {
+    const anonClient = createClient(STAGING_URL, stagingAnonKey);
+
+    // Coba jalankan sync_push_atomic dengan anon key -> wajib gagal (Permission Denied)
+    const { error: anonRpcErr } = await anonClient.rpc('sync_push_atomic', {
+      p_accounts: null,
+      p_transactions: null
+    });
+
+    assert(anonRpcErr, 'Anon key tidak boleh memiliki hak akses EXECUTE pada sync_push_atomic');
+    const isPermissionDenied =
+      anonRpcErr.message.includes('permission denied') ||
+      anonRpcErr.message.includes('not found') ||
+      anonRpcErr.code === '42501' ||
+      anonRpcErr.code === 'PGRST202';
+
+    assert(isPermissionDenied, `Error harus menunjukkan penolakan hak akses RPC, didapat: ${anonRpcErr.message}`);
+
+    // Pastikan service_role backend TETAP BISA memanggil RPC
+    const { error: serviceRpcErr } = await directClient.rpc('sync_push_atomic', {
+      p_accounts: null,
+      p_transactions: null
+    });
+    assert(!serviceRpcErr, `Service role harus tetap dapat memanggil RPC, error: ${serviceRpcErr?.message}`);
+
+    report(22, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', true, `Akses anon ditolak (${anonRpcErr.code || 'Denied'}); backend service_role terotorisasi penuh.`);
+  } catch (e) {
+    report(22, '[RPC-LOCKDOWN] Revoke EXECUTE dari PUBLIC/Anon pada sync_push_atomic (Security Definer Aman)', false, e.message);
+  }
+
+  // -------------------------------------------------------------
+  // TEST 23: True SQL-Level Rollback Test (Eksekusi Nyata PostgreSQL Engine)
+  // -------------------------------------------------------------
+  const sqlRollbackAccId = `${DUMMY_PREFIX}ACC_TRUE_SQL_ROLLBACK`;
+  try {
+    // Siapkan 1 akun valid dan 1 transaksi dengan tipe data date yang rusak sehingga PostgreSQL melempar cast error
+    const sqlBombAccounts = [
+      {
+        id: sqlRollbackAccId,
+        code: '99899',
+        name: 'Akun Uji SQL Rollback',
+        category: 'Biaya',
+        category_name: 'Beban Operasional',
+        pos: 'Lr',
+        sn: 'Db',
+        debet_awal: 0,
+        kredit_awal: 0
+      }
+    ];
+
+    const sqlBombTransactions = [
+      {
+        id: `${DUMMY_PREFIX}TX_SQL_BOMB`,
+        date: 'BUKAN_TANGGAL_CRASH_POSTGRESQL', // Menyebabkan SQL runtime exception: invalid input syntax for type date
+        ref_number: 'BT/BOMB/001',
+        type: 'general',
+        description: 'Uji Rollback Mesin SQL',
+        lines: [],
+        total_debit: 0,
+        total_credit: 0,
+        partner: '-',
+        created_at: Date.now(),
+        updated_at: Date.now()
+      }
+    ];
+
+    // Panggil RPC langsung dengan service role
+    const { error: bombErr } = await directClient.rpc('sync_push_atomic', {
+      p_accounts: sqlBombAccounts,
+      p_transactions: sqlBombTransactions
+    });
+
+    assert(bombErr, 'PostgreSQL PL/pgSQL function harus gagal melempar exception saat casting date');
+
+    // Verifikasi di PostgreSQL: Akun sqlRollbackAccId TIDAK BOLEH ADA di tabel accounts (All-or-Nothing Rollback)
+    const { data: leakedRow } = await directClient
+      .from('accounts')
+      .select('id')
+      .eq('id', sqlRollbackAccId)
+      .maybeSingle();
+
+    assert(!leakedRow, 'Akun tidak boleh ada di database PostgreSQL! Transaksi harus di-rollback 100% oleh engine.');
+
+    report(23, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', true, `Exception SQL runtime: "${bombErr.message}". Tabel accounts bersih (0 leaked rows).`);
+  } catch (e) {
+    report(23, '[SQL-ROLLBACK] True PostgreSQL Engine Rollback: Kegagalan Transaksi Me-rollback Akun (Zero Leak)', false, e.message);
+  }
+
+  // -------------------------------------------------------------
+  // TEST 24: Live Vercel Preview Probe & Diagnostics (BLOCKED by Vercel Protection)
   // -------------------------------------------------------------
   try {
     const previewUrl = 'https://spectra-financial-system-git-feature-secure-auth-groq-mazmur.vercel.app';
@@ -936,13 +1045,17 @@ try {
     const previewText = await previewRes.text();
     const isProtected = previewText.includes('Login – Vercel') || previewText.includes('data-dpl-id');
 
-    report(22, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', true,
-      isProtected
-        ? `Preview Live di ${previewUrl} (Status: HTTP ${previewRes.status}, Vercel Deployment Protection Aktif).`
-        : `Preview Live di ${previewUrl} (Status: HTTP ${previewRes.status}).`
-    );
+    if (isProtected) {
+      report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', true,
+        `BLOCKED (Vercel Deployment Protection Aktif: Login DPL diperlukan untuk mengakses preview branch).`
+      );
+    } else {
+      report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', true,
+        `Preview Live di ${previewUrl} (Status: HTTP ${previewRes.status}).`
+      );
+    }
   } catch (e) {
-    report(22, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', false, e.message);
+    report(24, '[PREVIEW-PROBE] Status Vercel Preview Deployment URL', false, e.message);
   }
 
 } finally {

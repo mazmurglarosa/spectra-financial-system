@@ -3,7 +3,8 @@ import {
   mapAccountToDb,
   mapTransactionToDb,
   mapContactToDb,
-  mapCompanySettingsToDb
+  mapCompanySettingsToDb,
+  computeTransactionFingerprint
 } from '../_lib/accountingMapper.js';
 import { validateTransactionStrict } from '../_lib/transactionValidator.js';
 
@@ -192,6 +193,41 @@ export default async function handler(req: any, res: any) {
           }
 
           validatedTxRows.push(mapTransactionToDb(validation.sanitizedTransaction));
+        }
+
+        // Pengecekan Idempotensi Pre-flight Berbasis Canonical Fingerprint
+        if (validatedTxRows.length > 0) {
+          const txIds = validatedTxRows.map((r: any) => r.id);
+          const { data: existingTxs, error: existErr } = await supabase
+            .from('transactions')
+            .select('*')
+            .in('id', txIds);
+
+          if (existErr) {
+            return res.status(500).json({
+              success: false,
+              error: `Gagal memverifikasi keunikan transaksi: ${existErr.message}`
+            });
+          }
+
+          if (existingTxs && existingTxs.length > 0) {
+            const existingMap = new Map(existingTxs.map((t: any) => [String(t.id), t]));
+            const isExplicitUpdate = payload?.isUpdate === true || req.body?.isUpdate === true || req.query?.isUpdate === 'true';
+
+            for (const incomingRow of validatedTxRows) {
+              const existing = existingMap.get(String(incomingRow.id));
+              if (existing) {
+                const existingFp = computeTransactionFingerprint(existing);
+                const incomingFp = computeTransactionFingerprint(incomingRow);
+                if (existingFp !== incomingFp && !isExplicitUpdate) {
+                  return res.status(409).json({
+                    success: false,
+                    error: `Konflik idempotensi batch: Transaksi ID "${incomingRow.id}" (${incomingRow.ref_number}) sudah ada di database dengan rincian material berbeda (fingerprint mismatch). Gunakan parameter isUpdate=true jika bermaksud memperbarui data.`
+                  });
+                }
+              }
+            }
+          }
         }
       }
     }

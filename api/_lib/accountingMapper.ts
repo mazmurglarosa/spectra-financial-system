@@ -11,6 +11,56 @@
  */
 
 import { Account, Transaction, Contact, CompanySettings, ReportType, NormalBalance, AccountCategory } from '../../src/types/accounting.js';
+import crypto from 'crypto';
+
+/**
+ * Menghitung canonical fingerprint SHA-256 dari seluruh data material transaksi akuntansi:
+ * tanggal, ref_number, description, total_debit, total_credit, partner, dan seluruh baris jurnal
+ * (accountCode, debit, credit, memo) yang diurutkan secara kanonikal.
+ */
+export function computeTransactionFingerprint(tx: any): string {
+  if (!tx || typeof tx !== 'object') return '';
+  const date = String(tx.date || '').trim().slice(0, 10);
+  const refNumber = String(tx.refNumber || tx.ref_number || '').trim();
+  const type = String(tx.type || 'general').trim();
+  const description = String(tx.description || '').trim();
+  const totalDebit = Number(tx.totalDebit ?? tx.total_debit ?? 0).toFixed(2);
+  const totalCredit = Number(tx.totalCredit ?? tx.total_credit ?? 0).toFixed(2);
+  const partner = String(tx.partner || '-').trim();
+
+  const lines = Array.isArray(tx.lines)
+    ? tx.lines
+    : typeof tx.lines === 'string'
+    ? JSON.parse(tx.lines || '[]')
+    : [];
+
+  const canonicalLines = lines.map((l: any) => ({
+    accountCode: String(l.accountCode || l.accountId || '').trim(),
+    debit: Number(l.debit || 0).toFixed(2),
+    credit: Number(l.credit || 0).toFixed(2),
+    memo: String(l.memo || '').trim()
+  })).sort((a: any, b: any) => {
+    return (
+      a.accountCode.localeCompare(b.accountCode) ||
+      Number(a.debit) - Number(b.debit) ||
+      Number(a.credit) - Number(b.credit) ||
+      a.memo.localeCompare(b.memo)
+    );
+  });
+
+  const canonicalObj = {
+    date,
+    refNumber,
+    type,
+    description,
+    totalDebit,
+    totalCredit,
+    partner,
+    lines: canonicalLines
+  };
+
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalObj)).digest('hex');
+}
 
 // =========================================================================
 // 1. ACCOUNTS MAPPER
