@@ -1,13 +1,13 @@
-import statusHandler from '../_handlers/financial/status.js';
-import accountsHandler from '../_handlers/financial/accounts.js';
-import transactionsHandler from '../_handlers/financial/transactions.js';
-import settingsHandler from '../_handlers/financial/settings.js';
-import logsHandler from '../_handlers/financial/logs.js';
-import syncPullHandler from '../_handlers/financial/sync-pull.js';
-import syncPushHandler from '../_handlers/financial/sync-push.js';
-import spreadsheetSyncHandler from '../_handlers/financial/spreadsheet-sync.js';
-import driveUploadHandler from '../_handlers/financial/drive-upload.js';
-import { resolveSubpath } from '../_lib/routerHelper.js';
+import statusHandler from './_handlers/financial/status.js';
+import accountsHandler from './_handlers/financial/accounts.js';
+import transactionsHandler from './_handlers/financial/transactions.js';
+import settingsHandler from './_handlers/financial/settings.js';
+import logsHandler from './_handlers/financial/logs.js';
+import syncPullHandler from './_handlers/financial/sync-pull.js';
+import syncPushHandler from './_handlers/financial/sync-push.js';
+import spreadsheetSyncHandler from './_handlers/financial/spreadsheet-sync.js';
+import driveUploadHandler from './_handlers/financial/drive-upload.js';
+import { resolveSubpath, applyCorsHeaders, isAllowedOrigin } from './_lib/routerHelper.js';
 
 interface RouteDefinition {
   methods: string[];
@@ -28,20 +28,10 @@ const FINANCIAL_ROUTES: Record<string, RouteDefinition> = {
 
 export default async function handler(req: any, res: any) {
   const method = req.method?.toUpperCase();
-
-  // Handle CORS Preflight
-  if (method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    return res.status(200).end();
-  }
-
   const subpath = resolveSubpath(req, '/api/financial');
   const routeDef = FINANCIAL_ROUTES[subpath];
 
-  // 1. Path Allowlist Check
+  // 1. Path Allowlist Check — Unknown Path wajib 404
   if (!routeDef) {
     return res.status(404).json({
       success: false,
@@ -49,7 +39,22 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 2. HTTP Method Allowlist Check
+  // 2. CORS Preflight & Headers berbasis Trusted Origin
+  const origin = req.headers?.origin;
+  if (method === 'OPTIONS') {
+    if (origin && !isAllowedOrigin(origin)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Origin tidak diizinkan oleh kebijakan CORS.'
+      });
+    }
+    applyCorsHeaders(req, res, routeDef.methods);
+    return res.status(200).end();
+  }
+
+  applyCorsHeaders(req, res, routeDef.methods);
+
+  // 3. HTTP Method Allowlist Check — Method tidak diizinkan wajib 405
   if (!routeDef.methods.includes(method)) {
     res.setHeader('Allow', routeDef.methods.join(', '));
     return res.status(405).json({
@@ -58,6 +63,6 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 3. Dispatch ke Modular Handler
+  // 4. Dispatch ke Modular Handler
   return routeDef.handler(req, res);
 }

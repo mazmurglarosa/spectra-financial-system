@@ -1,28 +1,36 @@
+/**
+ * /api/sync (Legacy Sync Endpoint)
+ * AUDIT KEAMANAN: Dinonaktifkan dari menerima data mutasi tanpa autentikasi
+ * demi mencegah konfirmasi sukses palsu (fake success).
+ * Seluruh mutasi cloud wajib melalui /api/financial/sync-push dengan otentikasi sesi & CSRF token.
+ */
 export default function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  const method = req.method?.toUpperCase();
 
-  if (req.method === 'OPTIONS') {
+  if (method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method === 'POST') {
-    const payload = req.body || {};
-    return res.status(200).json({
-      success: true,
-      message: 'Sinkronisasi data cloud SPECTRA berhasil diproses!',
-      syncedAt: new Date().toISOString(),
-      itemsCount: {
-        accounts: payload.accounts ? payload.accounts.length : 0,
-        transactions: payload.transactions ? payload.transactions.length : 0
+  if (method === 'POST') {
+    return res.status(410).json({
+      success: false,
+      deprecated: true,
+      error: 'Endpoint legacy /api/sync telah dinonaktifkan demi perlindungan integritas akuntansi SPECTRA. Seluruh sinkronisasi data cloud wajib menggunakan endpoint resmi terautentikasi /api/financial/sync-push.',
+      canonicalEndpoints: {
+        push: '/api/financial/sync-push',
+        pull: '/api/financial/sync-pull'
       }
     });
   }
 
-  res.status(200).json({
-    status: 'ok',
+  // GET: Informasi status dokumentasi
+  return res.status(200).json({
+    status: 'deprecated',
     endpoint: '/api/sync',
-    description: 'POST JSON payload untuk sinkronisasi data antar device dan sistem eksternal'
+    message: 'Endpoint legacy ini hanya untuk informasi. Gunakan /api/financial/sync-pull dan /api/financial/sync-push untuk sinkronisasi data nyata.',
+    canonicalEndpoints: {
+      push: '/api/financial/sync-push',
+      pull: '/api/financial/sync-pull'
+    }
   });
 }

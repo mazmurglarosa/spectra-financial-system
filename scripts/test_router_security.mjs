@@ -1,11 +1,11 @@
 import assert from 'assert';
 import http from 'http';
-import authRouter from '../api/auth/[...route].ts';
-import financialRouter from '../api/financial/[...route].ts';
-import systemRouter from '../api/system/[...route].ts';
+import authRouter from '../api/auth.ts';
+import financialRouter from '../api/financial.ts';
+import systemRouter from '../api/system.ts';
 
 console.log('===============================================================');
-console.log('   SPECTRA ROUTER SECURITY & ALLOWLIST VERIFICATION');
+console.log('   SPECTRA ROUTER SECURITY, CORS & REWRITE VERIFICATION');
 console.log('===============================================================');
 
 const server = http.createServer(async (req, res) => {
@@ -42,11 +42,11 @@ const server = http.createServer(async (req, res) => {
   };
 
   try {
-    if (pathname.startsWith('/api/auth/')) {
+    if (pathname.startsWith('/api/auth')) {
       await authRouter(req, res);
-    } else if (pathname.startsWith('/api/financial/')) {
+    } else if (pathname.startsWith('/api/financial')) {
       await financialRouter(req, res);
-    } else if (pathname.startsWith('/api/system/') || pathname === '/api/status' || pathname === '/api/data' || pathname === '/api/sync') {
+    } else if (pathname.startsWith('/api/system') || pathname === '/api/status' || pathname === '/api/data' || pathname === '/api/sync') {
       await systemRouter(req, res);
     } else {
       res.statusCode = 404;
@@ -101,18 +101,42 @@ try {
   assert.strictEqual(res6.status, 404, 'Endpoint system tak dikenal wajib mengembalikan 404');
   console.log('[PASS] Test 6: GET /api/system/unknown -> 404 Not Found');
 
-  // 7. OPTIONS Preflight pada auth
-  const res7 = await fetch(`${baseUrl}/api/auth/login`, { method: 'OPTIONS' });
-  assert.strictEqual(res7.status, 200, 'OPTIONS preflight wajib 200 OK');
-  console.log('[PASS] Test 7: OPTIONS /api/auth/login -> 200 OK (CORS Preflight)');
+  // 7. CORS Preflight dari Trusted Origin (localhost)
+  const res7 = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'OPTIONS',
+    headers: { 'Origin': 'http://localhost:5173' }
+  });
+  assert.strictEqual(res7.status, 200, 'OPTIONS dari trusted origin wajib 200 OK');
+  assert.strictEqual(res7.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  assert.strictEqual(res7.headers.get('access-control-allow-credentials'), 'true');
+  console.log('[PASS] Test 7: OPTIONS /api/auth/login (Trusted Origin) -> 200 OK & Proper Allow-Origin');
 
-  // 8. OPTIONS Preflight pada financial
-  const res8 = await fetch(`${baseUrl}/api/financial/transactions`, { method: 'OPTIONS' });
-  assert.strictEqual(res8.status, 200, 'OPTIONS preflight wajib 200 OK');
-  console.log('[PASS] Test 8: OPTIONS /api/financial/transactions -> 200 OK (CORS Preflight)');
+  // 8. CORS Preflight dari Untrusted Origin (harus ditolak 403)
+  const res8 = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'OPTIONS',
+    headers: { 'Origin': 'https://malicious-attacker-site.com' }
+  });
+  assert.strictEqual(res8.status, 403, 'OPTIONS dari untrusted origin wajib ditolak 403');
+  console.log('[PASS] Test 8: OPTIONS /api/auth/login (Untrusted Origin) -> 403 Forbidden');
+
+  // 9. Vercel Rewrite query parameter route resolution (e.g. /api/auth?route=admin/users)
+  const res9 = await testReq('/api/auth?route=admin/users', { method: 'GET' });
+  // Tanpa sesi auth harus 401 Unauthorized (bukan 404)
+  assert.strictEqual(res9.status, 401, '/api/auth?route=admin/users harus mencapai handler admin users dan ditolak 401');
+  console.log('[PASS] Test 9: Vercel Rewrite /api/auth?route=admin/users -> 401 Unauthorized (Handler Reached)');
+
+  // 10. Audit Legacy /api/sync — Cegah Fake Success
+  const res10 = await testReq('/api/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accounts: [], transactions: [] })
+  });
+  assert.strictEqual(res10.status, 410, 'POST /api/sync wajib 410 Gone demi mencegah sukses palsu');
+  assert.strictEqual(res10.data.success, false);
+  console.log('[PASS] Test 10: POST /api/sync -> 410 Gone (Fake Success Prevented)');
 
   console.log('\n===============================================================');
-  console.log('   SEMUA TEST ROUTER SECURITY & ALLOWLIST: 8/8 PASSED (100%)');
+  console.log('   SEMUA TEST ROUTER SECURITY & CORS: 10/10 PASSED (100%)');
   console.log('===============================================================\n');
 } catch (e) {
   console.error('[ROUTER SECURITY TEST FAILED]', e);

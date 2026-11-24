@@ -1,11 +1,11 @@
-import loginHandler from '../_handlers/auth/login.js';
-import logoutHandler from '../_handlers/auth/logout.js';
-import meHandler from '../_handlers/auth/me.js';
-import registerHandler from '../_handlers/auth/register.js';
-import adminUsersHandler from '../_handlers/auth/admin/users.js';
-import adminApproveHandler from '../_handlers/auth/admin/approve.js';
-import adminResetPasswordHandler from '../_handlers/auth/admin/reset-password.js';
-import { resolveSubpath } from '../_lib/routerHelper.js';
+import loginHandler from './_handlers/auth/login.js';
+import logoutHandler from './_handlers/auth/logout.js';
+import meHandler from './_handlers/auth/me.js';
+import registerHandler from './_handlers/auth/register.js';
+import adminUsersHandler from './_handlers/auth/admin/users.js';
+import adminApproveHandler from './_handlers/auth/admin/approve.js';
+import adminResetPasswordHandler from './_handlers/auth/admin/reset-password.js';
+import { resolveSubpath, applyCorsHeaders, isAllowedOrigin } from './_lib/routerHelper.js';
 
 interface RouteDefinition {
   methods: string[];
@@ -24,20 +24,10 @@ const AUTH_ROUTES: Record<string, RouteDefinition> = {
 
 export default async function handler(req: any, res: any) {
   const method = req.method?.toUpperCase();
-
-  // Handle CORS Preflight
-  if (method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', req.headers?.origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    return res.status(200).end();
-  }
-
   const subpath = resolveSubpath(req, '/api/auth');
   const routeDef = AUTH_ROUTES[subpath];
 
-  // 1. Path Allowlist Check
+  // 1. Path Allowlist Check — Unknown Path wajib 404
   if (!routeDef) {
     return res.status(404).json({
       success: false,
@@ -45,7 +35,22 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 2. HTTP Method Allowlist Check
+  // 2. CORS Preflight & Headers berbasis Trusted Origin
+  const origin = req.headers?.origin;
+  if (method === 'OPTIONS') {
+    if (origin && !isAllowedOrigin(origin)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Origin tidak diizinkan oleh kebijakan CORS.'
+      });
+    }
+    applyCorsHeaders(req, res, routeDef.methods);
+    return res.status(200).end();
+  }
+
+  applyCorsHeaders(req, res, routeDef.methods);
+
+  // 3. HTTP Method Allowlist Check — Method tidak diizinkan wajib 405
   if (!routeDef.methods.includes(method)) {
     res.setHeader('Allow', routeDef.methods.join(', '));
     return res.status(405).json({
@@ -54,6 +59,6 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 3. Dispatch ke Modular Handler
+  // 4. Dispatch ke Modular Handler
   return routeDef.handler(req, res);
 }

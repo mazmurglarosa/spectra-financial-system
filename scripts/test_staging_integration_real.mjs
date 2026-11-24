@@ -37,9 +37,9 @@ import { generateCsrfToken } from '../api/_lib/auth.ts';
 import { setMockSupabaseClient } from '../api/_lib/supabaseServer.ts';
 
 // Import Real Routers
-import authRouter from '../api/auth/[...route].ts';
-import financialRouter from '../api/financial/[...route].ts';
-import systemRouter from '../api/system/[...route].ts';
+import authRouter from '../api/auth.ts';
+import financialRouter from '../api/financial.ts';
+import systemRouter from '../api/system.ts';
 
 // 1. Inisialisasi Kredensial Staging
 const STAGING_URL = 'https://xaafjvmdjdlfqdrljjlr.supabase.co';
