@@ -41,6 +41,7 @@ import {
   getPendingJournalDraft,
   clearPendingJournalDraft,
   deleteRecordedReceipt,
+  resolveReceiptImage,
   RecordedReceipt,
   SAMPLE_RECEIPT_DATA,
   SPREADSHEET_CONFIG
@@ -76,6 +77,8 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
   const [approvedTxId, setApprovedTxId] = useState<string>('');
+  const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [postingError, setPostingError] = useState<string | null>(null);
 
   // Antrean & Riwayat States
   const [antreanList, setAntreanList] = useState<RecordedReceipt[]>(() => getRecordedReceipts());
@@ -91,6 +94,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       setKeterangan(draft.keterangan || '');
       setTransactionDate(draft.date || new Date().toISOString().slice(0, 10));
       setReceiptImage(draft.receiptImage || '');
+      if (draft.receiptImage && draft.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+        resolveReceiptImage(draft as any).then(img => {
+          if (img) setReceiptImage(img);
+        });
+      }
       setGoogleDriveLink(draft.googleDriveLink || '');
       setItems(draft.extractedItems || []);
       setGrandTotal(draft.grandTotal || 0);
@@ -173,6 +181,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
     setKeterangan(receipt.keterangan);
     setTransactionDate(receipt.date || new Date().toISOString().slice(0, 10));
     setReceiptImage(receipt.receiptImage || '');
+    if (receipt.receiptImage && receipt.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+      resolveReceiptImage(receipt).then(img => {
+        if (img) setReceiptImage(img);
+      });
+    }
     setGoogleDriveLink(receipt.googleDriveLink || '');
     setItems(receipt.extractedItems || []);
     setGrandTotal(receipt.grandTotal);
@@ -248,55 +261,72 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       return;
     }
 
-    // 1. Auto-Create Akun Baru di COA jika ada
-    const finalLines: TransactionLine[] = [];
-    let currentAccounts = [...accounts];
+    setIsPosting(true);
+    setPostingError(null);
 
-    for (let i = 0; i < journalLines.length; i++) {
-      const line = journalLines[i];
-      let existingAcc = currentAccounts.find(a => 
-        a.code === line.accountCode || a.name.toLowerCase() === line.accountName.toLowerCase()
-      );
+    try {
+      // 1. Auto-Create Akun Baru di COA jika ada
+      const finalLines: TransactionLine[] = [];
+      let currentAccounts = [...accounts];
 
-      if (!existingAcc || line.isNewAccount) {
-        const createdAcc = autoCreateMissingCoaAccount(line, currentAccounts, addAccount);
-        currentAccounts.push(createdAcc);
-        existingAcc = createdAcc;
+      for (let i = 0; i < journalLines.length; i++) {
+        const line = journalLines[i];
+        let existingAcc = currentAccounts.find(a => 
+          a.code === line.accountCode || a.name.toLowerCase() === line.accountName.toLowerCase()
+        );
+
+        if (!existingAcc || line.isNewAccount) {
+          const createdAcc = autoCreateMissingCoaAccount(line, currentAccounts, addAccount);
+          currentAccounts.push(createdAcc);
+          existingAcc = createdAcc;
+        }
+
+        finalLines.push({
+          id: `line-${nomorBerkas.replace(/\//g, '_')}-${i + 1}`,
+          accountId: existingAcc.id || `acc-${existingAcc.code}`,
+          accountCode: existingAcc.code,
+          accountName: existingAcc.name,
+          debit: Number(line.debit) || 0,
+          credit: Number(line.credit) || 0,
+          memo: line.memo || keterangan
+        });
       }
 
-      finalLines.push({
-        id: `line-${nomorBerkas.replace(/\//g, '_')}-${i + 1}`,
-        accountId: existingAcc.id || `acc-${existingAcc.code}`,
-        accountCode: existingAcc.code,
-        accountName: existingAcc.name,
-        debit: Number(line.debit) || 0,
-        credit: Number(line.credit) || 0,
-        memo: line.memo || keterangan
+      // 2. Submit ke Jurnal Umum Transaksi secara Asynchronous dan Tunggu Database Commit
+      const res = await addTransaction({
+        date: transactionDate,
+        refNumber: nomorBerkas,
+        type: 'general',
+        description: keterangan,
+        lines: finalLines,
+        totalDebit: totalDebitJurnal,
+        totalCredit: totalCreditJurnal,
+        partner: ''
       });
+
+      if (!res.success || !res.transaction) {
+        throw new Error(res.error || 'Gagal menyimpan transaksi ke database.');
+      }
+
+      const createdTx = res.transaction;
+
+      // 3. Update status antrean berkas
+      updateRecordedReceiptStatus(nomorBerkas, 'journalized', createdTx.id);
+
+      logActivity(
+        'Jurnal Otomatis Approval',
+        `Menyetujui & membukukan otomatis Bukti Transaksi ${nomorBerkas} (${keterangan}) - Total Rp ${totalDebitJurnal.toLocaleString('id-ID')}`
+      );
+
+      setApprovedTxId(createdTx.id);
+      setIsSuccessModalOpen(true);
+    } catch (err: any) {
+      console.error('[AutoJournalApprovalError]', err);
+      setPostingError(err?.message || 'Gagal membukukan transaksi ke database.');
+      alert(`Gagal membukukan transaksi: ${err?.message || 'Terjadi kesalahan sistem'}`);
+    } finally {
+      setIsPosting(false);
     }
-
-    // 2. Submit ke Jurnal Umum Transaksi
-    const createdTx = addTransaction({
-      date: transactionDate,
-      refNumber: nomorBerkas,
-      type: 'general',
-      description: keterangan,
-      lines: finalLines,
-      totalDebit: totalDebitJurnal,
-      totalCredit: totalCreditJurnal,
-      partner: ''
-    });
-
-    // 3. Update status antrean berkas
-    updateRecordedReceiptStatus(nomorBerkas, 'journalized', createdTx.id);
-
-    logActivity(
-      'Jurnal Otomatis Approval',
-      `Menyetujui & membukukan otomatis Bukti Transaksi ${nomorBerkas} (${keterangan}) - Total Rp ${totalDebitJurnal.toLocaleString('id-ID')}`
-    );
-
-    setApprovedTxId(createdTx.id);
-    setIsSuccessModalOpen(true);
   };
 
   // Filtered Riwayat Transaksi Jurnal
@@ -733,6 +763,13 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               </div>
             )}
 
+            {postingError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-800 flex items-center gap-1.5 animate-fadeIn">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{postingError}</span>
+              </div>
+            )}
+
             {/* ACTION APPROVE BUTTON */}
             <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
@@ -741,12 +778,21 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
 
               <button
                 type="button"
-                disabled={selisihJurnal !== 0}
+                disabled={selisihJurnal !== 0 || isPosting}
                 onClick={handleApprove}
                 className="py-3 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
               >
-                <CheckCircle className="w-4 h-4 text-emerald-200" />
-                <span>Approve &amp; Simpan ke Jurnal Umum</span>
+                {isPosting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Menyimpan ke Database Cloud...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4 text-emerald-200" />
+                    <span>Approve &amp; Simpan ke Jurnal Umum</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

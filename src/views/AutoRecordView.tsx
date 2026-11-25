@@ -23,8 +23,6 @@ import {
   HardDrive,
   CheckCircle,
   X,
-  Key,
-  EyeOff,
   History,
   Clock,
   ListFilter,
@@ -67,12 +65,13 @@ import {
   SAMPLE_RECEIPT_DATA, 
   SPREADSHEET_CONFIG,
   extractTransactionFromFile,
-  getGeminiApiKey,
-  saveGeminiApiKey,
-  testGeminiApiKey,
-  RealOcrExtractionResult
+  RealOcrExtractionResult,
+  BankTransferDetails,
+  validateReceiptReadinessForAction
 } from '../services/autoRecordService';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
+import { convertPdfToImages, isPdfFile, isPdfDataUri } from '../services/receiptMediaService';
+import { getExternalSyncStatus, isExternalSyncDisabledOnPreview } from '../services/externalSyncGuard';
 import { 
   getSpreadsheetWebhookUrl, 
   saveSpreadsheetWebhookUrl, 
@@ -95,15 +94,14 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [keterangan, setKeterangan] = useState<string>('');
   const [receiptImage, setReceiptImage] = useState<string>('');
   const [receiptFileName, setReceiptFileName] = useState<string>('');
+  const [renderedPdfPages, setRenderedPdfPages] = useState<string[]>([]);
+  const [currentPdfPagePreview, setCurrentPdfPagePreview] = useState<number>(0);
+  const [isRenderingPdf, setIsRenderingPdf] = useState<boolean>(false);
   const [seqNumber, setSeqNumber] = useState<number>(() => getNextDocumentSequence(transactions));
   const [nomorBerkas, setNomorBerkas] = useState<string>(() => generateFileCode(getNextDocumentSequence(transactions)));
 
-  // Gemini API Key Modal State
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
-  const [apiKeyInput, setApiKeyInput] = useState<string>(() => getGeminiApiKey());
-  const [showApiKeyText, setShowApiKeyText] = useState<boolean>(false);
-  const [apiTesting, setApiTesting] = useState<boolean>(false);
-  const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Groq Vision Backend Status (Neutral until verified by actual request or backend verification)
+  const [groqStatus, setGroqStatus] = useState<'standby' | 'verified' | 'error'>('standby');
 
   // Pipeline Status & Stage (tahap1, tahap2, riwayat)
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
@@ -111,6 +109,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [currentStage, setCurrentStage] = useState<'tahap1' | 'tahap2' | 'riwayat'>('tahap1');
   const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'bt' | 'other'>('all');
   const [riwayatSearch, setRiwayatSearch] = useState<string>('');
+  const isExternalSyncDisabled = isExternalSyncDisabledOnPreview();
+  const syncStatus = getExternalSyncStatus();
 
   // Tahap 2: Extraction & Verification States
   const [extractedItems, setExtractedItems] = useState<ExtractedItem[]>([]);
@@ -120,6 +120,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [discrepancyMessage, setDiscrepancyMessage] = useState<string>('');
   const [googleDriveLink, setGoogleDriveLink] = useState<string>('');
   const [spreadsheetRows, setSpreadsheetRows] = useState<SpreadsheetRowData[]>([]);
+  const [activeSourceEngine, setActiveSourceEngine] = useState<'groq_vision' | 'tesseract_ocr' | 'smart_parser' | null>(null);
+  const [hasUnconfirmedFee, setHasUnconfirmedFee] = useState<boolean>(false);
+  const [unconfirmedFeeNote, setUnconfirmedFeeNote] = useState<string>('');
+  const [bankTransferDetails, setBankTransferDetails] = useState<BankTransferDetails | null>(null);
+  const [manualFeeInput, setManualFeeInput] = useState<string>('');
+  const [manualFeeType, setManualFeeType] = useState<'BI_FAST' | 'ADMIN_BANK'>('BI_FAST');
 
   // Suggested Journal Lines (SAK)
   const [journalLines, setJournalLines] = useState<SuggestedJournalLine[]>([]);
@@ -162,6 +168,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setJournalLines([]);
       setMathDiscrepancy(false);
       setDiscrepancyMessage('');
+      setHasUnconfirmedFee(false);
+      setUnconfirmedFeeNote('');
+      setBankTransferDetails(null);
+      setManualFeeInput('');
+      setManualFeeType('BI_FAST');
       setKeterangan('');
       setResetFeedback({
         type: 'success',
@@ -202,6 +213,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setJournalLines([]);
       setMathDiscrepancy(false);
       setDiscrepancyMessage('');
+      setHasUnconfirmedFee(false);
+      setUnconfirmedFeeNote('');
+      setBankTransferDetails(null);
+      setManualFeeInput('');
+      setManualFeeType('BI_FAST');
     };
     window.addEventListener('spectra:reset-auto-record', handleReset);
     return () => window.removeEventListener('spectra:reset-auto-record', handleReset);
@@ -263,14 +279,14 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     exportTableToExcel(data, `Riwayat_Transaksi_AutoRecord_${new Date().toISOString().split('T')[0]}`, 'Riwayat Transaksi');
   };
 
-  const handleLoadSampleRecordedTransaction = () => {
+  const handleLoadSampleRecordedTransaction = async () => {
     const existing = transactions.find(t => t.refNumber && t.refNumber.startsWith('BT/0001'));
     if (existing) {
       alert('Transaksi BT/0001 sudah ada dalam daftar transaksi yang terekam.');
       return;
     }
 
-    addTransaction({
+    const res = await addTransaction({
       date: new Date().toISOString().slice(0, 10),
       refNumber: 'BT/0001/26X26',
       type: 'general',
@@ -308,6 +324,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       totalCredit: 440000,
       partner: 'TOKO BAUT & MATERIAL JAYA'
     });
+
+    if (!res.success) {
+      alert(`Gagal menambahkan contoh transaksi: ${res.error}`);
+      return;
+    }
+
     commitDocumentSequence(2);
     logActivity('Auto Record Sample', 'Menambahkan contoh transaksi BT/0001/26X26 ke database');
     alert('Contoh transaksi BT/0001/26X26 berhasil ditambahkan ke daftar transaksi terekam!');
@@ -366,6 +388,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const loadSampleData = () => {
     setReceiptImage(SAMPLE_RECEIPT_DATA.sampleImage);
     setReceiptFileName(SAMPLE_RECEIPT_DATA.receiptFileName);
+    setRenderedPdfPages([]);
+    setCurrentPdfPagePreview(0);
     setSelectedPosCode(SAMPLE_RECEIPT_DATA.posCode);
     setKeterangan(SAMPLE_RECEIPT_DATA.keterangan);
     
@@ -388,6 +412,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran berkas terlalu besar. Batas maksimal adalah 15 MB.');
+      return;
+    }
+
     setReceiptFileName(file.name);
     // Reset hasil ekstraksi lama agar murni membaca file baru yang diunggah
     setExtractedItems([]);
@@ -395,9 +424,35 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setSpreadsheetRows([]);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const dataUri = event.target?.result as string;
       setReceiptImage(dataUri);
+
+      // Jika berkas adalah PDF, render pratinjau halaman dengan PDF.js
+      if (isPdfFile(file.name, file.type) || isPdfDataUri(dataUri)) {
+        setIsRenderingPdf(true);
+        try {
+          const pdfRes = await convertPdfToImages(dataUri, { maxPages: 10, scale: 1.5 });
+          if (pdfRes.success && pdfRes.pageImages.length > 0) {
+            setRenderedPdfPages(pdfRes.pageImages);
+            setCurrentPdfPagePreview(0);
+          } else {
+            setRenderedPdfPages([]);
+            if (pdfRes.error) {
+              alert(pdfRes.error);
+              setReceiptImage('');
+              setReceiptFileName('');
+            }
+          }
+        } catch (err) {
+          console.warn('Gagal merender pratinjau PDF:', err);
+          setRenderedPdfPages([]);
+        } finally {
+          setIsRenderingPdf(false);
+        }
+      } else {
+        setRenderedPdfPages([]);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -453,6 +508,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setCalculatedTotal(extractionResult.calculatedSum);
       setMathDiscrepancy(extractionResult.mathDiscrepancy);
       setDiscrepancyMessage(extractionResult.discrepancyMessage || '');
+      setHasUnconfirmedFee(Boolean(extractionResult.hasUnconfirmedFee));
+      setUnconfirmedFeeNote(extractionResult.unconfirmedFeeNote || '');
+      setBankTransferDetails(extractionResult.bankTransferDetails || null);
+      setActiveSourceEngine(extractionResult.sourceEngine);
+      if (extractionResult.sourceEngine === 'groq_vision') {
+        setGroqStatus('verified');
+      } else if (extractionResult.sourceEngine === 'tesseract_ocr') {
+        setGroqStatus('error');
+      }
 
       setExtractStep('4/4: Sinkronisasi Google Drive & Penamaan Otomatis (' + nomorBerkas + ')...');
 
@@ -463,7 +527,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           const driveRes = await uploadHeavyFileToDrive(
             receiptImage,
             `${nomorBerkas.replace(/\//g, '_')}_${receiptFileName}`,
-            'image/jpeg',
+            receiptFileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
             {
               documentCode: nomorBerkas,
               title: `Bukti Transaksi - ${keterangan}`,
@@ -472,6 +536,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           );
           if (driveRes.success && driveRes.viewUrl) {
             driveLink = driveRes.viewUrl;
+            setGoogleDriveLink(driveLink);
+          } else if (driveRes.status === 'SIMULATED' || driveRes.isMocked) {
+            driveLink = '[ARSIP_LOKAL_INDEXEDDB]';
             setGoogleDriveLink(driveLink);
           }
         } catch (err) {
@@ -497,6 +564,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setCurrentStage('tahap2');
     } catch (err: any) {
       console.error('Extraction error:', err);
+      setGroqStatus('error');
       setIsExtracting(false);
       alert('Terjadi kesalahan saat memproses ekstraksi: ' + (err?.message || String(err)));
     }
@@ -507,6 +575,13 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const updated = extractedItems.map(it => {
       if (it.id === id) {
         const copy: any = { ...it, [field]: value };
+        if (field === 'name') {
+          const lower = String(value).toLowerCase();
+          if (lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || lower.includes('biaya transfer')) {
+            copy.isTaxOrFee = true;
+            copy.taxOrFeeType = (lower.includes('bi-fast') || lower.includes('bi fast')) ? 'BI_FAST' : 'ADMIN_BANK';
+          }
+        }
         if (field === 'unitPrice' || field === 'quantity') {
           const uP = field === 'unitPrice' ? Number(value) : (it.unitPrice || 0);
           const qty = field === 'quantity' ? Number(value) : (it.quantity || 1);
@@ -516,6 +591,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       }
       return it;
     });
+
+    const hasBankFeeInItems = updated.some(it =>
+      (it.isTaxOrFee && (it.taxOrFeeType === 'BI_FAST' || it.taxOrFeeType === 'ADMIN_BANK')) ||
+      it.name.toLowerCase().includes('bi-fast') ||
+      it.name.toLowerCase().includes('admin bank')
+    );
+    if (hasBankFeeInItems && hasUnconfirmedFee) {
+      setHasUnconfirmedFee(false);
+    }
 
     const verif = runTwoWayDeterministicVerification(updated);
     setExtractedItems(verif.verifiedItems);
@@ -619,6 +703,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     const totalCredit = journalLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
     const diff = Math.abs(totalDebit - totalCredit);
 
+    if (totalDebit <= 0 || totalCredit <= 0) {
+      alert('Jurnal tidak boleh bernilai nol! Harap lengkapi nominal debit dan kredit yang valid pada Tabel Koreksi.');
+      return;
+    }
+
     if (diff !== 0) {
       alert(`Jurnal belum seimbang! Selisih: Rp ${diff.toLocaleString('id-ID')}. Total Debit harus sama persis dengan Total Kredit.`);
       return;
@@ -631,6 +720,10 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
   // SYNC ROWS DIRECTLY TO GOOGLE SPREADSHEET VIA APPS SCRIPT BOT
   const handleSyncSpreadsheet = async () => {
+    if (hasUnconfirmedFee) {
+      alert('Sinkronisasi ditolak: Terdapat indikasi biaya transfer bank yang belum dikonfirmasi. Harap selesaikan konfirmasi biaya pada Tabel Koreksi Tahap 2 terlebih dahulu.');
+      return;
+    }
     if (spreadsheetRows.length === 0) {
       alert('Tabel data transaksi masih kosong. Silakan jalankan ekstraksi terlebih dahulu.');
       return;
@@ -655,8 +748,41 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     }
   };
 
+  // Helper validasi item: mengizinkan diskon negatif, pembulatan, dan bonus/item gratis
+  const isUnresolvedZeroItem = (item: ExtractedItem): boolean => {
+    const price = Number(item.totalPrice) || 0;
+    if (price > 0) return false; // Item positif sah
+
+    const name = (item.name || '').toLowerCase();
+    const isDiscount = price < 0 || name.includes('diskon') || name.includes('discount') || name.includes('potongan') || name.includes('voucher') || name.includes('promo') || name.includes('cashback');
+    const isRounding = name.includes('pembulatan') || name.includes('rounding') || name.includes('selisih');
+    const isFreeOrBonus = price === 0 && (name.includes('gratis') || name.includes('free') || name.includes('bonus') || name.includes('sample') || name.includes('hadiah') || name.includes('gift'));
+
+    // Diskon, pembulatan, dan bonus gratis adalah sah
+    if (isDiscount || isRounding || isFreeOrBonus) {
+      return false;
+    }
+
+    // Jika bernilai 0 / kosong dan bukan kategori di atas, wajib dikoreksi manual
+    return true;
+  };
+
   // PROCEED TO AUTO JOURNAL & SAVE RECEIPT
-  const handleProceedToAutoJournal = () => {
+  const handleProceedToAutoJournal = async () => {
+    if (hasUnconfirmedFee) {
+      alert('Perekaman ditolak: Terdapat indikasi biaya transfer bank yang belum dikonfirmasi. Harap masukkan nominal biaya manual atau verifikasi bebas biaya terlebih dahulu pada Tabel Koreksi Tahap 2.');
+      return;
+    }
+
+    // Validasi ketat: Cegah posting nominal nol atau OCR yang belum tervalidasi, namun izinkan diskon dan bonus gratis yang sah
+    const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
+    const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
+
+    if (!grandTotal || grandTotal <= 0 || !hasPositiveItem || hasInvalidItem) {
+      alert('Perekaman ditolak: Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid. Harap periksa dan lengkapi Tabel Koreksi Tahap 2 sebelum melanjutkan ke Jurnal Otomatis.');
+      return;
+    }
+
     const recordPayload: RecordedReceipt = {
       id: `rec-${Date.now()}`,
       nomorBerkas,
@@ -673,7 +799,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
-    saveRecordedReceipt(recordPayload);
+
+    const saveRes = await saveRecordedReceipt(recordPayload);
+    if (!saveRes.success) {
+      alert(`Peringatan: Gagal menyimpan bukti transaksi ke penyimpanan (${saveRes.error || 'kesalahan storage'}). Draft dan berkas gambar tetap dipertahankan.`);
+      return;
+    }
 
     setPendingJournalDraft({
       nomorBerkas,
@@ -708,7 +839,21 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setActiveTab('auto-journal');
   };
 
-  const handleSaveRecordedReceiptOnly = () => {
+  const handleSaveRecordedReceiptOnly = async () => {
+    if (hasUnconfirmedFee) {
+      alert('Penyimpanan ditolak: Terdapat indikasi biaya transfer bank yang belum dikonfirmasi. Harap masukkan nominal biaya manual atau verifikasi bebas biaya terlebih dahulu pada Tabel Koreksi Tahap 2.');
+      return;
+    }
+
+    // Validasi ketat: Cegah penyimpanan nominal nol atau fiktif, namun izinkan diskon dan bonus gratis yang sah
+    const hasPositiveItem = extractedItems.some(it => (Number(it.totalPrice) || 0) > 0);
+    const hasInvalidItem = extractedItems.some(isUnresolvedZeroItem);
+
+    if (!grandTotal || grandTotal <= 0 || !hasPositiveItem || hasInvalidItem) {
+      alert('Perekaman ditolak: Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid. Harap periksa dan lengkapi Tabel Koreksi Tahap 2 sebelum menyimpan.');
+      return;
+    }
+
     const recordPayload: RecordedReceipt = {
       id: `rec-${Date.now()}`,
       nomorBerkas,
@@ -725,7 +870,13 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
-    saveRecordedReceipt(recordPayload);
+
+    const saveRes = await saveRecordedReceipt(recordPayload);
+    if (!saveRes.success) {
+      alert(`Gagal menyimpan rekaman bukti: ${saveRes.error || 'Penyimpanan gagal'}. Draft tetap dipertahankan.`);
+      return;
+    }
+
     commitDocumentSequence(seqNumber);
 
     // Auto-sync ke Google Spreadsheet jika webhook sudah disetel
@@ -846,27 +997,51 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               </a>
             </div>
 
-            {/* Baris 2: Status Integrasi Sistem (AI Vision & Bot Google Sheet) */}
+            {/* Baris 2: Status Integrasi Sistem (Groq Vision & Bot Google Sheet) */}
             <div className="flex items-center gap-2">
-              {/* Status Gemini Vision AI */}
-              <button
-                type="button"
-                onClick={() => {
-                  setApiKeyInput(getGeminiApiKey());
-                  setApiTestResult(null);
-                  setIsApiKeyModalOpen(true);
-                }}
-                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer whitespace-nowrap ${
-                  getGeminiApiKey()
-                    ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:border-slate-600'
-                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+              {/* Status Keaktifan Groq AI Berbasis Kondisi Nyata */}
+              <div
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all whitespace-nowrap shadow-xs ${
+                  groqStatus === 'verified'
+                    ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/40'
+                    : groqStatus === 'error'
+                    ? 'bg-slate-800/80 text-amber-300 border-amber-500/40'
+                    : 'bg-slate-800/80 text-sky-300 border-sky-500/30'
                 }`}
-                title={getGeminiApiKey() ? 'API Key Gemini terhubung. Klik untuk konfigurasi.' : 'Klik untuk menyetel API Key Gemini.'}
+                title={
+                  groqStatus === 'verified'
+                    ? 'Groq AI Vision terverifikasi aktif & sukses mengekstrak bukti transaksi.'
+                    : groqStatus === 'error'
+                    ? 'Layanan Groq AI tidak merespons, beralih ke OCR Offline Tesseract.js.'
+                    : 'Groq AI Vision backend tersedia (siaga / belum diverifikasi).'
+                }
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${getGeminiApiKey() ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-amber-400 animate-pulse'}`} />
-                <Key className="w-3 h-3 text-slate-400" />
-                <span>{getGeminiApiKey() ? 'AI Vision: Terhubung' : 'Setel Gemini Key'}</span>
-              </button>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    groqStatus === 'verified'
+                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                      : groqStatus === 'error'
+                      ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]'
+                      : 'bg-sky-400'
+                  }`}
+                />
+                <Sparkles
+                  className={`w-3 h-3 ${
+                    groqStatus === 'verified'
+                      ? 'text-emerald-400'
+                      : groqStatus === 'error'
+                      ? 'text-amber-400'
+                      : 'text-sky-400'
+                  }`}
+                />
+                <span>
+                  {groqStatus === 'verified'
+                    ? 'Groq AI: Terverifikasi'
+                    : groqStatus === 'error'
+                    ? 'Groq AI: Fallback Offline'
+                    : 'Groq AI: Standby'}
+                </span>
+              </div>
 
               {/* Status Bot Apps Script */}
               <button
@@ -891,8 +1066,23 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           </div>
         </div>
 
+        {/* Banner Isolasi Preview & Staging */}
+        {isExternalSyncDisabled && (
+          <div className="relative z-10 mx-4 md:mx-6 my-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span>
+                <strong>Mode Isolasi Pengujian ({syncStatus.environmentName.toUpperCase()}):</strong> Pengiriman ke Google Drive &amp; Google Spreadsheet perusahaan dialihkan ke simulasi lokal (Mock Mode). Data pembukuan produksi terlindungi 100%.
+              </span>
+            </div>
+            <span className="text-[10px] bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded border border-amber-400/30 shrink-0 self-start sm:self-auto font-bold">
+              Perusahaan Asli Aman
+            </span>
+          </div>
+        )}
+
         {/* Tab Indicator: Tahap 1 vs Tahap 2 vs Riwayat Transaksi */}
-        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto">
+        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto touch-scroll-x no-scrollbar">
           <button
             type="button"
             onClick={() => setCurrentStage('tahap1')}
@@ -1106,7 +1296,43 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
               {/* Receipt View Container */}
               <div className="w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center min-h-[360px] max-h-[460px] p-2 relative group">
-                {receiptImage ? (
+                {isRenderingPdf ? (
+                  <div className="text-center text-xs text-slate-500 p-8 space-y-2">
+                    <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="font-semibold text-slate-700">Membaca &amp; merender pratinjau PDF...</p>
+                  </div>
+                ) : renderedPdfPages.length > 0 ? (
+                  <div className="flex flex-col items-center justify-center w-full h-full relative">
+                    <img
+                      src={renderedPdfPages[currentPdfPagePreview]}
+                      alt={`Halaman PDF ${currentPdfPagePreview + 1}`}
+                      className="max-h-[390px] max-w-full object-contain rounded shadow-xs"
+                    />
+                    {renderedPdfPages.length > 1 && (
+                      <div className="absolute bottom-2 inset-x-0 flex items-center justify-center gap-2 bg-black/75 backdrop-blur-xs py-1 px-3 rounded-full mx-auto w-fit text-white text-[11px] font-medium shadow-md">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPdfPagePreview(p => Math.max(0, p - 1))}
+                          disabled={currentPdfPagePreview === 0}
+                          className="px-2 py-0.5 hover:bg-white/20 rounded disabled:opacity-30 cursor-pointer font-bold"
+                          title="Halaman Sebelumnya"
+                        >
+                          ◀
+                        </button>
+                        <span>Hal {currentPdfPagePreview + 1} dari {renderedPdfPages.length}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPdfPagePreview(p => Math.min(renderedPdfPages.length - 1, p + 1))}
+                          disabled={currentPdfPagePreview === renderedPdfPages.length - 1}
+                          className="px-2 py-0.5 hover:bg-white/20 rounded disabled:opacity-30 cursor-pointer font-bold"
+                          title="Halaman Berikutnya"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : receiptImage ? (
                   <img 
                     src={receiptImage} 
                     alt="Receipt Preview" 
@@ -1120,8 +1346,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 )}
 
                 {/* Badge Nomor Berkas */}
-                <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-amber-300 font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
-                  {nomorBerkas}
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <div className="bg-black/70 backdrop-blur-md text-amber-300 font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
+                    {nomorBerkas}
+                  </div>
+                  {renderedPdfPages.length > 0 && (
+                    <div className="bg-blue-600/90 backdrop-blur-md text-white font-mono text-[10px] font-bold px-2 py-1 rounded border border-white/20">
+                      PDF ({renderedPdfPages.length} Hal)
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1301,6 +1534,128 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             </div>
           )}
 
+          {/* Bank Transfer Summary Card if Bank Details Available */}
+          {bankTransferDetails && bankTransferDetails.transferAmount > 0 && (
+            <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-blue-950 shadow-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-blue-900">Rincian Bukti Transfer Bank:</span>
+                <span>Nominal Transfer: <strong className="font-mono text-blue-800">{formatRupiah(bankTransferDetails.transferAmount)}</strong></span>
+                <span className="text-blue-300">•</span>
+                <span>Biaya Admin: <strong className="font-mono text-blue-800">{bankTransferDetails.bankAdminFee > 0 ? formatRupiah(bankTransferDetails.bankAdminFee) : 'Rp 0 (Bebas Biaya)'}</strong> ({bankTransferDetails.feeType || 'TRANSFER'})</span>
+                <span className="text-blue-300">•</span>
+                <span>Total Dana Terdebit: <strong className="font-mono text-blue-900">{formatRupiah(bankTransferDetails.totalDebitedAmount)}</strong></span>
+              </div>
+              {bankTransferDetails.feeTextEvidence && (
+                <div className="text-[11px] text-blue-700 bg-white/80 px-2.5 py-1 rounded-lg border border-blue-200 font-mono italic shrink-0">
+                  Bukti teks: "{bankTransferDetails.feeTextEvidence}"
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Unconfirmed Bank Fee Alert Banner if Fee Keyword Detected but Amount Missing */}
+          {hasUnconfirmedFee && (
+            <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-amber-900 shadow-xs">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-xs">
+                  <div className="font-extrabold text-sm text-amber-950 flex items-center gap-2">
+                    <span>Perhatian: Indikasi Biaya Transfer Bank Belum Dikonfirmasi</span>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-200 text-amber-900 rounded-full border border-amber-300">
+                      Tindakan Diblokir
+                    </span>
+                  </div>
+                  <p className="leading-relaxed">
+                    {unconfirmedFeeNote || 'Metode transfer bank/BI-FAST terdeteksi pada struk, namun nominal biaya admin bank tidak tertera jelas. Sistem menolak mengarang nominal biaya secara otomatis.'}
+                  </p>
+                  <p className="text-[11px] text-amber-700 font-medium">
+                    💡 Masukkan nominal biaya transfer yang tertera pada bukti dokumen atau mutasi rekening Anda, lalu klik "Konfirmasi Biaya". Jika transaksi bebas biaya, klik "Verifikasi Bebas Biaya (Rp 0)". Tindakan simpan/posting/sync diblokir hingga biaya terverifikasi.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 bg-white/80 p-2.5 rounded-xl border border-amber-200 shadow-xs">
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={manualFeeType}
+                    onChange={(e) => setManualFeeType(e.target.value as 'BI_FAST' | 'ADMIN_BANK')}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-amber-500"
+                    title="Pilih Jenis Biaya Bank"
+                  >
+                    <option value="BI_FAST">BI-FAST</option>
+                    <option value="ADMIN_BANK">Admin Bank</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="500"
+                    value={manualFeeInput}
+                    onChange={(e) => setManualFeeInput(e.target.value)}
+                    placeholder="Nominal biaya..."
+                    className="w-32 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-amber-500 placeholder:text-slate-400 font-mono"
+                    title="Input nominal biaya transfer manual"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const parsedFee = Math.round(Number(manualFeeInput) || 0);
+                      if (parsedFee <= 0) {
+                        alert('Harap masukkan nominal biaya transfer yang valid (> Rp 0) sesuai bukti dokumen, atau klik "Verifikasi Bebas Biaya (Rp 0)" jika transaksi tidak dikenakan biaya.');
+                        return;
+                      }
+                      const feeItem: ExtractedItem = {
+                        id: `it-${Date.now()}-admin-manual`,
+                        name: manualFeeType === 'BI_FAST' ? 'Biaya Transfer BI-FAST' : 'Biaya Administrasi Bank',
+                        unitPrice: null,
+                        quantity: null,
+                        unit: '',
+                        totalPrice: parsedFee,
+                        confidence: 100,
+                        isTaxOrFee: true,
+                        taxOrFeeType: manualFeeType
+                      };
+                      const updated = [...extractedItems, feeItem];
+                      const verif = runTwoWayDeterministicVerification(updated);
+                      setExtractedItems(verif.verifiedItems);
+                      setGrandTotal(verif.grandTotal);
+                      setCalculatedTotal(verif.calculatedSum);
+                      setMathDiscrepancy(verif.mathDiscrepancy);
+                      setHasUnconfirmedFee(false);
+                      setManualFeeInput('');
+                      const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, googleDriveLink, selectedPosCode, verif.verifiedItems);
+                      setSpreadsheetRows(rows);
+                      const finalSug = ensureSuggestedJournalWithAutoCreatedAccounts(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+                      setJournalLines(finalSug);
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition cursor-pointer shadow-xs whitespace-nowrap"
+                  >
+                    Konfirmasi Biaya
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasUnconfirmedFee(false);
+                      setManualFeeInput('');
+                      const verif = runTwoWayDeterministicVerification(extractedItems);
+                      setExtractedItems(verif.verifiedItems);
+                      setGrandTotal(verif.grandTotal);
+                      setCalculatedTotal(verif.calculatedSum);
+                      setMathDiscrepancy(verif.mathDiscrepancy);
+                      const rows = buildSpreadsheetRows(seqNumber, nomorBerkas, googleDriveLink, selectedPosCode, verif.verifiedItems);
+                      setSpreadsheetRows(rows);
+                      const finalSug = ensureSuggestedJournalWithAutoCreatedAccounts(verif.verifiedItems, selectedPosCode, accounts, keterangan);
+                      setJournalLines(finalSug);
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-semibold rounded-lg text-xs transition cursor-pointer whitespace-nowrap"
+                  >
+                    Verifikasi Bebas Biaya (Rp 0)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Bagian 4.1: Tabel Koreksi Hasil Ekstraksi */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1314,7 +1669,22 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {activeSourceEngine && (
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                    activeSourceEngine === 'groq_vision'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : activeSourceEngine === 'tesseract_ocr'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-blue-50 text-blue-800 border-blue-300'
+                  }`}>
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>
+                      {activeSourceEngine === 'groq_vision' ? 'Groq Vision — AI OCR' :
+                       activeSourceEngine === 'tesseract_ocr' ? 'Offline OCR (Tesseract.js)' : 'Smart Rule Parser'}
+                    </span>
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={handleAddNewItem}
@@ -1351,12 +1721,25 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                         {index + 1}
                       </td>
                       <td className="py-2.5 px-4">
-                        <input 
-                          type="text" 
-                          value={item.name} 
-                          onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
-                          className="w-full px-2 py-1 bg-transparent border-b border-slate-200 focus:border-blue-500 focus:bg-white text-xs font-semibold text-slate-800"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
+                            className="w-full px-2 py-1 bg-transparent border-b border-slate-200 focus:border-blue-500 focus:bg-white text-xs font-semibold text-slate-800"
+                          />
+                          {item.isTaxOrFee && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              {item.taxOrFeeType === 'BI_FAST' ? 'BI-FAST' : item.taxOrFeeType === 'ADMIN_BANK' ? 'Admin Bank' : item.taxOrFeeType || 'Biaya'}
+                            </span>
+                          )}
+                        </div>
+                        {item.discrepancyNote && (
+                          <div className="mt-1 text-[10px] text-amber-700 font-medium flex items-start gap-1 bg-amber-50/80 p-1 rounded border border-amber-200">
+                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                            <span>{item.discrepancyNote}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right">
                         <input 
@@ -1417,8 +1800,20 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                     <td className="py-3 px-4 text-right font-mono text-sm text-blue-700">
                       {formatRupiah(grandTotal)}
                     </td>
-                    <td colSpan={2} className="py-3 px-4 text-center text-[10px] text-slate-500">
-                      {mathDiscrepancy ? '⚠️ Terdapat Selisih' : '✓ Seimbang 100%'}
+                    <td colSpan={2} className="py-3 px-4 text-center text-[10px]">
+                      {mathDiscrepancy ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300">
+                          ⚠️ Terdapat Selisih
+                        </span>
+                      ) : hasUnconfirmedFee ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300" title={unconfirmedFeeNote}>
+                          ⚠️ Konfirmasi Biaya Bank
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-300">
+                          ✓ Seimbang 100%
+                        </span>
+                      )}
                     </td>
                   </tr>
                 </tfoot>
@@ -1445,8 +1840,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                 <button
                   type="button"
+                  disabled={hasUnconfirmedFee}
                   onClick={handleSaveRecordedReceiptOnly}
-                  className="px-4 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className={`px-4 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs ${
+                    hasUnconfirmedFee ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                  title={hasUnconfirmedFee ? 'Konfirmasi biaya transfer bank terlebih dahulu' : 'Simpan Rekaman Saja'}
                 >
                   <Save className="w-4 h-4 text-slate-500" />
                   <span>Simpan Rekaman Saja</span>
@@ -1454,8 +1853,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
                 <button
                   type="button"
+                  disabled={hasUnconfirmedFee}
                   onClick={handleProceedToAutoJournal}
-                  className="px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer shadow-md"
+                  className={`px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-2 shadow-md ${
+                    hasUnconfirmedFee ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                  title={hasUnconfirmedFee ? 'Konfirmasi biaya transfer bank terlebih dahulu' : 'Lanjutkan ke Jurnal Otomatis'}
                 >
                   <span>Lanjutkan ke Jurnal Otomatis</span>
                   <ArrowRight className="w-4 h-4" />
@@ -1491,9 +1894,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
                 <button
                   type="button"
-                  disabled={isSyncingSpreadsheet || spreadsheetRows.length === 0}
+                  disabled={isSyncingSpreadsheet || spreadsheetRows.length === 0 || hasUnconfirmedFee}
                   onClick={handleSyncSpreadsheet}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className={`px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold rounded-lg shadow-xs transition flex items-center gap-1.5 ${
+                    isSyncingSpreadsheet || spreadsheetRows.length === 0 || hasUnconfirmedFee ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                  title={hasUnconfirmedFee ? 'Konfirmasi biaya transfer bank terlebih dahulu' : 'Kirim ke Spreadsheet'}
                 >
                   {isSyncingSpreadsheet ? (
                     <>
@@ -1888,9 +2294,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                           <td className="py-3 px-3.5 text-center">
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi "${trx.refNumber || trx.description}"?`)) {
-                                  deleteTransaction(trx.id);
+                                  const res = await deleteTransaction(trx.id);
+                                  if (!res.success) {
+                                    alert(res.error || 'Gagal menghapus transaksi dari database.');
+                                  }
                                 }
                               }}
                               className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"
@@ -2132,150 +2541,6 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               >
                 Proses Bukti Transaksi Berikutnya
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL KONFIGURASI GEMINI VISION API KEY */}
-      {/* ========================================================================= */}
-      {isApiKeyModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-scaleUp">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Konfigurasi Gemini Multimodal Vision AI</h3>
-                  <p className="text-[11px] text-slate-500">Google AI Studio API Key (Tersimpan aman di localStorage)</p>
-                </div>
-              </div>
-              <button 
-                type="button"
-                onClick={() => setIsApiKeyModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-relaxed space-y-1.5">
-                <div className="font-bold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Ekstraksi Visioner Multimodal Berbasis Gemini AI</span>
-                </div>
-                <p>
-                  Gemini Vision bertindak sebagai otak analitis akuntansi: membaca struk kasir, nota tulis tangan (HTR), dan <strong>Bukti Transfer Bank (BCA, Mandiri, BI-FAST, dll)</strong> secara cerdas untuk membentuk jurnal debit-kredit SAK secara otomatis.
-                </p>
-                
-                <div className="bg-white/80 rounded-lg p-2 border border-blue-100 text-[10.5px] space-y-1 text-slate-700">
-                  <div><strong className="text-blue-900">• Free Tier (Gratis):</strong> Batas 15 request/menit &amp; 1.500 transaksi/hari (sangat memadai untuk operasional harian kantor).</div>
-                  <div><strong className="text-emerald-800">• Tanpa Batasan (Pay-as-you-go):</strong> Cukup hubungkan tagihan di Google AI Studio untuk pemakaian tanpa batas (biaya sangat hemat: rata-rata ~Rp 1 s.d. Rp 5 per lembar struk).</div>
-                  <div><strong className="text-purple-800">• Tips Hasil 100% Jelas:</strong> Gunakan aplikasi kamera HP (seperti Google Camera / Document Mode) dengan pencahayaan terang saat memotret bukti fisik.</div>
-                </div>
-
-                <p className="text-[10px] text-blue-700 pt-0.5">
-                  Belum punya key? Dapatkan secara gratis di:{' '}
-                  <a 
-                    href="https://aistudio.google.com/app/apikey" 
-                    target="_blank" 
-                    rel="noreferrer" 
-                    className="font-bold underline text-blue-800 hover:text-blue-950 inline-flex items-center gap-0.5"
-                  >
-                    Google AI Studio <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  Google Gemini API Key:
-                </label>
-                <div className="relative">
-                  <input
-                    type={showApiKeyText ? 'text' : 'password'}
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3.5 py-2.5 pr-10 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKeyText(!showApiKeyText)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    {showApiKeyText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {apiTestResult && (
-                <div className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
-                  apiTestResult.success ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'
-                }`}>
-                  {apiTestResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-                  <div>{apiTestResult.message}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={apiTesting}
-                onClick={async () => {
-                  if (!apiKeyInput.trim()) {
-                    setApiTestResult({ success: false, message: 'Ketik API Key terlebih dahulu untuk diuji.' });
-                    return;
-                  }
-                  setApiTesting(true);
-                  setApiTestResult(null);
-                  const res = await testGeminiApiKey(apiKeyInput.trim());
-                  setApiTesting(false);
-                  setApiTestResult(res);
-                }}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {apiTesting ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
-                    <span>Menguji...</span>
-                  </>
-                ) : (
-                  <span>Uji Koneksi AI</span>
-                )}
-              </button>
-
-              <div className="flex items-center gap-2">
-                {apiKeyInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      saveGeminiApiKey('');
-                      setApiKeyInput('');
-                      setApiTestResult({ success: true, message: 'API Key berhasil dihapus dari browser.' });
-                    }}
-                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl transition cursor-pointer"
-                  >
-                    Hapus
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    saveGeminiApiKey(apiKeyInput.trim());
-                    setIsApiKeyModalOpen(false);
-                    alert(apiKeyInput.trim() ? 'Gemini API Key berhasil disimpan!' : 'API Key dikosongkan.');
-                  }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
-                >
-                  Simpan API Key
-                </button>
-              </div>
             </div>
           </div>
         </div>

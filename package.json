@@ -13,9 +13,13 @@
     "deploy:cf": "wrangler pages deploy dist --project-name spectra-financial-system"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.2.2",
     "@supabase/supabase-js": "^2.118.0",
     "convex": "^1.46.0",
+    "docx": "^9.16.0",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.51.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tesseract.js": "^7.0.0",

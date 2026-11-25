@@ -40,6 +40,32 @@ textarea:focus-visible {
   outline-offset: 2px !important;
 }
 
+/* Mobile & Touch Optimizations (ui-ux-pro-max & antislop-layoutmobile) */
+@media (max-width: 640px) {
+  /* Prevent iOS Safari unwanted auto-zooming on input focus */
+  input:not([type="checkbox"]):not([type="radio"]), 
+  select, 
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth Touch Scrolling with Inertia for Data Tables & Filter Tabs */
+.overflow-x-auto,
+.touch-scroll-x {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Utility to hide scrollbars cleanly while preserving scrollability */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 body {
   background-color: var(--accurate-bg);
   color: var(--text-primary);

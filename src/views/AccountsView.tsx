@@ -141,31 +141,26 @@ export const AccountsView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="p-3 sm:p-6 lg:p-8 flex flex-col gap-4 sm:gap-6 w-full max-w-7xl mx-auto">
       {/* Top Filter and Action Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
         {/* Search Input & Status Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', width: '300px' }}>
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="relative w-full sm:w-72">
             <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
             <input 
               type="text" 
               placeholder="Cari kode atau nama akun..." 
               value={searchQuery} 
               onChange={e => setSearchQuery(e.target.value)}
+              className="w-full text-xs"
               style={{ paddingLeft: '38px' }}
             />
           </div>
         </div>
 
         {/* Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -176,20 +171,20 @@ export const AccountsView: React.FC = () => {
           <button 
             onClick={() => fileInputRef.current?.click()} 
             disabled={isUploading}
-            className="btn btn-outline" 
+            className="btn btn-outline flex-1 sm:flex-none" 
             style={{ fontSize: '0.825rem', borderColor: '#3b82f6', color: '#1d4ed8' }}
             title="Unggah berkas Excel berisi saldo awal akun"
           >
             <Upload size={15} />
             <span>{isUploading ? 'Memproses Excel...' : 'Upload Saldo Excel'}</span>
           </button>
-          <button onClick={handleExport} className="btn btn-outline" style={{ fontSize: '0.825rem' }}>
+          <button onClick={handleExport} className="btn btn-outline flex-1 sm:flex-none" style={{ fontSize: '0.825rem' }}>
             <Download size={15} />
             Export Excel
           </button>
           <button 
             onClick={() => { setEditingAccount(null); setIsModalOpen(true); }}
-            className="btn btn-primary"
+            className="btn btn-primary w-full sm:w-auto"
             style={{ fontSize: '0.825rem' }}
           >
             <Plus size={15} />
@@ -218,13 +213,7 @@ export const AccountsView: React.FC = () => {
       )}
 
       {/* Category Tabs */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        overflowX: 'auto',
-        paddingBottom: '4px'
-      }}>
+      <div className="flex items-center gap-2 overflow-x-auto touch-scroll-x no-scrollbar pb-1">
         {categories.map(c => {
           const isActive = selectedCategory === c.key;
           return (
@@ -250,8 +239,8 @@ export const AccountsView: React.FC = () => {
 
       {/* Accounts Table */}
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        <div className="table-container" style={{ border: 'none', borderRadius: 0 }}>
-          <table>
+        <div className="table-container touch-scroll-x" style={{ border: 'none', borderRadius: 0, overflowX: 'auto' }}>
+          <table style={{ minWidth: '700px' }}>
             <thead>
               <tr>
                 <th 

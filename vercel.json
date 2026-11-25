@@ -4,6 +4,30 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth?route=:path*"
+    },
+    {
+      "source": "/api/financial/:path*",
+      "destination": "/api/financial?route=:path*"
+    },
+    {
+      "source": "/api/system/:path*",
+      "destination": "/api/system?route=:path*"
+    },
+    {
+      "source": "/api/status",
+      "destination": "/api/system?route=status"
+    },
+    {
+      "source": "/api/data",
+      "destination": "/api/system?route=data"
+    },
+    {
+      "source": "/api/sync",
+      "destination": "/api/system?route=sync"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

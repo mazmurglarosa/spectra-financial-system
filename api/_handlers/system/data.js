@@ -1,12 +1,4 @@
 export default function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   const sampleAccounts = [
     { code: '10001', name: 'Kas', category: 'Harta Lancar', pos: 'Nrc', sn: 'Db', debetAwal: 100000, kreditAwal: 0 },
     { code: '10003', name: 'Piutang Usaha', category: 'Harta Lancar', pos: 'Nrc', sn: 'Db', debetAwal: 500000, kreditAwal: 0 },

@@ -51,6 +51,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [contact, setContact] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [lines, setLines] = useState<TransactionLine[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -194,7 +196,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setLines(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!isBalanced) {
@@ -214,73 +216,87 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       return;
     }
 
-    if (transactionToEdit) {
-      updateTransaction(transactionToEdit.id, {
-        date,
-        refNumber,
-        type: txType,
-        description: description.trim(),
-        partner: contact.trim() || undefined,
-        lines: validLines,
-        totalDebit,
-        totalCredit
-      });
-      alert(`Transaksi ${refNumber} berhasil diperbarui!`);
-    } else {
-      addTransaction({
-        date,
-        refNumber,
-        type: txType,
-        description: description.trim(),
-        partner: contact.trim() || undefined,
-        lines: validLines,
-        totalDebit,
-        totalCredit
-      });
-      alert(`Transaksi ${refNumber} berhasil disimpan!`);
-    }
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    onClose();
+    try {
+      if (transactionToEdit) {
+        const res = await updateTransaction(transactionToEdit.id, {
+          date,
+          refNumber,
+          type: txType,
+          description: description.trim(),
+          partner: contact.trim() || undefined,
+          lines: validLines,
+          totalDebit,
+          totalCredit
+        });
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal memperbarui transaksi');
+        }
+        alert(`Transaksi ${refNumber} berhasil diperbarui!`);
+      } else {
+        const res = await addTransaction({
+          date,
+          refNumber,
+          type: txType,
+          description: description.trim(),
+          partner: contact.trim() || undefined,
+          lines: validLines,
+          totalDebit,
+          totalCredit
+        });
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal menyimpan transaksi');
+        }
+        alert(`Transaksi ${refNumber} berhasil disimpan!`);
+      }
+      onClose();
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Terjadi kesalahan saat menyimpan transaksi.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-fadeIn border border-slate-200">
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[96vh] sm:max-h-[92vh] flex flex-col overflow-hidden animate-fadeIn border border-slate-200">
         
         {/* Modal Header */}
-        <div className="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center border-b border-slate-800">
-          <div className="flex items-center space-x-2.5">
-            <div className="p-1 bg-blue-500/20 text-blue-400 rounded">
+        <div className="bg-slate-900 text-white px-4 sm:px-5 py-3 sm:py-3.5 flex justify-between items-center border-b border-slate-800 shrink-0">
+          <div className="flex items-center space-x-2.5 min-w-0">
+            <div className="p-1 bg-blue-500/20 text-blue-400 rounded shrink-0">
               <FileText className="w-5 h-5 text-blue-400" />
             </div>
-            <div>
-              <h3 className="font-bold text-sm tracking-wide text-white">
+            <div className="min-w-0">
+              <h3 className="font-bold text-xs sm:text-sm tracking-wide text-white truncate">
                 {transactionToEdit ? 'Edit Transaksi Jurnal (Accurate Voucher)' : 'Input Jurnal Transaksi (Accurate Voucher)'}
               </h3>
-              <p className="text-[11px] text-slate-400">Pencatatan voucher berpasangan standar sistem akuntansi Accurate</p>
+              <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">Pencatatan voucher berpasangan standar sistem akuntansi Accurate</p>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose} 
-            className="text-slate-400 hover:text-white text-lg font-bold w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800"
+            className="text-slate-400 hover:text-white text-lg font-bold w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center rounded hover:bg-slate-800 transition cursor-pointer"
           >
             &times;
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-4">
           <form id="form-journal" onSubmit={handleSubmit} className="space-y-4">
             
             {/* Top Metadata Fields Card */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 sm:p-3.5 rounded-xl border border-slate-200 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Tipe Transaksi</label>
                 <select 
                   value={txType} 
                   onChange={e => handleTypeChange(e.target.value as TransactionType)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:ring-1 focus:ring-blue-500 focus:outline-none font-medium"
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-slate-900 focus:ring-1 focus:ring-blue-500 focus:outline-none font-medium text-xs"
                 >
                   <option value="general">Jurnal Umum (JU)</option>
                   <option value="adjustment">Jurnal Penyesuaian (AJP / AP)</option>
@@ -299,7 +315,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   value={refNumber}
                   onChange={e => setRefNumber(e.target.value)}
                   placeholder="JU-001" 
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono text-slate-900 bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono text-slate-900 bg-white text-xs"
                 />
               </div>
 
@@ -310,7 +326,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   required 
                   value={date}
                   onChange={e => setDate(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white text-xs"
                 />
               </div>
 
@@ -321,11 +337,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   value={contact}
                   onChange={e => setContact(e.target.value)}
                   placeholder="Toko / Rekanan / Customer..." 
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white text-xs"
                 />
               </div>
 
-              <div className="md:col-span-4">
+              <div className="sm:col-span-2 md:col-span-4">
                 <label className="block font-semibold text-slate-700 mb-1">Keterangan Transaksi</label>
                 <input 
                   type="text" 
@@ -333,28 +349,119 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                   placeholder="Penjelasan rincian transaksi..." 
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 bg-white text-xs"
                 />
               </div>
             </div>
 
-            {/* Journal Items Table */}
+            {/* Journal Items Table / Cards */}
             <div>
-              <div className="flex justify-between items-center mb-1.5">
+              <div className="flex justify-between items-center mb-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Rincian Baris Akun Debit & Kredit
+                  Rincian Baris Akun Debit &amp; Kredit
                 </h4>
                 <button 
                   type="button" 
                   onClick={addRow} 
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+                  className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center space-x-1 p-1 rounded hover:bg-blue-50 transition cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Tambah Baris Akun</span>
+                  <Plus className="w-4 h-4" />
+                  <span>+ Tambah Baris</span>
                 </button>
               </div>
 
-              <div className="border border-slate-200 rounded-md overflow-hidden shadow-xs">
+              {/* Mobile Card View for Journal Lines (< 640px) */}
+              <div className="sm:hidden space-y-3">
+                {lines.map((line, idx) => (
+                  <div key={line.id || idx} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5">
+                      <span className="text-xs font-black text-slate-700">Baris #{idx + 1}</span>
+                      {lines.length > 2 && (
+                        <button 
+                          type="button" 
+                          onClick={() => removeRow(idx)}
+                          className="text-rose-500 hover:text-rose-700 px-2 py-1 rounded hover:bg-rose-50 flex items-center gap-1 text-xs cursor-pointer"
+                          title="Hapus baris ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Hapus</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">Pilih Akun</label>
+                      <select 
+                        value={line.accountCode} 
+                        onChange={e => handleAccountChange(idx, e.target.value)}
+                        className="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white text-slate-900 font-mono"
+                      >
+                        <option value="">-- Pilih Akun --</option>
+                        {selectableAccounts.map(a => (
+                          <option key={a.id} value={a.code}>
+                            {a.code} - {a.name} ({a.sn})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Debit (Rp)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          placeholder="0"
+                          value={line.debit || ''}
+                          onChange={e => handleAmountChange(idx, 'debit', e.target.value)}
+                          className="w-full text-xs border border-slate-300 rounded-lg p-2 text-right font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-rose-700 mb-1">Kredit (Rp)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          placeholder="0"
+                          value={line.credit || ''}
+                          onChange={e => handleAmountChange(idx, 'credit', e.target.value)}
+                          className="w-full text-xs border border-slate-300 rounded-lg p-2 text-right font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">Memo Baris</label>
+                      <input 
+                        type="text" 
+                        placeholder="Keterangan baris..."
+                        value={line.memo || ''}
+                        onChange={e => handleMemoChange(idx, e.target.value)}
+                        className="w-full text-xs border border-slate-300 rounded-lg p-2 text-slate-900 bg-white"
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                {/* Mobile Total Summary Card */}
+                <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 space-y-1.5 text-xs font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600 font-sans">Total Debit:</span>
+                    <span className="font-bold text-emerald-700">{formatRupiah(totalDebit)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600 font-sans">Total Kredit:</span>
+                    <span className="font-bold text-rose-700">{formatRupiah(totalCredit)}</span>
+                  </div>
+                  <div className={`flex justify-between pt-1 border-t border-slate-200 font-sans font-bold ${isBalanced ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    <span>Status:</span>
+                    <span>{isBalanced ? 'Seimbang (Rp 0)' : `Selisih: ${formatRupiah(diff)}`}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Table View (>= 640px) */}
+              <div className="hidden sm:block border border-slate-200 rounded-lg overflow-hidden shadow-xs">
                 <table className="w-full text-xs">
                   <thead className="bg-slate-100 text-slate-700 border-b border-slate-200">
                     <tr>
@@ -419,8 +526,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           <button 
                             type="button" 
                             onClick={() => removeRow(idx)}
-                            title="Hapus Baris"
-                            className="text-slate-400 hover:text-rose-600 p-1 rounded"
+                            disabled={lines.length <= 2}
+                            title="Hapus baris"
+                            className={`p-1 rounded ${
+                              lines.length > 2 
+                                ? 'text-rose-500 hover:bg-rose-50 cursor-pointer' 
+                                : 'text-slate-300 cursor-not-allowed'
+                            }`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -448,36 +560,52 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
             {/* Live Validation Alert Box */}
             {isBalanced ? (
-              <div className="p-2.5 rounded text-xs flex items-center space-x-2 bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <div className="p-2.5 rounded-lg text-xs flex items-center space-x-2 bg-emerald-50 text-emerald-800 border border-emerald-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>Total Debit dan Kredit Seimbang (Balance). Siap disimpan ke jurnal.</span>
               </div>
             ) : (
-              <div className="p-2.5 rounded text-xs flex items-center space-x-2 bg-rose-50 text-rose-800 border border-rose-200">
+              <div className="p-2.5 rounded-lg text-xs flex items-center space-x-2 bg-rose-50 text-rose-800 border border-rose-200">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                 <span>Peringatan: Jurnal belum seimbang! Selisih {formatRupiah(diff)}. Debit dan kredit harus sama sebelum disimpan.</span>
               </div>
             )}
 
+            {/* Submit Error Alert Box */}
+            {submitError && (
+              <div className="p-2.5 rounded-lg text-xs flex items-center space-x-2 bg-rose-50 text-rose-800 border border-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Gagal menyimpan: {submitError}</span>
+              </div>
+            )}
+
             {/* Modal Actions */}
-            <div className="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-3 border-t border-slate-200">
               <button 
                 type="button" 
                 onClick={onClose} 
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded border border-slate-300 transition"
+                disabled={isSubmitting}
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 transition text-center cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center disabled:opacity-50"
               >
                 Batal
               </button>
               <button 
                 type="submit" 
-                disabled={!isBalanced}
-                className={`px-5 py-2 text-xs font-semibold text-white rounded shadow transition flex items-center space-x-1.5 ${
-                  isBalanced 
-                    ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' 
+                disabled={!isBalanced || isSubmitting}
+                className={`w-full sm:w-auto px-5 py-2.5 sm:py-2 text-xs font-semibold text-white rounded-lg shadow-sm transition flex items-center justify-center space-x-1.5 min-h-[44px] sm:min-h-0 ${
+                  isBalanced && !isSubmitting
+                    ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer active:scale-98' 
                     : 'bg-slate-400 opacity-50 cursor-not-allowed'
                 }`}
               >
-                <span>Simpan Transaksi</span>
+                {isSubmitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Menyimpan ke Cloud...</span>
+                  </>
+                ) : (
+                  <span>Simpan Transaksi</span>
+                )}
               </button>
             </div>
           </form>

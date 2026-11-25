@@ -8,28 +8,49 @@ export interface SupabaseConfig {
   isConfigured: boolean;
 }
 
-const DEFAULT_SUPABASE_URL = 'https://drsqwxkkcfqvooqzoyvm.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyc3F3eGtrY2Zxdm9vcXpveXZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjUyMDMsImV4cCI6MjEwNzY0MTIwM30.5ayLSmloCqvJ1PJsRDGM9ZPbfud-bwOBh0NfyshCOlg';
-
 const STORAGE_KEYS = {
   URL: 'spectra_supabase_url',
   KEY: 'spectra_supabase_anon_key'
 };
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+  const envUrl = (
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+    ((globalThis as any).process?.env?.VITE_SUPABASE_URL) ||
+    ''
+  ).trim();
+  const envKey = (
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
+    ((globalThis as any).process?.env?.VITE_SUPABASE_ANON_KEY) ||
+    ''
+  ).trim();
 
-  const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.URL) || '' : '';
-  const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.KEY) || '' : '';
+  // Deteksi apakah sedang berjalan di lingkungan Vercel atau Production
+  const isVercelOrHosted = typeof window !== 'undefined' && (
+    window.location.hostname.includes('.vercel.app') ||
+    window.location.hostname.includes('spectra') ||
+    Boolean(import.meta.env.PROD)
+  );
 
-  const url = (storedUrl || envUrl).trim();
-  const anonKey = (storedKey || envKey).trim();
+  let url = envUrl;
+  let anonKey = envKey;
+
+  // localStorage HANYA boleh digunakan di lingkungan lokal pengembangan jika env vars tidak didefinisikan
+  if (!isVercelOrHosted && typeof window !== 'undefined') {
+    const storedUrl = (localStorage.getItem(STORAGE_KEYS.URL) || '').trim();
+    const storedKey = (localStorage.getItem(STORAGE_KEYS.KEY) || '').trim();
+    if (!url && storedUrl) url = storedUrl;
+    if (!anonKey && storedKey) anonKey = storedKey;
+  }
+
+  // Fail-Closed: DILARANG ada fallback hardcoded ke Production drsqwxkkcfqvooqzoyvm!
+  // Jika environment variable tidak valid, kembalikan isConfigured: false
+  const isConfigured = Boolean(url && anonKey);
 
   return {
     url,
     anonKey,
-    isConfigured: Boolean(url && anonKey)
+    isConfigured
   };
 }
 
@@ -70,7 +91,140 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
-export async function testSupabaseConnection(): Promise<{ success: boolean; message: string; tableCount?: number; latencyMs?: number }> {
+// Helper untuk membaca Double-Submit CSRF Token
+function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)spectra_csrf=([^;]+)/);
+  if (match) return decodeURIComponent(match[1]);
+  return sessionStorage.getItem('spectra_csrf') || localStorage.getItem('spectra_csrf') || '';
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  tableCount?: number;
+  latencyMs?: number;
+  dbHost?: string;
+  status?: number;
+  isRateLimited?: boolean;
+  isRpcFailure?: boolean;
+  retryAfter?: number;
+}
+
+// Client-side rate limit cooldown tracker
+let rateLimitCooldownUntil = 0;
+
+// Client Gateway untuk memanggil Backend API Vercel Serverless terautentikasi
+async function callFinancialGateway(endpoint: string, options: RequestInit = {}): Promise<any> {
+  if (typeof window === 'undefined') return null;
+
+  // Jika sedang masa cooldown rate-limit, tolak request segera sebelum network trip (mencegah retry storm)
+  const now = Date.now();
+  if (now < rateLimitCooldownUntil) {
+    const remainingSec = Math.ceil((rateLimitCooldownUntil - now) / 1000);
+    const err: any = new Error(`Permintaan ditahan oleh sistem: Akses sedang dibatasi (Rate Limited). Silakan tunggu ${remainingSec} detik.`);
+    err.status = 429;
+    err.errorCode = 'RATE_LIMITED';
+    err.retryAfter = remainingSec;
+    throw err;
+  }
+
+  const csrf = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    ...(options.headers as any || {})
+  };
+  const method = (options.method || 'GET').toUpperCase();
+  if (csrf && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    headers['x-csrf-token'] = csrf;
+  }
+
+  const res = await fetch(endpoint, {
+    ...options,
+    headers,
+    credentials: 'include'
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : (errJson?.retryAfter || 30);
+    if (res.status === 429) {
+      rateLimitCooldownUntil = Date.now() + (retryAfter * 1000);
+    }
+    const err = new Error(errJson?.error || `HTTP ${res.status}: Gagal memproses permintaan.`);
+    (err as any).status = res.status;
+    (err as any).errorCode = errJson?.errorCode;
+    (err as any).retryAfter = retryAfter;
+    throw err;
+  }
+
+  return await res.json();
+}
+
+export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
+  // 0. Hormati Cooldown Rate Limiter jika sedang dibatasi (mencegah request berulang terus-menerus)
+  const now = Date.now();
+  if (now < rateLimitCooldownUntil) {
+    const remainingSec = Math.ceil((rateLimitCooldownUntil - now) / 1000);
+    return {
+      success: false,
+      isRateLimited: true,
+      status: 429,
+      retryAfter: remainingSec,
+      message: `Akses backend sedang dibatasi sementara (Rate Limited). Silakan tunggu ${remainingSec} detik.`
+    };
+  }
+
+  // 1. Prioritas Utama: Uji melalui Backend API Gateway (/api/financial/status)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/status');
+      if (res && res.success) {
+        // Reset cooldown jika berhasil
+        rateLimitCooldownUntil = 0;
+        return {
+          success: true,
+          message: res.message || 'Koneksi Backend API Gateway ke Supabase aktif & stabil.',
+          tableCount: res.tableCounts?.accounts,
+          latencyMs: res.latencyMs,
+          dbHost: res.dbHost
+        };
+      }
+      throw new Error(res?.error || 'Uji status backend gateway gagal.');
+    } catch (e: any) {
+      if (e?.status === 429 || e?.errorCode === 'RATE_LIMITED') {
+        const retryAfter = Number(e.retryAfter) || 30;
+        rateLimitCooldownUntil = Date.now() + (retryAfter * 1000);
+        return {
+          success: false,
+          isRateLimited: true,
+          status: 429,
+          retryAfter,
+          message: `Terlalu banyak permintaan akses keuangan. Silakan tunggu ${retryAfter} detik.`
+        };
+      }
+
+      if (e?.status === 503 || e?.errorCode === 'RATE_LIMITER_UNAVAILABLE') {
+        return {
+          success: false,
+          isRpcFailure: true,
+          status: 503,
+          message: e?.message || 'Layanan verifikasi backend sedang mengalami gangguan sementara.'
+        };
+      }
+
+      if (isRemoteEnvironment()) {
+        return {
+          success: false,
+          status: e?.status || 500,
+          message: `Koneksi Backend Gateway gagal: ${e.message}`
+        };
+      }
+      console.warn('[SupabaseClient] Uji via backend gateway gagal, mencoba fallback direct client:', e?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return {
@@ -81,11 +235,9 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
 
   const startTime = performance.now();
   try {
-    // Attempt a lightweight select from accounts
     const { data, error } = await client.from('accounts').select('id').limit(1);
     const latencyMs = Math.round(performance.now() - startTime);
     if (error) {
-      // If table doesn't exist yet, it will report relation does not exist
       if (error.code === '42P01') {
         return {
           success: true,
@@ -170,6 +322,12 @@ async function sanitizeSettingsForSupabase(s: CompanySettings): Promise<CompanyS
   return sanitized;
 }
 
+function isRemoteEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host !== 'localhost' && host !== '127.0.0.1';
+}
+
 // Synchronisation helpers
 export async function syncPushAllToSupabase(payload: {
   accounts: Account[];
@@ -177,6 +335,33 @@ export async function syncPushAllToSupabase(payload: {
   contacts?: Contact[];
   settings?: CompanySettings;
 }): Promise<{ success: boolean; message: string }> {
+  // 1. Pada deployment remote / Vercel: Wajib 100% melalui Backend API Gateway
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/sync-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res && res.success) {
+        return {
+          success: true,
+          message: res.message || 'Seluruh data berhasil diunggah dan disinkronkan ke Supabase Cloud!'
+        };
+      }
+      throw new Error(res?.error || 'Sinkronisasi backend gagal diproses.');
+    } catch (err: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal sinkronisasi data melalui gateway:', err?.message);
+        return {
+          success: false,
+          message: `Gagal sinkronisasi cloud: ${err.message}. Akses langsung klien dicegah demi keamanan data.`
+        };
+      }
+      console.warn('[SupabaseClient] Gateway gagal di mode lokal, mencoba direct client:', err?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return { success: false, message: 'Supabase belum dikonfigurasi.' };
@@ -206,8 +391,9 @@ export async function syncPushAllToSupabase(payload: {
     // 2. Sync Transactions
     if (Array.isArray(payload.transactions)) {
       if (payload.transactions.length === 0) {
-        // If 0 transactions (e.g. after system reset), delete all transactions in Supabase
-        await client.from('transactions').delete().neq('id', '___non_existent___');
+        // STRICT: Array transaksi kosong TIDAK BOLEH memicu penghapusan massal di Supabase!
+        // Penghapusan massal hanya boleh dilakukan melalui tindakan administratif eksplisit.
+        console.info('[SupabaseSync] Array transaksi kosong. Sinkronisasi transaksi dilewati demi melindungi data cloud.');
       } else {
         const txRows = payload.transactions.map(t => ({
           id: t.id,
@@ -303,6 +489,30 @@ export async function syncPullAllFromSupabase(): Promise<{
     settings?: CompanySettings;
   };
 }> {
+  // 1. Prioritas Utama: Tarik melalui Backend API Gateway (/api/financial/sync-pull)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/sync-pull');
+      if (res && res.success && res.data) {
+        return {
+          success: true,
+          message: 'Data pembukuan berhasil ditarik dari Backend Serverless Gateway!',
+          data: res.data
+        };
+      }
+      throw new Error(res?.error || 'Tarikan data dari gateway gagal.');
+    } catch (err: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal menarik data melalui gateway:', err?.message);
+        return {
+          success: false,
+          message: `Gagal menarik data cloud: ${err.message}. Akses langsung klien dicegah demi keamanan data.`
+        };
+      }
+      console.warn('[SupabaseClient] Pull via gateway gagal di mode lokal, mencoba direct client:', err?.message);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return { success: false, message: 'Supabase belum dikonfigurasi.' };
@@ -416,41 +626,97 @@ export async function syncPullAllFromSupabase(): Promise<{
   }
 }
 
-export async function pushTransactionToSupabase(tx: Transaction): Promise<void> {
-  const client = getSupabaseClient();
-  if (!client) return;
-  try {
-    await client.from('transactions').upsert({
-      id: tx.id,
-      date: tx.date,
-      ref_number: tx.refNumber,
-      type: tx.type || 'general',
-      description: tx.description,
-      lines: tx.lines,
-      total_debit: tx.totalDebit,
-      total_credit: tx.totalCredit,
-      partner: tx.partner || '-',
-      created_at: tx.createdAt,
-      updated_at: tx.updatedAt
-    }, { onConflict: 'id' });
-  } catch (e) {
-    console.warn('Auto push tx to Supabase failed:', e);
+export async function pushTransactionToSupabase(
+  tx: Transaction,
+  isUpdate: boolean = false,
+  expectedUpdatedAt?: number
+): Promise<{ success: boolean; message?: string }> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const endpoint = isUpdate ? '/api/financial/transactions?isUpdate=true' : '/api/financial/transactions';
+      const payload: any = { ...tx };
+      if (isUpdate && (expectedUpdatedAt || tx.updatedAt)) {
+        payload.expectedUpdatedAt = expectedUpdatedAt || tx.updatedAt;
+      }
+      const res = await callFinancialGateway(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return { success: true, message: res?.message };
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan transaksi:', e?.message);
+        throw new Error(`Gagal menyimpan transaksi ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push tx via gateway failed in local mode, fallback to client:', e);
+    }
   }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error('Koneksi Supabase client tidak tersedia.');
+  }
+  const { error } = await client.from('transactions').upsert({
+    id: tx.id,
+    date: tx.date,
+    ref_number: tx.refNumber,
+    type: tx.type || 'general',
+    description: tx.description,
+    lines: tx.lines,
+    total_debit: tx.totalDebit,
+    total_credit: tx.totalCredit,
+    partner: tx.partner || '-',
+    created_at: tx.createdAt,
+    updated_at: tx.updatedAt
+  }, { onConflict: 'id' });
+
+  if (error) {
+    throw new Error(`Gagal menyimpan transaksi ke Supabase: ${error.message}`);
+  }
+  return { success: true };
 }
 
-export async function deleteTransactionFromSupabase(id: string): Promise<void> {
-  const client = getSupabaseClient();
-  if (!client) return;
-  try {
-    await client.from('transactions').delete().eq('id', id);
-  } catch (e) {
-    console.warn('Auto delete tx from Supabase failed:', e);
+export async function deleteTransactionFromSupabase(id: string): Promise<{ success: boolean; message?: string }> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway(`/api/financial/transactions?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      return { success: true, message: res?.message };
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal hapus transaksi:', e?.message);
+        throw new Error(`Gagal menghapus transaksi dari cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Delete tx via gateway failed in local mode, fallback to client:', e);
+    }
   }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error('Koneksi Supabase client tidak tersedia.');
+  }
+  const { error } = await client.from('transactions').delete().eq('id', id);
+  if (error) {
+    throw new Error(`Gagal menghapus transaksi dari Supabase: ${error.message}`);
+  }
+  return { success: true };
 }
 
 export async function deleteAllTransactionsFromSupabase(): Promise<void> {
+  const { url } = getSupabaseConfig();
+  // STRICT GUARD: Dilarang melakukan penghapusan massal jika tersambung ke database Produksi drsqwxkkcfqvooqzoyvm
+  if (url && url.includes('drsqwxkkcfqvooqzoyvm')) {
+    console.error('[SupabaseSecurity] Penghapusan massal seluruh transaksi DITOLAK pada database Produksi.');
+    throw new Error('Penghapusan massal seluruh transaksi diblokir pada database Produksi demi keamanan data.');
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
+
   try {
     await client.from('transactions').delete().neq('id', '___non_existent___');
   } catch (e) {
@@ -459,10 +725,28 @@ export async function deleteAllTransactionsFromSupabase(): Promise<void> {
 }
 
 export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {
+  const s = await sanitizeSettingsForSupabase(rawSettings);
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(s)
+      });
+      return;
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan settings:', e?.message);
+        throw new Error(`Gagal menyimpan pengaturan ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push settings via gateway failed in local mode, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
-    const s = await sanitizeSettingsForSupabase(rawSettings);
     await client.from('company_settings').upsert({
       id: 'primary',
       company_name: s.companyName,
@@ -504,6 +788,24 @@ export async function pushSettingsToSupabase(rawSettings: CompanySettings): Prom
 }
 
 export async function pushAccountToSupabase(a: Account): Promise<void> {
+  // 1. Gateway Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(a)
+      });
+      return;
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan akun:', e?.message);
+        throw new Error(`Gagal menyimpan akun ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push account via gateway failed in local mode, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {
@@ -527,6 +829,23 @@ export async function pushAccountToSupabase(a: Account): Promise<void> {
 }
 
 export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway('/api/financial/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accounts })
+      });
+      return;
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal simpan akun massal:', e?.message);
+        throw new Error(`Gagal menyimpan akun massal ke cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Push multiple accounts via gateway failed in local mode, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client || !accounts.length) return;
   try {
@@ -551,6 +870,21 @@ export async function pushMultipleAccountsToSupabase(accounts: Account[]): Promi
 }
 
 export async function deleteAccountFromSupabase(id: string): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      await callFinancialGateway(`/api/financial/accounts?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      return;
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal hapus akun:', e?.message);
+        throw new Error(`Gagal menghapus akun dari cloud: ${e.message}`);
+      }
+      console.warn('[SupabaseClient] Delete account via gateway failed in local mode, fallback to client:', e);
+    }
+  }
+
   const client = getSupabaseClient();
   if (!client) return;
   try {

@@ -45,15 +45,33 @@ export function getTransactionLines(trx: any): any[] {
 
 export function getEffectiveNormalBalance(account: Account): 'Db' | 'Kr' {
   if (!account) return 'Db';
-  // Liabilities (Utang) always have normal balance Kredit ('Kr')
+  const rawSn = (account.sn || '').toString().trim().toLowerCase();
+  if (rawSn === 'kr' || rawSn === 'cr' || rawSn === 'kredit' || rawSn === 'credit') {
+    return 'Kr';
+  }
+  if (rawSn === 'db' || rawSn === 'debet' || rawSn === 'debit') {
+    return 'Db';
+  }
+  // SAK Normal Balance Inference:
+  // Utang (2x), Ekuitas (3x kecuali prive), dan Pendapatan (4x, 7x) bersaldo normal Kredit ('Kr')
+  const cat = (account.category || '').toString().toUpperCase();
+  const code = (account.code || '').toString().trim();
+  const name = (account.name || '').toString().toLowerCase();
+
   if (
-    account.category === 'UTANG_LANCAR' || 
-    account.category === 'UTANG_JANGKA_PANJANG' || 
-    (account.code && account.code.startsWith('2'))
+    cat === 'UTANG_LANCAR' || 
+    cat === 'UTANG_JANGKA_PANJANG' || 
+    (cat === 'EKUITAS' && !name.includes('prive')) ||
+    cat === 'PENDAPATAN' ||
+    cat === 'PENDAPATAN_LAIN' ||
+    code.startsWith('2') || 
+    (code.startsWith('3') && !name.includes('prive')) || 
+    code.startsWith('4') ||
+    code.startsWith('7')
   ) {
     return 'Kr';
   }
-  return account.sn || 'Db';
+  return 'Db';
 }
 
 export function calculateAccountBalance(account: Account, transactions: Transaction[] = []): {
@@ -417,8 +435,9 @@ export function generateBalanceSheet(accounts: Account[], transactions: Transact
       utangJangkaPanjang.push({ code: acc.code, name: acc.name, amount: endingBalance });
       totalUtangJangkaPanjang += endingBalance;
     } else if (acc.category === 'EKUITAS') {
-      // Prive is contra-equity
-      const adjustedAmount = acc.sn === 'Db' ? -Math.abs(endingBalance) : endingBalance;
+      // Akun Prive / Pengambilan Pribadi adalah contra-equity yang mengurangi ekuitas
+      const isContra = acc.name?.toLowerCase().includes('prive') || acc.code === '30002';
+      const adjustedAmount = isContra ? -Math.abs(endingBalance) : Math.abs(endingBalance);
       ekuitas.push({ code: acc.code, name: acc.name, amount: adjustedAmount });
       totalEkuitas += adjustedAmount;
     }

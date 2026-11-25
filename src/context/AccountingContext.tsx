@@ -70,7 +70,7 @@ export const DEFAULT_FISCAL_STATE: FiscalState = {
 export const DEFAULT_SUPERADMIN: User = {
   id: "usr-admin-master",
   username: "admin",
-  password: "Ringgo5t@r",
+  password: "",
   fullName: "Administrator",
   position: "Administrator Sistem",
   specialCode: "MASTER-SPECTRA-2026",
@@ -100,9 +100,9 @@ interface AccountingContextType {
   complaints: Complaint[];
   
   // Transaction CRUD
-  addTransaction: (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>) => Transaction;
-  updateTransaction: (id: string, trx: Partial<Transaction>) => void;
-  deleteTransaction: (id: string) => void;
+  addTransaction: (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; transaction?: Transaction; error?: string }>;
+  updateTransaction: (id: string, trx: Partial<Transaction>) => Promise<{ success: boolean; transaction?: Transaction; error?: string }>;
+  deleteTransaction: (id: string) => Promise<{ success: boolean; error?: string }>;
   getNextRefNumber: (type: TransactionType) => string;
 
   // Account CRUD
@@ -129,9 +129,9 @@ interface AccountingContextType {
   syncFromSupabase: () => Promise<{ success: boolean; message: string }>;
 
   // Auth & User Management
-  login: (username: string, pass: string) => { success: boolean; message: string; user?: User; isPending?: boolean };
-  register: (user: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => { success: boolean; message: string };
-  logout: () => void;
+  login: (username: string, pass: string) => Promise<{ success: boolean; message: string; user?: User; isPending?: boolean }>;
+  register: (user: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => Promise<{ success: boolean; message: string }>;
+  logout: () => Promise<void>;
   approveUser: (userId: string) => void;
   rejectUser: (userId: string) => void;
   deleteUser: (userId: string) => void;
@@ -162,6 +162,29 @@ const STORAGE_KEYS = {
   CONTACTS: 'spectra_contacts_v1',
   FISCAL: 'spectra_fiscal_reconciliation_v1'
 };
+
+const SPECTRA_DELETED_TOMBSTONES_KEY = 'spectra_deleted_tx_ids';
+
+function getDeletedTxTombstones(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(SPECTRA_DELETED_TOMBSTONES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+}
+
+function recordDeletedTxTombstone(id: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedTxTombstones();
+    set.add(id);
+    localStorage.setItem(SPECTRA_DELETED_TOMBSTONES_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
 
 const BROADCAST_CHANNEL_NAME = 'spectra_realtime_sync_channel';
 
@@ -399,7 +422,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (e) {
       console.error('Failed to load current session:', e);
     }
-    return DEFAULT_SUPERADMIN;
+    // Hanya gunakan fallback dev superadmin jika berjalan di localhost murni
+    const isLocal = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return isLocal ? DEFAULT_SUPERADMIN : null;
   });
 
   const [securityPin, setSecurityPin] = useState<string>(() => {
@@ -614,20 +640,58 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             });
           }
 
-          // B. Transactions Smart Sync (Protects User's Locally Created Transactions)
+          // B. Transactions Smart Sync dengan Resolusi Konflik (Timestamp-Based)
           if (Array.isArray(res.data.transactions)) {
             const cloudTx = res.data.transactions;
             setTransactions(prevLocal => {
-              if (prevLocal.length > 0 && cloudTx.length === 0) {
-                console.log('[Auto-Sync] Mempertahankan transaksi lokal dan mengunggah otomatis ke Cloud...');
-                prevLocal.forEach(t => pushTransactionToSupabase(t));
-                return prevLocal;
-              }
-              if (cloudTx.length > 0) {
+              if (prevLocal.length === 0) {
                 try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTx)); } catch (e) {}
                 return cloudTx;
               }
-              return prevLocal;
+
+              // Peta transaksi berdasarkan ID
+              const cloudMap = new Map(cloudTx.map(t => [t.id, t]));
+              const localMap = new Map(prevLocal.map(t => [t.id, t]));
+              const merged: Transaction[] = [];
+
+              // Transaksi dari cloud
+              cloudTx.forEach(ct => {
+                const lt = localMap.get(ct.id);
+                if (!lt) {
+                  merged.push(ct);
+                } else {
+                  // Bandingkan timestamp updatedAt
+                  const cloudTime = Number(ct.updatedAt) || 0;
+                  const localTime = Number(lt.updatedAt) || 0;
+                  if (cloudTime >= localTime) {
+                    // Cloud lebih baru atau sama: gunakan cloud
+                    merged.push(ct);
+                  } else {
+                    // Local lebih baru: pertahankan local dan push ke cloud
+                    merged.push(lt);
+                    pushTransactionToSupabase(lt, true).catch(console.error);
+                  }
+                }
+              });
+
+              // Transaksi lokal yang belum ada di cloud (dengan proteksi tombstone anti-resurrection)
+              const tombstones = getDeletedTxTombstones();
+              prevLocal.forEach(lt => {
+                // 1. Jika transaksi telah dihapus (tombstone), jangan dibangkitkan kembali!
+                if (tombstones.has(lt.id)) {
+                  return;
+                }
+                // 2. Jika tidak ada di cloud, hanya sinkronkan jika memang draft offline baru (isPendingSync)
+                if (!cloudMap.has(lt.id)) {
+                  if ((lt as any).isPendingSync) {
+                    merged.push(lt);
+                    pushTransactionToSupabase(lt, false).catch(console.error);
+                  }
+                }
+              });
+
+              try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(merged)); } catch (e) {}
+              return merged;
             });
           }
 
@@ -710,63 +774,146 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       type === 'sales' ? 'FP-' :
       type === 'purchase' ? 'FB-' : 'JU-';
     
-    const count = transactions.filter(t => t.refNumber?.startsWith(prefix) || t.type === type).length + 1;
-    return `${prefix}${count}`;
+    // Cari angka terbesar dari seluruh transaksi yang memiliki prefix yang sama (kebal tabrakan paralel)
+    let maxNum = 0;
+    const escapedPrefix = prefix.replace('-', '\\-');
+    const regex = new RegExp(`^${escapedPrefix}(\\d+)`, 'i');
+    transactions.forEach(t => {
+      const match = (t.refNumber || '').match(regex);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > maxNum) maxNum = val;
+      }
+    });
+    const nextNum = maxNum + 1;
+    return `${prefix}${nextNum}`;
   }, [transactions]);
 
-  const addTransaction = useCallback((trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Transaction => {
+  const addTransaction = useCallback(async (trx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; transaction?: Transaction; error?: string }> => {
+    // 1. Validasi persamaan debit-kredit
+    const diff = Math.abs((Number(trx.totalDebit) || 0) - (Number(trx.totalCredit) || 0));
+    if (diff > 0.01) {
+      return {
+        success: false,
+        error: `Transaksi tidak seimbang: Total Debit (Rp ${Number(trx.totalDebit || 0).toLocaleString('id-ID')}) tidak sama dengan Total Kredit (Rp ${Number(trx.totalCredit || 0).toLocaleString('id-ID')}).`
+      };
+    }
+
+    if (!trx.lines || trx.lines.length < 2) {
+      return {
+        success: false,
+        error: 'Transaksi akuntansi wajib memiliki minimal 2 baris jurnal berpasangan.'
+      };
+    }
+
+    // 2. Tentukan nomor referensi yang unik
+    let finalRefNumber = (trx.refNumber || '').trim();
+    if (!finalRefNumber) {
+      finalRefNumber = getNextRefNumber(trx.type || 'general');
+    }
+
     const newTx: Transaction = {
       ...trx,
+      refNumber: finalRefNumber,
       id: 'tx-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       type: trx.type || 'general',
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
 
-    setTransactions(prev => {
-      const updated = [...prev, newTx];
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
+    try {
+      // 3. Simpan jurnal melalui operasi asynchronous yang menunggu konfirmasi commit backend
+      await pushTransactionToSupabase(newTx, false);
 
-    // Auto-sync to Supabase Cloud in background
-    pushTransactionToSupabase(newTx);
-
-    logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
-    return newTx;
-  }, [broadcastChange, logActivity]);
-
-  const updateTransaction = useCallback((id: string, trx: Partial<Transaction>) => {
-    setTransactions(prev => {
-      const updated = prev.map(t => {
-        if (t.id === id) {
-          const merged = { ...t, ...trx, updatedAt: Date.now() };
-          pushTransactionToSupabase(merged);
-          return merged;
+      // 4. Status BERHASIL hanya setelah database mengonfirmasi commit
+      setTransactions(prev => {
+        const exists = prev.some(t => t.id === newTx.id);
+        const updated = exists ? prev.map(t => t.id === newTx.id ? newTx : t) : [...prev, newTx];
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
         }
-        return t;
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
       });
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
-    logActivity('Edit Jurnal', `Memperbarui transaksi ID: ${id}`);
-  }, [broadcastChange, logActivity]);
 
-  const deleteTransaction = useCallback((id: string) => {
+      logActivity('Input Jurnal', `Transaksi ${newTx.refNumber} (${newTx.type}): ${newTx.description} - Rp ${newTx.totalDebit.toLocaleString('id-ID')}`);
+      return { success: true, transaction: newTx };
+    } catch (err: any) {
+      console.error('[TransactionSaveError] Gagal menyimpan transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal menyimpan transaksi ke database cloud.'
+      };
+    }
+  }, [getNextRefNumber, broadcastChange, logActivity]);
+
+  const updateTransaction = useCallback(async (id: string, trx: Partial<Transaction>): Promise<{ success: boolean; transaction?: Transaction; error?: string }> => {
+    const existing = transactions.find(t => t.id === id);
+    if (!existing) {
+      return { success: false, error: `Transaksi dengan ID ${id} tidak ditemukan.` };
+    }
+
+    const merged: Transaction = {
+      ...existing,
+      ...trx,
+      updatedAt: Date.now()
+    };
+
+    const diff = Math.abs((Number(merged.totalDebit) || 0) - (Number(merged.totalCredit) || 0));
+    if (diff > 0.01) {
+      return {
+        success: false,
+        error: `Transaksi tidak seimbang: Total Debit tidak sama dengan Total Kredit.`
+      };
+    }
+
+    try {
+      await pushTransactionToSupabase(merged, true, existing.updatedAt);
+
+      setTransactions(prev => {
+        const updated = prev.map(t => t.id === id ? merged : t);
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
+        }
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
+      });
+
+      logActivity('Edit Jurnal', `Memperbarui transaksi ID: ${id} (${merged.refNumber})`);
+      return { success: true, transaction: merged };
+    } catch (err: any) {
+      console.error('[TransactionUpdateError] Gagal memperbarui transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal memperbarui transaksi ke database cloud.'
+      };
+    }
+  }, [transactions, broadcastChange, logActivity]);
+
+  const deleteTransaction = useCallback(async (id: string): Promise<{ success: boolean; error?: string }> => {
     const target = transactions.find(t => t.id === id);
-    setTransactions(prev => {
-      const updated = prev.filter(t => t.id !== id);
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated));
-      broadcastChange('TRANSACTIONS', updated);
-      return updated;
-    });
+    try {
+      await deleteTransactionFromSupabase(id);
+      recordDeletedTxTombstone(id);
 
-    // Auto-sync deletion to Supabase Cloud in background
-    deleteTransactionFromSupabase(id);
+      setTransactions(prev => {
+        const updated = prev.filter(t => t.id !== id);
+        try { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updated)); } catch (e) {
+          console.error('[StorageError] Gagal menyimpan transaksi ke localStorage:', e);
+        }
+        broadcastChange('TRANSACTIONS', updated);
+        return updated;
+      });
 
-    logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
+      logActivity('Hapus Jurnal', `Menghapus transaksi: ${target?.refNumber || id} (${target?.description || ''})`);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[TransactionDeleteError] Gagal menghapus transaksi:', err?.message || err);
+      return {
+        success: false,
+        error: err?.message || 'Gagal menghapus transaksi dari database cloud.'
+      };
+    }
   }, [transactions, broadcastChange, logActivity]);
 
   // Account CRUD (With Real-Time Supabase Auto-Save)
@@ -1044,9 +1191,100 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true, message: 'PIN Keamanan berhasil diperbarui!' };
   }, [securityPin, logActivity]);
 
-  // Auth & User Management
-  const login = useCallback((username: string, pass: string) => {
+  // Server Session Check on Mount
+  useEffect(() => {
+    let isMounted = true;
+    const verifyServerSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me', {
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.user && isMounted) {
+            const serverUser: User = {
+              id: data.user.id,
+              username: data.user.username,
+              fullName: data.user.fullName,
+              position: data.user.position,
+              role: data.user.role,
+              isAuthority: data.user.isAuthority,
+              status: data.user.status,
+              registeredAt: data.user.registeredAt || new Date().toISOString()
+            };
+            setCurrentUser(serverUser);
+            sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(serverUser));
+          }
+        }
+      } catch (err) {
+        // Fallback offline / local dev mode
+      }
+    };
+    verifyServerSession();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Auth & User Management (Server-Verified dengan Fallback)
+  const login = useCallback(async (username: string, pass: string): Promise<{ success: boolean; message: string; user?: User; isPending?: boolean }> => {
     const cleanUser = username.trim().toLowerCase();
+
+    // 1. Prioritas Utama: Autentikasi Serverless Vercel (/api/auth/login)
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: cleanUser, password: pass })
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success && data?.user) {
+        const verifiedUser: User = {
+          id: data.user.id,
+          username: data.user.username,
+          fullName: data.user.fullName,
+          position: data.user.position,
+          role: data.user.role,
+          isAuthority: data.user.isAuthority,
+          status: data.user.status,
+          registeredAt: data.user.registeredAt || new Date().toISOString()
+        };
+        setCurrentUser(verifiedUser);
+        sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(verifiedUser));
+        logActivity('Login', `${verifiedUser.fullName} (${verifiedUser.position}) berhasil masuk via Server Auth`);
+        return { success: true, message: 'Login berhasil', user: verifiedUser };
+      }
+
+      if (res.status === 403) {
+        return {
+          success: false,
+          isPending: true,
+          message: data?.error || 'Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.'
+        };
+      }
+
+      if (res.status === 401 || res.status === 400 || res.status === 429) {
+        return {
+          success: false,
+          message: data?.error || 'Nama akun atau password salah! Silakan coba lagi.'
+        };
+      }
+    } catch (netErr) {
+      console.warn('[Auth] Server auth offline/unreachable:', netErr);
+    }
+
+    // 2. Fallback Mode (DILARANG aktif di staging/production demi keamanan)
+    const isLocalDev = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalDev) {
+      return {
+        success: false,
+        message: 'Layanan autentikasi server tidak merespon. Di lingkungan staging/production, fallback login lokal dinonaktifkan.'
+      };
+    }
+
     let found = users.find(u => u.username.toLowerCase() === cleanUser);
     if (!found && (cleanUser === 'admin' || cleanUser === 'administrator')) {
       found = users.find(u => u.role === 'admin');
@@ -1073,7 +1311,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true, message: 'Login berhasil', user: found };
   }, [users, logActivity]);
 
-  const register = useCallback((data: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>) => {
+  const register = useCallback(async (data: Omit<User, 'id' | 'role' | 'isAuthority' | 'status' | 'registeredAt'>): Promise<{ success: boolean; message: string }> => {
+    // 1. Coba daftarkan ke Serverless Endpoint /api/auth/register
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data)
+      });
+      const resData = await res.json().catch(() => null);
+
+      if (res.ok && resData?.success) {
+        return {
+          success: true,
+          message: resData.message || 'Pendaftaran Berhasil! Saat ini data anda sedang diverifikasi oleh otoritas terkait, harap tunggu beberapa saat.'
+        };
+      }
+
+      if (res.status === 409 || res.status === 400 || res.status === 429) {
+        return {
+          success: false,
+          message: resData?.error || 'Pendaftaran akun ditolak oleh server.'
+        };
+      }
+    } catch (netErr) {
+      console.warn('[Register] Server auth offline:', netErr);
+    }
+
+    // 2. Fallback Mode lokal (DILARANG aktif di staging/production)
+    const isLocalDev = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalDev) {
+      return {
+        success: false,
+        message: 'Layanan pendaftaran server tidak merespon. Pendaftaran akun lokal dinonaktifkan di lingkungan staging/production.'
+      };
+    }
+
     const cleanUser = data.username.trim().toLowerCase();
     if (users.some(u => u.username.toLowerCase() === cleanUser)) {
       return { success: false, message: 'Nama akun (username) ini sudah terdaftar. Silakan pilih nama akun lain.' };
@@ -1103,7 +1379,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [users, broadcastChange, logActivity]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (err) {
+      // Abaikan jika network error saat logout
+    }
+
     if (currentUser) {
       logActivity('Logout', `${currentUser.fullName} (${currentUser.position}) keluar dari sistem`);
     }

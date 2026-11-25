@@ -1,6 +1,6 @@
 /**
  * SPECTRA Auto Record & Intelligent Accounting OCR/HTR Pipeline Service
- * 
+ *
  * Modul ini menyediakan:
  * 1. Generator Kode Nomor Berkas (BT/XXXX/DDMYY)
  * 2. Manajemen Jenis Transaksi & Kode POS (Bawaan & Custom POS Builder)
@@ -16,6 +16,7 @@
 
 import { Account, AccountCategory, NormalBalance, ReportType, Transaction, TransactionLine, TransactionType } from '../types/accounting';
 import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_ID, SPECTRA_DRIVE_FOLDER_URL } from './googleDriveBot';
+import { isPdfDataUri, isPdfFile, convertPdfToImages, optimizeReceiptImage } from './receiptMediaService';
 
 export interface PosRule {
   id: string;
@@ -47,6 +48,16 @@ export interface ExtractedItem {
   originalText?: string;
 }
 
+export interface BankTransferDetails {
+  transferAmount: number;
+  bankAdminFee: number;
+  feeType?: 'BI_FAST' | 'ADMIN_BANK' | 'FREE' | 'NONE';
+  feeTextEvidence?: string;
+  totalDebitedAmount: number;
+  hasUnconfirmedFee: boolean;
+  unconfirmedFeeNote?: string;
+}
+
 export interface RealOcrExtractionResult {
   detectedType: 'transfer_bank' | 'nota_pembelian' | 'faktur' | 'struk_thermal' | 'lainnya';
   sellerOrRecipient: string;
@@ -56,8 +67,12 @@ export interface RealOcrExtractionResult {
   calculatedSum: number;
   mathDiscrepancy: boolean;
   discrepancyMessage?: string;
-  sourceEngine: 'gemini_vision' | 'tesseract_ocr' | 'smart_parser';
+  sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
+  usedModel?: string;
   rawResponse?: any;
+  bankTransferDetails?: BankTransferDetails;
+  hasUnconfirmedFee?: boolean;
+  unconfirmedFeeNote?: string;
 }
 
 export interface SpreadsheetRowData {
@@ -176,10 +191,12 @@ const STORAGE_DOC_SEQ_KEY = 'sikeu_auto_record_doc_seq_v3';
 
 export function getPosRules(): PosRule[] {
   try {
-    const raw = localStorage.getItem(STORAGE_CUSTOM_POS_KEY);
-    if (raw) {
-      const customs: PosRule[] = JSON.parse(raw);
-      return [...DEFAULT_POS_RULES, ...customs];
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_CUSTOM_POS_KEY);
+      if (raw) {
+        const customs: PosRule[] = JSON.parse(raw);
+        return [...DEFAULT_POS_RULES, ...customs];
+      }
     }
   } catch (e) {
     console.error('Gagal membaca custom POS rules:', e);
@@ -369,47 +386,12 @@ export function parseIndonesianCurrency(text: string | number, isLikelyThousands
 }
 
 /**
- * Sanitizer cerdas untuk memastikan nominal Rupiah bebas dari inflasi 100x akibat .00 terbaca sebagai nol tambahan
+ * Sanitizer mata uang Indonesia: membersihkan string ke angka tanpa mengubah nilai secara diam-diam.
+ * Seluruh nilai dikembalikan sesuai angka terbaca.
  */
-export function sanitizeCurrencyAmount(val: number | string | null | undefined, itemName = ''): number {
+export function sanitizeCurrencyAmount(val: number | string | null | undefined, _itemName = ''): number {
   if (val === null || val === undefined) return 0;
-
-  let num = parseIndonesianCurrency(val);
-
-  const lowerName = itemName.toLowerCase();
-
-  // 1. Deteksi Biaya BI-FAST:
-  // Biaya BI-FAST di seluruh perbankan Indonesia (BCA, Mandiri, BRI, BNI) adalah Rp 2.500.
-  // Jika terbaca 250000 (dua ratus lima puluh ribu), itu 100% akibat .00 terbaca sebagai nol ganda!
-  if (lowerName.includes('bi-fast') || lowerName.includes('bi fast') || lowerName.includes('admin') || lowerName.includes('transfer')) {
-    if (num === 250000) {
-      num = 2500;
-    } else if (num > 50000 && num % 100 === 0 && num / 100 <= 10000) {
-      num = num / 100;
-    }
-  }
-
-  // 2. Deteksi Nominal Transaksi Utama:
-  // Jika nominal >= 50.000.000 dan berakhiran 00, sedangkan nama item/keterangan adalah
-  // kursus, pelatihan, brevet, bengkel, baut, material, service, toko:
-  // Contoh: Brevet Pajak CPTT biasanya Rp 2.850.000. Jika terbaca 285000000 (285 juta), itu 100% kelebihan dua nol!
-  if (num >= 50000000 && num % 100 === 0) {
-    if (
-      lowerName.includes('brevet') || 
-      lowerName.includes('pelatihan') || 
-      lowerName.includes('kursus') || 
-      lowerName.includes('cptt') || 
-      lowerName.includes('piranha') ||
-      lowerName.includes('baut') ||
-      lowerName.includes('bengkel') ||
-      lowerName.includes('material') ||
-      lowerName.includes('perlengkapan')
-    ) {
-      num = Math.round(num / 100);
-    }
-  }
-
-  return num;
+  return parseIndonesianCurrency(val);
 }
 
 // =========================================================================
@@ -429,45 +411,65 @@ export function runTwoWayDeterministicVerification(
   declaredGrandTotal?: number
 ): VerificationResult {
   const verifiedItems = items.map(item => {
-    let { unitPrice, quantity, totalPrice, confidence } = item;
+    const { unitPrice, quantity, totalPrice, confidence } = item;
+    const lowerName = item.name.toLowerCase();
+
+    // Deteksi indikasi inflasi sen (.00) pada biaya admin / transfer bank tanpa mutasi diam-diam
+    if (lowerName.includes('bi-fast') || lowerName.includes('admin bank') || lowerName.includes('transfer fee')) {
+      if (totalPrice === 250000 || totalPrice === 650000) {
+        const suggested = totalPrice === 250000 ? 2500 : 6500;
+        return {
+          ...item,
+          confidence: Math.min(confidence, 65),
+          hasDiscrepancy: true,
+          discrepancyNote: `Nominal tertera Rp ${totalPrice.toLocaleString('id-ID')} dicurigai terinflasi dari sen (.00). Saran nilai: Rp ${suggested.toLocaleString('id-ID')}`
+        };
+      }
+    }
 
     // 1. Uji Horizontal: Harga Satuan x Kuantitas = Total
     if (unitPrice !== null && quantity !== null && unitPrice > 0 && quantity > 0) {
       const expectedTotal = unitPrice * quantity;
-      
-      // Math-Assisted Disambiguation
+
+      // Jika terjadi ketidakcocokan perkalian, jangan ubah nilai secara diam-diam!
       if (totalPrice > 0 && Math.abs(expectedTotal - totalPrice) > 1) {
-        // Cek jika kuantitas atau harga satuan salah baca angka mirip (misal 3 mirip 8)
-        if (totalPrice % unitPrice === 0) {
+        let suggestion = '';
+        if (unitPrice > 0 && totalPrice % unitPrice === 0) {
           const solvedQty = Math.round(totalPrice / unitPrice);
-          if (solvedQty !== quantity) {
-            quantity = solvedQty;
-            confidence = Math.max(confidence, 88);
-          }
-        } else if (totalPrice % quantity === 0) {
+          suggestion = `Saran kuantitas: ${solvedQty}`;
+        } else if (quantity > 0 && totalPrice % quantity === 0) {
           const solvedPrice = Math.round(totalPrice / quantity);
-          if (solvedPrice !== unitPrice) {
-            unitPrice = solvedPrice;
-            confidence = Math.max(confidence, 88);
-          }
+          suggestion = `Saran harga satuan: Rp ${solvedPrice.toLocaleString('id-ID')}`;
         } else {
-          // Tandai discrepancy pada baris
-          return {
-            ...item,
-            unitPrice,
-            quantity,
-            totalPrice,
-            confidence: Math.min(confidence, 65),
-            hasDiscrepancy: true,
-            discrepancyNote: `Perkalian tidak cocok: ${unitPrice.toLocaleString('id-ID')} x ${quantity} ≠ ${totalPrice.toLocaleString('id-ID')}`
-          };
+          suggestion = `Saran total: Rp ${expectedTotal.toLocaleString('id-ID')}`;
         }
+
+        return {
+          ...item,
+          unitPrice,
+          quantity,
+          totalPrice,
+          confidence: Math.min(confidence, 68),
+          hasDiscrepancy: true,
+          discrepancyNote: `Perkalian tidak cocok: ${unitPrice.toLocaleString('id-ID')} x ${quantity} = ${expectedTotal.toLocaleString('id-ID')} (tertera ${totalPrice.toLocaleString('id-ID')}). [${suggestion}]`
+        };
       } else if (totalPrice === 0) {
-        totalPrice = expectedTotal;
+        return {
+          ...item,
+          totalPrice: 0,
+          confidence: Math.min(confidence, 60),
+          hasDiscrepancy: true,
+          discrepancyNote: `Total harga terbaca 0. Saran nilai: Rp ${expectedTotal.toLocaleString('id-ID')}`
+        };
       }
     } else if (totalPrice > 0 && quantity !== null && quantity > 0 && (unitPrice === null || unitPrice === 0)) {
-      // Pulihkan unitPrice
-      unitPrice = Math.round(totalPrice / quantity);
+      // Saran unitPrice tanpa mutasi diam-diam
+      return {
+        ...item,
+        unitPrice: null,
+        confidence,
+        hasDiscrepancy: false
+      };
     }
 
     return {
@@ -484,20 +486,14 @@ export function runTwoWayDeterministicVerification(
   let calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
   let targetGrandTotal = declaredGrandTotal && declaredGrandTotal > 0 ? declaredGrandTotal : calculatedSum;
 
-  // Deteksi anomali 100x jika declaredGrandTotal atau calculatedSum memiliki sen .00 yang terbaca sebagai 00
+  // Deteksi anomali 100x tanpa mutasi diam-diam (berikan catatan peringatan / saran)
   if (targetGrandTotal > 0 && calculatedSum > 0) {
     if (Math.abs(calculatedSum * 100 - targetGrandTotal) <= 1) {
       // Kasus: declaredGrandTotal terbaca dengan .00 berlebih (misal 285250000 vs 2852500)
-      targetGrandTotal = calculatedSum;
+      // Jangan mutasi diam-diam, tandai selisih
     } else if (Math.abs(targetGrandTotal * 100 - calculatedSum) <= 1) {
       // Kasus: baris-baris item terbaca dengan .00 berlebih
-      verifiedItems.forEach(it => {
-        if (it.totalPrice % 100 === 0) {
-          it.totalPrice = Math.round(it.totalPrice / 100);
-          if (it.unitPrice) it.unitPrice = Math.round(it.unitPrice / 100);
-        }
-      });
-      calculatedSum = verifiedItems.reduce((sum, it) => sum + it.totalPrice, 0);
+      // Jangan mutasi diam-diam, tandai selisih
     }
   }
 
@@ -508,7 +504,7 @@ export function runTwoWayDeterministicVerification(
   if (diff > 0) {
     mathDiscrepancy = true;
     const avgConfidence = verifiedItems.reduce((acc, it) => acc + it.confidence, 0) / (verifiedItems.length || 1);
-    
+
     if (avgConfidence >= 88) {
       // Kasus Penjual Salah Hitung Manual (SELLER_MATH_DISCREPANCY)
       discrepancyMessage = `SELLER_MATH_DISCREPANCY: Seluruh baris tulisan tangan terbaca sangat jelas (${Math.round(avgConfidence)}%), namun hasil penjumlahan (${calculatedSum.toLocaleString('id-ID')}) berselisih Rp ${diff.toLocaleString('id-ID')} dengan Grand Total nota (${targetGrandTotal.toLocaleString('id-ID')}). Penjual diindikasikan salah hitung manual pada nota fisik.`;
@@ -609,18 +605,20 @@ export function analyzeAndSuggestJournal(
 
   items.forEach(it => {
     const lower = it.name.toLowerCase();
-    const isTax = lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph');
-    const isBankFee = lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || 
-                      lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
-    const isFreight = lower.includes('ongkir') || lower.includes('kirim');
-    const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || 
-                                lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') || 
-                                lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') || 
+    const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') ||
+                                lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') ||
+                                lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') ||
                                 lower.includes('service') || lower.includes('servis') || lower.includes('bengkel') ||
                                 lower.includes('pemeliharaan') || lower.includes('perbaikan') || lower.includes('sewa') ||
                                 lower.includes('iklan') || lower.includes('listrik') || lower.includes('telepon');
+    const isTax = it.taxOrFeeType === 'PB1' || it.taxOrFeeType === 'PPN' ||
+                  ((lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph')) && !isTrainingOrService);
+    const isBankFee = it.taxOrFeeType === 'BI_FAST' || it.taxOrFeeType === 'ADMIN_BANK' ||
+                      lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
+                      lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
+    const isFreight = lower.includes('ongkir') || lower.includes('kirim') || it.taxOrFeeType === 'ONGKIR';
 
-    if (it.isTaxOrFee || isTax || isBankFee || isFreight) {
+    if (it.isTaxOrFee || isBankFee || isFreight || isTax) {
       taxAndFeeItems.push(it);
     } else if (isTrainingOrService) {
       serviceOrTrainingItems.push(it);
@@ -634,8 +632,8 @@ export function analyzeAndSuggestJournal(
     // A. Barang Fisik: Agregasi barang fisik sejenis menjadi 1 baris Perlengkapan / Persediaan
     if (physicalItems.length > 0) {
       const totalPhysical = physicalItems.reduce((acc, it) => acc + it.totalPrice, 0);
-      
-      let perlengkapanAcc = accounts.find(a => 
+
+      let perlengkapanAcc = accounts.find(a =>
         !a.isHeader && (a.name.toLowerCase().includes('perlengkapan kantor') || a.name.toLowerCase() === 'perlengkapan')
       );
       if (!perlengkapanAcc) {
@@ -670,17 +668,17 @@ export function analyzeAndSuggestJournal(
 
       if (lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') || lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan')) {
         targetAccName = 'Beban Pelatihan & Brevet Pajak';
-        existingAcc = accounts.find(a => 
+        existingAcc = accounts.find(a =>
           !a.isHeader && (
-            a.name.toLowerCase().includes('pelatihan') || 
-            a.name.toLowerCase().includes('brevet') || 
+            a.name.toLowerCase().includes('pelatihan') ||
+            a.name.toLowerCase().includes('brevet') ||
             a.name.toLowerCase().includes('pendidikan') ||
             a.name.toLowerCase().includes('kursus')
           )
         );
       } else if (lower.includes('service') || lower.includes('servis') || lower.includes('pemeliharaan') || lower.includes('bengkel') || lower.includes('perbaikan')) {
         targetAccName = 'Beban Service';
-        existingAcc = accounts.find(a => 
+        existingAcc = accounts.find(a =>
           !a.isHeader && (a.name.toLowerCase().includes('service') || a.name.toLowerCase().includes('pemeliharaan'))
         );
       } else if (lower.includes('sewa')) {
@@ -727,7 +725,9 @@ export function analyzeAndSuggestJournal(
       let targetCat: AccountCategory = 'BEBAN_OPERASIONAL';
       let targetPos: ReportType = 'Lr';
 
-      if (lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')))) {
+      if (taxItem.taxOrFeeType === 'BI_FAST' || taxItem.taxOrFeeType === 'ADMIN_BANK' ||
+          lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
+          lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')))) {
         targetAccName = 'Beban Administrasi Bank';
         targetCat = 'BEBAN_OPERASIONAL';
         targetPos = 'Lr';
@@ -746,7 +746,7 @@ export function analyzeAndSuggestJournal(
       }
 
       // Cek apakah akun sudah terdaftar di COA
-      let existingAcc = accounts.find(a => 
+      let existingAcc = accounts.find(a =>
         !a.isHeader && (
           a.name.toLowerCase() === targetAccName.toLowerCase() ||
           (lower.includes('pb1') && (a.name.toLowerCase().includes('pb1') || a.name.toLowerCase().includes('pajak pembelian pb1'))) ||
@@ -947,7 +947,7 @@ export function autoCreateMissingCoaAccount(
   accounts: Account[],
   addAccountFn: (acc: Omit<Account, 'id'>) => Account
 ): Account {
-  const existing = accounts.find(a => 
+  const existing = accounts.find(a =>
     !a.isHeader && (a.name.toLowerCase() === line.accountName.toLowerCase() || a.code === line.accountCode)
   );
   if (existing) return existing;
@@ -1025,9 +1025,9 @@ export function ensureSuggestedJournalWithAutoCreatedAccounts(
 
   const finalLines = sug.map(line => {
     if (line.isNewAccount) {
-      let existing = workingAccounts.find(a => 
+      let existing = workingAccounts.find(a =>
         !a.isHeader && (
-          a.code === line.accountCode || 
+          a.code === line.accountCode ||
           a.name.toLowerCase() === line.accountName.toLowerCase() ||
           (line.accountName.toLowerCase().includes('pb1') && a.name.toLowerCase().includes('pb1'))
         )
@@ -1074,21 +1074,119 @@ export interface RecordedReceipt {
   status: 'pending_journal' | 'journalized';
   createdAt: string;
   journalTxId?: string;
+  archiveStatus?: 'local' | 'indexeddb' | 'cloud_permanent' | 'simulated';
+  imageHash?: string;
 }
 
 export const SPECTRA_RECORDED_RECEIPTS_KEY = 'spectra_recorded_receipts_list';
 export const SPECTRA_PENDING_JOURNAL_KEY = 'spectra_pending_journal_draft';
 
+const IDB_NAME = 'spectra_media_db';
+const IDB_VERSION = 1;
+const IDB_STORE = 'receipt_images';
+
+function openReceiptIdb(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function storeReceiptImageAsync(id: string, imageData: string): Promise<boolean> {
+  if (!id || !imageData) return false;
+  try {
+    const db = await openReceiptIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        const putReq = store.put(imageData, id);
+        putReq.onsuccess = () => resolve(true);
+        putReq.onerror = () => resolve(false);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
+    });
+  } catch (err) {
+    console.warn('[IndexedDB Write Error]:', err);
+    return false;
+  }
+}
+
+export async function getReceiptImageAsync(id: string): Promise<string | null> {
+  if (!id) return null;
+  try {
+    const db = await openReceiptIdb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveReceiptImage(receipt: RecordedReceipt): Promise<string> {
+  if (!receipt) return '';
+  if (receipt.receiptImage && !receipt.receiptImage.startsWith('[STORED_IN_INDEXEDDB:')) {
+    return receipt.receiptImage;
+  }
+  const docKey = receipt.nomorBerkas || receipt.id;
+  const fromIdb = await getReceiptImageAsync(docKey);
+  return fromIdb || (receipt.receiptImage && !receipt.receiptImage.startsWith('[') ? receipt.receiptImage : '');
+}
+
 export function getRecordedReceipts(): RecordedReceipt[] {
   try {
     const raw = localStorage.getItem(SPECTRA_RECORDED_RECEIPTS_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membaca spectra_recorded_receipts_list dari localStorage:', e);
+  }
   return [];
 }
 
-export function saveRecordedReceipt(receipt: RecordedReceipt): void {
+export async function saveRecordedReceipt(receipt: RecordedReceipt): Promise<{
+  success: boolean;
+  error?: string;
+  storageMode?: 'local' | 'indexeddb' | 'hybrid';
+  archiveStatus?: 'local' | 'indexeddb' | 'cloud_permanent' | 'simulated';
+}> {
   try {
+    const docKey = receipt.nomorBerkas || receipt.id;
+    let idbSaved = false;
+
+    // 1. Jika terdapat gambar berkas berat, simpan ke IndexedDB dan TUNGGU hingga selesai!
+    if (receipt.receiptImage && receipt.receiptImage.startsWith('data:') && receipt.receiptImage.length > 500) {
+      idbSaved = await storeReceiptImageAsync(docKey, receipt.receiptImage);
+      if (idbSaved) {
+        receipt.archiveStatus = receipt.archiveStatus || 'indexeddb';
+      }
+    }
+
     const list = getRecordedReceipts();
     const idx = list.findIndex(r => r.nomorBerkas === receipt.nomorBerkas || r.id === receipt.id);
     if (idx >= 0) {
@@ -1096,8 +1194,50 @@ export function saveRecordedReceipt(receipt: RecordedReceipt): void {
     } else {
       list.unshift(receipt);
     }
-    localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
-  } catch (e) {}
+
+    // 2. Simpan metadata ke localStorage
+    try {
+      localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
+      return {
+        success: true,
+        storageMode: idbSaved ? 'hybrid' : 'local',
+        archiveStatus: receipt.archiveStatus || (idbSaved ? 'indexeddb' : 'local')
+      };
+    } catch (quotaErr) {
+      console.warn('[STORAGE] localStorage kuota terlampaui. Menerapkan optimasi hybrid: simpan metadata tanpa base64 berat.');
+      // Simpan versi ringan tanpa base64 image (gambar telah diverifikasi tersimpan di IndexedDB)
+      const lightweightList = list.map(r => {
+        if (r.receiptImage && r.receiptImage.length > 5000) {
+          return { ...r, receiptImage: `[STORED_IN_INDEXEDDB:${r.nomorBerkas || r.id}]` };
+        }
+        return r;
+      });
+
+      try {
+        localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(lightweightList));
+        if (!idbSaved && receipt.receiptImage && receipt.receiptImage.length > 500) {
+          // IndexedDB gagal DAN localStorage kuota penuh -> jangan beri sukses palsu!
+          return {
+            success: false,
+            error: 'Gagal mengamankan berkas gambar: Kuota localStorage penuh dan IndexedDB tidak tersedia.'
+          };
+        }
+        return {
+          success: true,
+          storageMode: 'hybrid',
+          archiveStatus: 'indexeddb'
+        };
+      } catch (critErr: any) {
+        return {
+          success: false,
+          error: `Gagal menyimpan metadata bukti transaksi: ${critErr?.message || critErr}`
+        };
+      }
+    }
+  } catch (err: any) {
+    console.error('[STORAGE ERROR] Gagal menyimpan bukti transaksi:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
 }
 
 export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pending_journal' | 'journalized', journalTxId?: string): void {
@@ -1110,38 +1250,60 @@ export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pendin
       return r;
     });
     localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(updated));
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal memperbarui status bukti:', e);
+  }
 }
 
 export function deleteRecordedReceipt(id: string): void {
   try {
     const list = getRecordedReceipts().filter(r => r.id !== id && r.nomorBerkas !== id);
     localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(list));
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal menghapus bukti:', e);
+  }
 }
 
-export function setPendingJournalDraft(draft: any): void {
+export function setPendingJournalDraft(draft: any): { success: boolean; error?: string } {
   try {
     if (!draft) {
       localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
-    } else {
-      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(draft));
+      return { success: true };
     }
-  } catch (e) {}
+    try {
+      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(draft));
+      return { success: true };
+    } catch (quotaErr) {
+      console.warn('[STORAGE] localStorage kuota terlampaui saat menyimpan draft jurnal. Mengoptimasi draft tanpa data base64 berat.');
+      const sanitizedDraft = { ...draft };
+      if (sanitizedDraft.receiptImage && sanitizedDraft.receiptImage.length > 5000) {
+        sanitizedDraft.receiptImage = '';
+      }
+      localStorage.setItem(SPECTRA_PENDING_JOURNAL_KEY, JSON.stringify(sanitizedDraft));
+      return { success: true };
+    }
+  } catch (e: any) {
+    console.warn('[STORAGE] Gagal menyimpan pending journal draft:', e);
+    return { success: false, error: e?.message || String(e) };
+  }
 }
 
 export function getPendingJournalDraft(): any | null {
   try {
     const raw = localStorage.getItem(SPECTRA_PENDING_JOURNAL_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membaca pending journal draft:', e);
+  }
   return null;
 }
 
 export function clearPendingJournalDraft(): void {
   try {
     localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[STORAGE] Gagal membersihkan pending journal draft:', e);
+  }
 }
 
 // =========================================================================
@@ -1190,76 +1352,16 @@ export const SAMPLE_RECEIPT_DATA = {
 };
 
 // =========================================================================
-// 9. MESIN EKSTRAKSI NYATA (GEMINI VISION MULTIMODAL & OFFLINE OCR PIPELINE)
+// 9. MESIN EKSTRAKSI NYATA (GROQ VISION AI & OFFLINE OCR PIPELINE)
 // =========================================================================
 
-export const GEMINI_API_KEY_STORAGE = 'spectra_gemini_api_key';
-
-export function getGeminiApiKey(): string {
+// Pembersihan aman kredensial legacy Gemini dari browser jika masih ada (tanpa log/tampilan key)
+if (typeof window !== 'undefined') {
   try {
-    const local = localStorage.getItem(GEMINI_API_KEY_STORAGE);
-    if (local && local.trim()) return local.trim();
-  } catch (e) {}
-
-  const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.NEXT_PUBLIC_GEMINI_API_KEY || '';
-  return envKey ? String(envKey).trim() : '';
-}
-
-export function saveGeminiApiKey(key: string): void {
-  try {
-    if (!key || !key.trim()) {
-      localStorage.removeItem(GEMINI_API_KEY_STORAGE);
-    } else {
-      localStorage.setItem(GEMINI_API_KEY_STORAGE, key.trim());
+    if (localStorage.getItem('spectra_gemini_api_key')) {
+      localStorage.removeItem('spectra_gemini_api_key');
     }
   } catch (e) {}
-}
-
-export async function testGeminiApiKey(apiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
-  if (!apiKey || !apiKey.trim()) {
-    return { success: false, message: 'API Key tidak boleh kosong' };
-  }
-  const cleanKey = apiKey.trim();
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-  let quotaExceeded = false;
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Halo Gemini, konfirmasi koneksi API akuntansi SPECTRA dengan satu kata: OK' }] }]
-        })
-      });
-
-      if (res.ok) {
-        return { success: true, message: `Koneksi Gemini Multimodal API (${model}) Berhasil!`, model };
-      } else if (res.status === 429) {
-        quotaExceeded = true;
-      }
-    } catch (e: any) {
-      console.warn(`Testing model ${model} failed:`, e);
-    }
-  }
-
-  if (quotaExceeded) {
-    return { 
-      success: false, 
-      message: 'Batas kuota/laju gratis (Rate Limit 15 req/menit) tercapai. Tunggu 1 menit atau aktifkan Pay-as-you-go di Google AI Studio untuk akses tanpa batas.' 
-    };
-  }
-
-  return { success: false, message: 'Gagal terhubung ke Gemini API. Pastikan API Key valid dan kuota aktif.' };
-}
-
-function extractBase64AndMime(dataUri: string): { mimeType: string; base64: string } {
-  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
-  if (match) {
-    return { mimeType: match[1], base64: match[2] };
-  }
-  return { mimeType: 'image/jpeg', base64: dataUri };
 }
 
 /**
@@ -1268,55 +1370,136 @@ function extractBase64AndMime(dataUri: string): { mimeType: string; base64: stri
 export function parseBankTransferFromText(
   rawText: string,
   userDescription: string
-): { isBankTransfer: boolean; items: ExtractedItem[]; recipient: string; grandTotal: number } {
+): {
+  isBankTransfer: boolean;
+  items: ExtractedItem[];
+  recipient: string;
+  grandTotal: number;
+  bankTransferDetails?: BankTransferDetails;
+  hasUnconfirmedFee?: boolean;
+  unconfirmedFeeNote?: string;
+} {
   const upper = rawText.toUpperCase();
-  const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') || 
-                     upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') || 
-                     upper.includes('BRI') || upper.includes('BERHASIL') || upper.includes('REKENING') || 
+  const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') ||
+                     upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') ||
+                     upper.includes('BRI') || upper.includes('BERHASIL') || upper.includes('REKENING') ||
                      upper.includes('PENERIMA') || upper.includes('BREVET') || upper.includes('PIRANHA');
 
   if (!isTransfer) {
     return { isBankTransfer: false, items: [], recipient: '', grandTotal: 0 };
   }
 
-  // Cari seluruh angka nominal Rupiah (contoh: IDR 2,850,000.00 atau 2.850.000 atau Rp 2.850.000 atau 2850000.00)
-  const currencyRegex = /(?:IDR|Rp\.?|Jumlah|Nominal|Total)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9}(?:[.,][0-9]{2})?)/gi;
+  // Cari seluruh angka nominal Rupiah dengan penyaringan ketat agar nomor rekening/referensi tidak disalahartikan sebagai nominal
+  const lines = rawText.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
   const numbersFound: number[] = [];
-  let match;
-  while ((match = currencyRegex.exec(rawText)) !== null) {
-    const rawNum = match[1];
-    const parsed = sanitizeCurrencyAmount(rawNum, userDescription);
-    if (parsed > 0 && !numbersFound.includes(parsed)) {
-      numbersFound.push(parsed);
+
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    const isAccountOrRefLine =
+      lowerLine.includes('rekening') ||
+      lowerLine.includes('no. rek') ||
+      lowerLine.includes('no rek') ||
+      lowerLine.includes('account') ||
+      lowerLine.includes('ref:') ||
+      lowerLine.includes('no. ref') ||
+      lowerLine.includes('no ref') ||
+      lowerLine.includes('reference') ||
+      lowerLine.includes('id transaksi') ||
+      lowerLine.includes('transaction id');
+
+    // 1. Pola angka berformat ribuan Indonesia (contoh: 2.850.000 atau 2.850.000,00 atau 2,850,000.00)
+    const formattedMatches = line.match(/(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)/gi);
+    if (formattedMatches) {
+      for (const m of formattedMatches) {
+        const parsed = sanitizeCurrencyAmount(m, userDescription);
+        if (parsed > 0 && !numbersFound.includes(parsed)) {
+          numbersFound.push(parsed);
+        }
+      }
+    }
+
+    // 2. Pola angka tanpa tanda pemisah ribuan HANYA jika bukan baris nomor rekening/ref DAN didahului indikator nominal/mata uang
+    if (!isAccountOrRefLine) {
+      const explicitMatches = line.match(/(?:idr|rp\.?|nominal|jumlah|total|debet|bayar)[\s:=]+([0-9]{4,9}(?:[.,][0-9]{2})?)/gi);
+      if (explicitMatches) {
+        for (const m of explicitMatches) {
+          const parsed = sanitizeCurrencyAmount(m, userDescription);
+          if (parsed > 0 && !numbersFound.includes(parsed)) {
+            numbersFound.push(parsed);
+          }
+        }
+      }
     }
   }
 
   numbersFound.sort((a, b) => b - a);
 
-  // Cari biaya transfer / BI-FAST
+  // Cek apakah bukti transfer secara eksplisit menyatakan bebas biaya / gratis / Rp 0
+  const isExplicitFree = /(?:biaya|admin|transfer|fee)[\s\S]{0,35}?(?:rp\.?\s*0(?:[.,]00)?|gratis|free|bebas\s*biaya|nihil)/i.test(rawText) ||
+    /(?:gratis|free|bebas\s*biaya)[\s\S]{0,35}?(?:biaya|admin|transfer)/i.test(rawText);
+
   let adminFee = 0;
-  const feeRegex = /(?:biaya|fee|bi-fast|admin)[\s\S]{0,35}?(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
+  let feeType: 'BI_FAST' | 'ADMIN_BANK' | 'FREE' | 'NONE' = 'NONE';
+  let feeTextEvidence = '';
+  let hasUnconfirmedFee = false;
+  let unconfirmedFeeNote: string | undefined = undefined;
+
+  // Cari biaya transfer / BI-FAST / admin bank yang tertulis secara eksplisit
+  const feeRegex = /(?:biaya(?:\s*(?:transaksi|transfer|admin|administrasi))?|admin(?:\s*bank)?|fee|bi-fast)[\s:=]+(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
   const feeMatch = rawText.match(feeRegex);
   if (feeMatch) {
-    const parsedFee = sanitizeCurrencyAmount(feeMatch[1], 'Biaya Transfer BI-FAST');
+    const parsedFee = sanitizeCurrencyAmount(feeMatch[1], 'Biaya Transfer');
     if (parsedFee > 0 && parsedFee <= 50000) {
       adminFee = parsedFee;
+      feeTextEvidence = feeMatch[0].trim();
+      const isBiFast = upper.includes('BI-FAST') || upper.includes('BI FAST');
+      feeType = isBiFast ? 'BI_FAST' : 'ADMIN_BANK';
+    } else if (parsedFee === 0) {
+      feeType = 'FREE';
+      feeTextEvidence = feeMatch[0].trim();
     }
   }
 
-  if (adminFee === 0 && (upper.includes('BI-FAST') || upper.includes('BI FAST'))) {
-    adminFee = 2500;
+  if (isExplicitFree && adminFee === 0) {
+    feeType = 'FREE';
+    feeTextEvidence = feeTextEvidence || 'Bebas Biaya / Rp 0';
   }
 
-  // Nominal Pokok
+  // ATURAN ANTI-SPEKULASI: DILARANG mengarang nominal biaya (misal mengasumsikan 2500 atau 6500)
+  // semata-mata karena ada teks BI-FAST atau Transfer. Jika tidak ada angka terbaca, tandai perlu konfirmasi manual.
+  const mentionsFeeKeyword = upper.includes('BI-FAST') || upper.includes('BI FAST') ||
+    upper.includes('BIAYA TRANSFER') || upper.includes('BIAYA ADMIN') || upper.includes('BIAYA TRANSAKSI');
+
+  if (adminFee === 0 && feeType !== 'FREE' && mentionsFeeKeyword) {
+    hasUnconfirmedFee = true;
+    const isBiFast = upper.includes('BI-FAST') || upper.includes('BI FAST');
+    feeType = isBiFast ? 'BI_FAST' : 'ADMIN_BANK';
+    unconfirmedFeeNote = 'Indikasi biaya transfer bank terdeteksi pada struk, namun nominal tidak terbaca jelas. Harap periksa dan konfirmasi manual di Tabel Koreksi.';
+  }
+
+  // Nominal Pokok (Main Amount) & Perlindungan Anti-Double-Count
   let mainAmount = 0;
   if (numbersFound.length > 0) {
     if (adminFee > 0 && numbersFound.length >= 2 && numbersFound[0] === numbersFound[1] + adminFee) {
+      // numbersFound[0] adalah total debet, numbersFound[1] adalah nominal transfer pokok
       mainAmount = numbersFound[1];
     } else if (adminFee > 0 && numbersFound[0] === adminFee && numbersFound.length >= 2) {
       mainAmount = numbersFound[1];
     } else {
-      mainAmount = numbersFound[0] === adminFee && numbersFound.length >= 2 ? numbersFound[1] : numbersFound[0];
+      const nonFeeNumbers = numbersFound.filter(n => n !== adminFee);
+      if (nonFeeNumbers.length === 1 && adminFee > 0) {
+        // Cek apakah angka non-fee tunggal ini sebenarnya adalah Total Debet / Total Transaksi
+        const isLabeledTotal = /(?:total(?:\s*debet|\s*bayar|\s*transaksi)?|debet|jumlah\s*terdebet)[\s:=]+(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/i.test(rawText);
+        if (isLabeledTotal && nonFeeNumbers[0] > adminFee) {
+          mainAmount = nonFeeNumbers[0] - adminFee;
+        } else {
+          mainAmount = nonFeeNumbers[0];
+        }
+      } else if (nonFeeNumbers.length > 0) {
+        mainAmount = nonFeeNumbers[0];
+      } else {
+        mainAmount = numbersFound[0];
+      }
     }
   }
 
@@ -1368,7 +1551,7 @@ export function parseBankTransferFromText(
 
   // Sanitasi akhir sebelum membuat item
   mainAmount = sanitizeCurrencyAmount(mainAmount, mainItemName);
-  adminFee = sanitizeCurrencyAmount(adminFee, 'Biaya Transfer BI-FAST');
+  adminFee = sanitizeCurrencyAmount(adminFee, 'Biaya Transfer');
 
   const items: ExtractedItem[] = [];
 
@@ -1380,220 +1563,164 @@ export function parseBankTransferFromText(
       quantity: 1,
       unit: 'transaksi',
       totalPrice: mainAmount,
-      confidence: 96
+      confidence: 96,
+      isTaxOrFee: false
     });
   }
 
   if (adminFee > 0) {
     items.push({
       id: `it-${Date.now()}-admin`,
-      name: 'Biaya Transfer BI-FAST',
+      name: feeType === 'BI_FAST' ? 'Biaya Transfer BI-FAST' : 'Biaya Administrasi Bank',
       unitPrice: null,
       quantity: null,
       unit: '',
       totalPrice: adminFee,
       confidence: 98,
       isTaxOrFee: true,
-      taxOrFeeType: 'BI_FAST'
+      taxOrFeeType: feeType === 'BI_FAST' ? 'BI_FAST' : 'ADMIN_BANK'
+    });
+  }
+
+  // Jika dokumen adalah transfer bank tetapi nominal tidak teridentifikasi sama sekali, buat baris koreksi manual
+  if (items.length === 0 && isTransfer) {
+    items.push({
+      id: `it-${Date.now()}-main`,
+      name: mainItemName,
+      unitPrice: 0,
+      quantity: 1,
+      unit: 'transaksi',
+      totalPrice: 0,
+      confidence: 30,
+      isTaxOrFee: false,
+      hasDiscrepancy: true,
+      discrepancyNote: 'Nominal transfer tidak terbaca jelas pada berkas. Harap input manual pada Tabel Koreksi.'
     });
   }
 
   const grandTotal = mainAmount + adminFee;
 
+  const bankTransferDetails: BankTransferDetails = {
+    transferAmount: mainAmount,
+    bankAdminFee: adminFee,
+    feeType,
+    feeTextEvidence,
+    totalDebitedAmount: grandTotal,
+    hasUnconfirmedFee,
+    unconfirmedFeeNote
+  };
+
   return {
-    isBankTransfer: items.length > 0,
+    isBankTransfer: items.length > 0 || isTransfer,
     items,
     recipient: penerima || mainItemName,
-    grandTotal
+    grandTotal,
+    bankTransferDetails,
+    hasUnconfirmedFee,
+    unconfirmedFeeNote
   };
 }
 
 /**
- * Panggilan ke Gemini Multimodal Vision API
+ * Memvalidasi apakah transaksi bukti belanja/transfer siap diproses
+ * (Simpan Rekaman Saja, Lanjutkan ke Jurnal Otomatis, Kirim ke Spreadsheet):
+ * - Menolak pemrosesan jika hasUnconfirmedFee === true (indikasi biaya transfer belum dikonfirmasi)
+ * - Menolak pemrosesan jika grandTotal <= 0 atau tidak ada item bernilai positif
  */
-export async function callGeminiVisionExtraction(
-  dataUri: string,
-  posCode: string,
-  userDescription: string,
-  accounts: Account[],
-  apiKey: string
-): Promise<RealOcrExtractionResult> {
-  const { mimeType, base64 } = extractBase64AndMime(dataUri);
-  const coaList = accounts
-    .filter(a => !a.isHeader)
-    .map(a => `${a.code} - ${a.name} (${a.categoryName})`)
-    .slice(0, 60)
-    .join('\n');
-
-  const prompt = `
-Anda adalah Akuntan Publik Senior (CPA) dan Ahli AI Vision Finansial Indonesia.
-Tugas Anda: Analisis bukti transaksi keuangan pada gambar/dokumen yang terlampir dan hasilkan JSON terstruktur secara akurat.
-
-Konteks Transaksi:
-- Deskripsi/Keterangan dari Pengguna: "${userDescription || '(Tidak ada keterangan)'}"
-- Kode POS yang dipilih: "${posCode}"
-- Daftar Akun (COA) Sistem:
-${coaList}
-
-PERINGATAN SANGAT KRUSIAL MENGENAI ANGKA DESIMAL & NOL (0):
-1. Pada Bukti Transfer Bank (seperti BCA, Mandiri, BRI, BNI) atau nota belanja, angka sering ditulis dengan dua digit sen/desimal di akhir, misalnya: "IDR 2,850,000.00" atau "IDR 2,500.00".
-2. Dua digit terakhir (.00 atau ,00) tersebut adalah SEN (CENTS), BUKAN RIBUAN ATAU JUTAAN!
-3. DILARANG KERAS menghasilkan angka dengan 2 nol berlebih (misalnya: JANGAN PERNAH menghasilkan 285000000 untuk 2,850,000.00, atau 250000 untuk 2,500.00)!
-4. Output angka integer WAJIB murni tanpa desimal sen:
-   - "IDR 2,850,000.00" -> 2850000 (Dua Juta Delapan Ratus Lima Puluh Ribu)
-   - "IDR 2,500.00" -> 2500 (Dua Ribu Lima Ratus)
-   - "IDR 2,852,500.00" -> 2852500 (Dua Juta Delapan Ratus Lima Puluh Dua Ribu Lima Ratus)
-   - "Rp 440.000,00" -> 440000
-
-Aturan Analisis Dokumen:
-1. Bukti Transfer Bank / m-Banking / BI-FAST (contoh: BCA, Mandiri, BRI, BNI, QRIS):
-   - Baris 1: Gabungkan informasi Berita/Tujuan Transaksi dan Nama Penerima (contoh: "Brevet Pajak CPTT - PT Piranha Multi Talenta").
-     - unit_price: nominal pokok transfer integer (contoh: 2850000 jika tertulis IDR 2,850,000.00).
-     - quantity: 1.
-     - total_price: 2850000.
-     - is_tax_or_fee: false.
-   - Baris 2 (jika tertera biaya admin / biaya transfer BI-FAST):
-     - name: "Biaya Transfer BI-FAST" (atau nama biaya yang tertera).
-     - unit_price: null.
-     - quantity: null.
-     - total_price: 2500 (angka integer 2500, BUKAN 250000!).
-     - is_tax_or_fee: true.
-     - tax_or_fee_type: "BI_FAST".
-   - declared_grand_total: Penjumlahan seluruh total_price (contoh: 2850000 + 2500 = 2852500).
-
-2. Struk Kasir / Nota Belanja / Faktur / Nota Tulis Tangan:
-   - Ekstrak setiap baris barang/jasa: nama item, unit_price, quantity, unit, total_price.
-   - Pisahkan pajak (PB1, PPN), service charge, ongkir sebagai baris tersendiri (is_tax_or_fee: true).
-
-Format JSON Output yang WAJIB dipatuhi tanpa tanda kutip markdown:
-{
-  "detected_type": "transfer_bank" | "nota_pembelian" | "faktur" | "struk_thermal" | "lainnya",
-  "seller_or_recipient": "Nama Penerima / Toko",
-  "transaction_date": "YYYY-MM-DD",
-  "declared_grand_total": 2852500,
-  "extracted_items": [
-    {
-      "name": "Brevet Pajak CPTT - PT Piranha Multi Talenta",
-      "unit_price": 2850000,
-      "quantity": 1,
-      "unit": "transaksi",
-      "total_price": 2850000,
-      "is_tax_or_fee": false,
-      "tax_or_fee_type": null,
-      "confidence": 98
-    },
-    {
-      "name": "Biaya Transfer BI-FAST",
-      "unit_price": null,
-      "quantity": null,
-      "unit": "",
-      "total_price": 2500,
-      "is_tax_or_fee": true,
-      "tax_or_fee_type": "BI_FAST",
-      "confidence": 99
-    }
-  ]
-}
-`;
-
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-  let lastError: any = null;
-  let responseText = '';
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const payload = {
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64
-                }
-              },
-              {
-                text: prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1
-        }
-      };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        console.warn(`Gemini model ${model} error (${res.status}):`, errText);
-        lastError = new Error(`Gemini ${model} HTTP ${res.status}`);
-        continue;
-      }
-
-      const json = await res.json();
-      responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (responseText) break;
-    } catch (e) {
-      lastError = e;
-    }
-  }
-
-  if (!responseText) {
-    throw lastError || new Error('Gagal mendapatkan respon dari Gemini Vision');
-  }
-
-  // Parse JSON
-  let cleaned = responseText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
-
-  const parsed = JSON.parse(cleaned);
-  const items: ExtractedItem[] = (parsed.extracted_items || []).map((it: any, idx: number) => {
-    const itemName = it.name || `Item ${idx + 1}`;
-    const sanitizedTotal = sanitizeCurrencyAmount(it.total_price, itemName);
-    const sanitizedUnit = it.unit_price !== null && it.unit_price !== undefined 
-      ? sanitizeCurrencyAmount(it.unit_price, itemName) 
-      : null;
-
+export function validateReceiptReadinessForAction(params: {
+  grandTotal: number;
+  extractedItems: ExtractedItem[];
+  hasUnconfirmedFee?: boolean;
+}): { canProceed: boolean; errorReason?: string } {
+  if (params.hasUnconfirmedFee) {
     return {
-      id: `it-gemini-${Date.now()}-${idx}`,
-      name: itemName,
-      unitPrice: sanitizedUnit,
-      quantity: it.quantity !== null && it.quantity !== undefined ? Number(it.quantity) : null,
-      unit: it.unit || '',
-      totalPrice: sanitizedTotal,
-      confidence: Number(it.confidence) || 95,
-      isTaxOrFee: Boolean(it.is_tax_or_fee),
-      taxOrFeeType: it.tax_or_fee_type || undefined
+      canProceed: false,
+      errorReason: 'Terdapat indikasi biaya transfer bank yang belum dikonfirmasi. Harap masukkan nominal biaya manual atau verifikasi bebas biaya terlebih dahulu pada Tabel Koreksi Tahap 2.'
     };
-  });
+  }
 
-  const declaredGrand = sanitizeCurrencyAmount(parsed.declared_grand_total, userDescription);
-  const verif = runTwoWayDeterministicVerification(items, declaredGrand);
+  const hasPositiveItem = (params.extractedItems || []).some(it => (Number(it.totalPrice) || 0) > 0);
+  if (!params.grandTotal || params.grandTotal <= 0 || !hasPositiveItem) {
+    return {
+      canProceed: false,
+      errorReason: 'Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid.'
+    };
+  }
 
   return {
-    detectedType: parsed.detected_type || 'lainnya',
-    sellerOrRecipient: parsed.seller_or_recipient || userDescription,
-    transactionDate: parsed.transaction_date,
-    extractedItems: verif.verifiedItems,
-    declaredGrandTotal: verif.grandTotal,
-    calculatedSum: verif.calculatedSum,
-    mathDiscrepancy: verif.mathDiscrepancy,
-    discrepancyMessage: verif.discrepancyMessage,
-    sourceEngine: 'gemini_vision',
-    rawResponse: parsed
+    canProceed: true
   };
+}
+
+/**
+ * Mengekstrak nominal transaksi yang sah dari teks mentah OCR dengan validasi ketat:
+ * 1. Menolak angka tanggal (YYYYMMDD, DDMMYYYY, tahun 2020-2035).
+ * 2. Menolak nomor handphone/telepon (08xx, 628xx).
+ * 3. Menolak nomor faktur, resi, kode pos, NPWP.
+ * 4. Hanya menerima angka yang berdekatan dengan indikator mata uang atau total (Rp, IDR, Total, Jumlah, Bayar, Subtotal).
+ */
+export function extractCandidateAmountFromOcrText(rawText: string): number {
+  if (!rawText || !rawText.trim()) return 0;
+
+  // Pola eksplisit dengan kata kunci total / bayar / jumlah / rp
+  const currencyPatterns = [
+    /(?:grand\s*total|total\s*bayar|total\s*tagihan|total|jumlah|subtotal|tagihan|bayar|netto)\s*[:=]?\s*(?:rp\.?|idr)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/gi,
+    /(?:rp\.?|idr)\s*[:=]?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/gi
+  ];
+
+  const candidateAmounts: number[] = [];
+
+  for (const pattern of currencyPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(rawText)) !== null) {
+      if (match[1]) {
+        const fullSnippet = match[0].toLowerCase();
+        // Cek jika snippet ada kata penolak (telp, invoice, nota, resi, no, rek, tgl)
+        if (
+          fullSnippet.includes('telp') ||
+          fullSnippet.includes('phone') ||
+          fullSnippet.includes('hp') ||
+          fullSnippet.includes('wa') ||
+          fullSnippet.includes('tgl') ||
+          fullSnippet.includes('tanggal') ||
+          fullSnippet.includes('inv') ||
+          fullSnippet.includes('nota') ||
+          fullSnippet.includes('resi') ||
+          fullSnippet.includes('npwp') ||
+          fullSnippet.includes('rek')
+        ) {
+          continue;
+        }
+
+        const cleanNum = match[1].replace(/[.,](?=[0-9]{3})/g, '').replace(/,[0-9]{2}$/, '');
+        const val = parseInt(cleanNum, 10);
+
+        if (!val || isNaN(val) || val < 1000) continue;
+
+        // Tolak tahun (2020-2035)
+        if (val >= 2020 && val <= 2035) continue;
+
+        // Tolak format tanggal YYYYMMDD atau DDMMYYYY 8-digit
+        const valStr = String(val);
+        if (valStr.length === 8) {
+          if (valStr.startsWith('202') || valStr.startsWith('203')) continue;
+          if (valStr.endsWith('2024') || valStr.endsWith('2025') || valStr.endsWith('2026') || valStr.endsWith('2027')) continue;
+        }
+
+        // Tolak format nomor HP
+        if (/^(?:08|628|81)[0-9]{8,11}$/.test(valStr)) continue;
+
+        candidateAmounts.push(val);
+      }
+    }
+  }
+
+  if (candidateAmounts.length > 0) {
+    return Math.max(...candidateAmounts);
+  }
+
+  // Jika tidak ditemukan angka dengan konteks harga yang valid, kembalikan 0 (tanpa nominal fiktif)
+  return 0;
 }
 
 /**
@@ -1635,7 +1762,10 @@ export async function extractTransactionWithOfflineOcr(
       calculatedSum: verif.calculatedSum,
       mathDiscrepancy: verif.mathDiscrepancy,
       discrepancyMessage: verif.discrepancyMessage,
-      sourceEngine: 'tesseract_ocr'
+      sourceEngine: 'tesseract_ocr',
+      bankTransferDetails: bankParsed.bankTransferDetails,
+      hasUnconfirmedFee: bankParsed.hasUnconfirmedFee,
+      unconfirmedFeeNote: bankParsed.unconfirmedFeeNote
     };
   }
 
@@ -1645,6 +1775,32 @@ export async function extractTransactionWithOfflineOcr(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const lowerLine = line.toLowerCase();
+
+    // Saring baris metadata yang sering berisi angka tanggal, nota, telepon, kasir
+    const isMetadataLine =
+      lowerLine.startsWith('no.') ||
+      lowerLine.startsWith('no ') ||
+      lowerLine.startsWith('nomor') ||
+      lowerLine.startsWith('inv') ||
+      lowerLine.startsWith('nota') ||
+      lowerLine.startsWith('faktur') ||
+      lowerLine.startsWith('tanggal') ||
+      lowerLine.startsWith('tgl') ||
+      lowerLine.startsWith('date') ||
+      lowerLine.startsWith('waktu') ||
+      lowerLine.startsWith('jam') ||
+      lowerLine.startsWith('kasir') ||
+      lowerLine.startsWith('operator') ||
+      lowerLine.startsWith('telp') ||
+      lowerLine.startsWith('phone') ||
+      lowerLine.startsWith('npwp') ||
+      lowerLine.startsWith('alamat');
+
+    if (isMetadataLine) {
+      continue;
+    }
+
     const numMatches = line.match(/(?:[1-9][0-9]{0,2}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[1-9][0-9]{0,2}(?:\.[0-9]{3})+|[1-9][0-9]{3,9}(?:[.,][0-9]{2})?)/g);
     if (numMatches && numMatches.length > 0) {
       const priceRaw = numMatches[numMatches.length - 1];
@@ -1671,43 +1827,104 @@ export async function extractTransactionWithOfflineOcr(
     }
   }
 
-  // Fallback aman jika teks tidak dapat di-parse menjadi baris item
+  // Fallback jika OCR tidak dapat membaca baris item secara terstruktur
   if (parsedItems.length === 0) {
-    const allNumbers = rawOcrText.match(/[1-9][0-9]{3,8}/g);
-    let fallbackAmount = 0;
-    if (allNumbers && allNumbers.length > 0) {
-      fallbackAmount = Math.max(...allNumbers.map(n => parseInt(n, 10)));
-    }
-    if (fallbackAmount === 0) {
-      fallbackAmount = 100000;
-    }
+    // Saring teks mentah dengan validasi ketat: cari hanya angka berkonteks harga/total yang valid
+    const detectedAmount = extractCandidateAmountFromOcrText(rawOcrText);
 
+    // STRICT: DILARANG membuat nominal fiktif (misal 100000) atau mengambil tanggal/nomor nota/telepon.
+    // Jika tidak terbaca dengan konteks mata uang yang yakin, set 0 dan tandai wajib koreksi manual.
+    const isUndetected = detectedAmount <= 0;
     parsedItems.push({
-      id: `it-fallback-${Date.now()}`,
-      name: userDescription && userDescription.trim() ? userDescription.trim() : 'Transaksi Bukti Unggahan',
-      unitPrice: fallbackAmount,
+      id: `it-ocr-manual-${Date.now()}`,
+      name: userDescription && userDescription.trim()
+        ? userDescription.trim()
+        : (isUndetected ? 'Item Belum Teridentifikasi (Wajib Diisi Manual)' : 'Pengeluaran Transaksi Umum'),
+      unitPrice: detectedAmount > 0 ? detectedAmount : 0,
       quantity: 1,
       unit: 'transaksi',
-      totalPrice: fallbackAmount,
-      confidence: 80
+      totalPrice: detectedAmount > 0 ? detectedAmount : 0,
+      confidence: detectedAmount > 0 ? 50 : 0
     });
   }
 
   const verif = runTwoWayDeterministicVerification(parsedItems);
+  const isIncomplete = verif.grandTotal <= 0 || parsedItems.some(it => !it.totalPrice || it.totalPrice <= 0);
+
   return {
     detectedType: 'nota_pembelian',
     sellerOrRecipient: userDescription || 'Toko / Rekanan',
     extractedItems: verif.verifiedItems,
     declaredGrandTotal: verif.grandTotal,
     calculatedSum: verif.calculatedSum,
-    mathDiscrepancy: verif.mathDiscrepancy,
-    discrepancyMessage: verif.discrepancyMessage,
+    mathDiscrepancy: verif.mathDiscrepancy || isIncomplete,
+    discrepancyMessage: isIncomplete
+      ? 'OCR Tidak Lengkap: Nominal tidak terbaca dengan yakin. Wajib dilakukan koreksi manual pada Tabel Koreksi Tahap 2 sebelum jurnal dapat diposting.'
+      : verif.discrepancyMessage,
     sourceEngine: 'smart_parser'
   };
 }
 
 /**
+ * Pipeline Ekstraksi Citra Tunggal (Groq Vision -> Offline Tesseract OCR)
+ */
+async function extractSingleImageViaPipeline(params: {
+  imageUri: string;
+  posCode: string;
+  userDescription: string;
+  accounts: Account[];
+  onProgress?: (step: string) => void;
+  pageLabel?: string;
+}): Promise<RealOcrExtractionResult> {
+  const { imageUri, posCode, userDescription, accounts, onProgress, pageLabel } = params;
+  const prefix = pageLabel ? `[${pageLabel}] ` : '';
+
+  // 1. Prioritas 1: Cloud Serverless Groq Vision API (/api/scan-receipt)
+  onProgress?.(`2/4: ${prefix}Memproses dengan Groq Vision AI (Serverless Cloud)...`);
+  try {
+    const groqRes = await fetch('/api/scan-receipt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        image: imageUri,
+        posCode,
+        userDescription
+      })
+    });
+
+    if (groqRes.ok) {
+      const data = await groqRes.json();
+      if (data.success && data.data) {
+        onProgress?.(`2/4: ${prefix}Berhasil mengekstrak data struk via Groq Vision!`);
+        return {
+          ...data.data,
+          sourceEngine: 'groq_vision' as const
+        };
+      }
+    } else {
+      const errJson = await groqRes.json().catch(() => null);
+      const errMsg = errJson?.error || `HTTP ${groqRes.status}`;
+      console.warn(`Groq Vision API gagal (${errMsg}), beralih ke OCR offline lokal...`);
+      onProgress?.(`2/4: ${prefix}Groq Vision (${errMsg}), beralih ke OCR offline lokal...`);
+    }
+  } catch (groqErr: any) {
+    console.warn('Groq Vision backend unreachable/offline, beralih ke OCR offline lokal:', groqErr);
+    onProgress?.(`2/4: ${prefix}Backend Groq offline, beralih ke OCR offline lokal...`);
+  }
+
+  // 2. Prioritas 2 (Fallback Offline): Offline OCR Tesseract.js & Smart Parser
+  return extractTransactionWithOfflineOcr(imageUri, posCode, userDescription, accounts, onProgress);
+}
+
+/**
  * Orkestrator Ekstraksi Bukti Transaksi Nyata
+ * Multi-Provider & Multi-Format Pipeline:
+ * - Dukungan PDF (1 s.d. 5 halaman) via konversi cerdas PDF.js ke gambar JPEG beresolusi tinggi
+ * - Optimasi & kompresi cerdas gambar struk (JPEG/PNG/WebP/kamera) agar di bawah batas Vercel 4.5MB
+ * - Multi-tier AI: Groq Vision -> Offline Tesseract.js
  */
 export async function extractTransactionFromFile(params: {
   fileDataUri: string;
@@ -1717,20 +1934,180 @@ export async function extractTransactionFromFile(params: {
   accounts: Account[];
   onProgress?: (step: string) => void;
 }): Promise<RealOcrExtractionResult> {
-  const { fileDataUri, posCode, userDescription, accounts, onProgress } = params;
-  const apiKey = getGeminiApiKey();
+  const { fileDataUri, fileName, posCode, userDescription, accounts, onProgress } = params;
 
-  if (apiKey) {
-    onProgress?.('2/4: Memproses dengan Gemini Multimodal Vision AI...');
-    try {
-      const result = await callGeminiVisionExtraction(fileDataUri, posCode, userDescription, accounts, apiKey);
-      return result;
-    } catch (err: any) {
-      console.warn('Gemini Vision API gagal, beralih ke OCR lokal:', err);
-      onProgress?.('2/4: Gemini Vision sibuk/gagal, beralih ke OCR lokal...');
+  // =========================================================================
+  // KASUS 1: BERKAS MERUPAKAN DOKUMEN PDF
+  // =========================================================================
+  if (isPdfDataUri(fileDataUri) || isPdfFile(fileName)) {
+    onProgress?.('1/4: Membaca & merender dokumen PDF dengan PDF.js...');
+    const pdfRes = await convertPdfToImages(fileDataUri, {
+      maxPages: 5,
+      scale: 1.8,
+      onProgress: (cur, tot) => onProgress?.(`1/4: Merender halaman PDF ${cur} dari ${tot}...`)
+    });
+
+    if (!pdfRes.success || pdfRes.pageImages.length === 0) {
+      return {
+        detectedType: 'lainnya',
+        sellerOrRecipient: userDescription || 'Dokumen PDF',
+        extractedItems: [],
+        declaredGrandTotal: 0,
+        calculatedSum: 0,
+        mathDiscrepancy: false,
+        discrepancyMessage: pdfRes.error || 'Gagal membaca isi dokumen PDF.',
+        sourceEngine: 'smart_parser'
+      };
     }
+
+    // Jika PDF hanya 1 halaman
+    if (pdfRes.pageImages.length === 1) {
+      const singleRes = await extractSingleImageViaPipeline({
+        imageUri: pdfRes.pageImages[0],
+        posCode,
+        userDescription,
+        accounts,
+        onProgress,
+        pageLabel: 'Hal 1/1'
+      });
+      return singleRes;
+    }
+
+    // Jika PDF Multipage (2 s/d 10 halaman)
+    const allItems: ExtractedItem[] = [];
+    let detectedSeller = '';
+    let detectedDate = '';
+    let detectedType: RealOcrExtractionResult['detectedType'] = 'faktur';
+    let primarySourceEngine: RealOcrExtractionResult['sourceEngine'] = 'groq_vision';
+    const pageDeclaredTotals: { pageNum: number; declaredTotal: number }[] = [];
+
+    for (let pIdx = 0; pIdx < pdfRes.pageImages.length; pIdx++) {
+      const pageNum = pIdx + 1;
+      const pageImage = pdfRes.pageImages[pIdx];
+
+      // Beri jeda kecil (300ms) antar-request serverless jika multi-halaman
+      if (pIdx > 0) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      const pageRes = await extractSingleImageViaPipeline({
+        imageUri: pageImage,
+        posCode,
+        userDescription,
+        accounts,
+        onProgress,
+        pageLabel: `Hal ${pageNum}/${pdfRes.pageImages.length}`
+      });
+
+      // VALIDASI KEUTUHAN HALAMAN:
+      // Jika salah satu halaman gagal total (tidak ada item dan tidak ada total), batalkan seluruhnya
+      // demi mencegah hilangnya item transaksi atau pajak secara sepihak.
+      if (!pageRes || (!pageRes.extractedItems.length && !pageRes.declaredGrandTotal)) {
+        return {
+          detectedType: 'lainnya',
+          sellerOrRecipient: userDescription || 'Dokumen PDF',
+          extractedItems: [],
+          declaredGrandTotal: 0,
+          calculatedSum: 0,
+          mathDiscrepancy: true,
+          discrepancyMessage: `Gagal mengekstrak data pada halaman ${pageNum} dari ${pdfRes.pageImages.length}. Pemrosesan dibatalkan demi mencegah transaksi parsial/tidak lengkap.`,
+          sourceEngine: 'smart_parser'
+        };
+      }
+
+      if (!detectedSeller && pageRes.sellerOrRecipient) {
+        detectedSeller = pageRes.sellerOrRecipient;
+      }
+      if (!detectedDate && pageRes.transactionDate) {
+        detectedDate = pageRes.transactionDate;
+      }
+      if (pageRes.detectedType && detectedType === 'faktur') {
+        detectedType = pageRes.detectedType;
+      }
+      primarySourceEngine = pageRes.sourceEngine;
+
+      if (pageRes.declaredGrandTotal > 0) {
+        pageDeclaredTotals.push({ pageNum, declaredTotal: pageRes.declaredGrandTotal });
+      }
+
+      // KOREKSI MULTI-HALAMAN & PERLINDUNGAN ITEM SEBENARNYA:
+      // 1. Beri ID terisolasi unik per halaman: `p${pageNum}-...`
+      // 2. HANYA filter baris jika secara eksplisit merupakan baris teks subtotal/pindahan halaman.
+      // 3. Item transaksi riil dengan nama & harga identik yang memang dibeli berulang TETAP DIPERTAHANKAN 100%!
+      pageRes.extractedItems.forEach((item, itemIdx) => {
+        const lowerName = (item.name || '').toLowerCase().trim();
+        const isExplicitSubtotalLine =
+          lowerName.includes('subtotal') ||
+          lowerName.includes('sub-total') ||
+          lowerName.includes('sub total') ||
+          lowerName.includes('jumlah sementara') ||
+          lowerName.includes('pindahan') ||
+          lowerName.includes('jumlah dipindahkan') ||
+          lowerName.includes('balance brought forward') ||
+          lowerName.includes('carried forward');
+
+        // Jika halaman > 1 dan baris adalah pengulangan subtotal dari halaman sebelumnya, abaikan agar tidak double count
+        if (pIdx > 0 && isExplicitSubtotalLine) {
+          return;
+        }
+
+        allItems.push({
+          ...item,
+          id: `p${pageNum}-${item.id || itemIdx + 1}`
+        });
+      });
+    }
+
+    // RESOLUSI GRAND TOTAL MULTI-HALAMAN:
+    // Pada faktur komersial multipage, Grand Total final tercantum pada halaman terakhir (setelah PPN/Diskon),
+    // atau merupakan penjumlahan item. DILARANG KERAS menjumlahkan declaredGrandTotal antar-halaman secara naif.
+    const calculatedSum = allItems.reduce((acc, it) => acc + (Number(it.totalPrice) || 0), 0);
+    const lastPageTotal = pageDeclaredTotals.find(p => p.pageNum === pdfRes.pageImages.length)?.declaredTotal || 0;
+
+    let resolvedGrandTotal = calculatedSum;
+    if (lastPageTotal > 0 && (Math.abs(lastPageTotal - calculatedSum) <= 1 || lastPageTotal >= calculatedSum * 0.7)) {
+      // Halaman terakhir memuat grand total kumulatif seluruh faktur
+      resolvedGrandTotal = lastPageTotal;
+    } else {
+      // Cari apakah ada halaman yang secara eksplisit memuat total kumulatif yang cocok dengan sum
+      const matchingPage = pageDeclaredTotals.find(p => Math.abs(p.declaredTotal - calculatedSum) <= 1);
+      if (matchingPage) {
+        resolvedGrandTotal = matchingPage.declaredTotal;
+      }
+    }
+
+    // Verifikasi deterministik hasil gabungan seluruh halaman
+    const verif = runTwoWayDeterministicVerification(allItems, resolvedGrandTotal);
+    const note = `Hasil gabungan dari ${pdfRes.pageImages.length} halaman dokumen PDF (Seluruh halaman terproses lengkap).`;
+
+    return {
+      detectedType,
+      sellerOrRecipient: detectedSeller || userDescription || 'Rekanan / Penjual',
+      transactionDate: detectedDate,
+      extractedItems: verif.verifiedItems,
+      declaredGrandTotal: verif.grandTotal,
+      calculatedSum: verif.calculatedSum,
+      mathDiscrepancy: verif.mathDiscrepancy,
+      discrepancyMessage: verif.discrepancyMessage ? `${note} ${verif.discrepancyMessage}` : note,
+      sourceEngine: primarySourceEngine
+    };
   }
 
-  // Fallback ke OCR lokal Tesseract & Smart Parser
-  return extractTransactionWithOfflineOcr(fileDataUri, posCode, userDescription, accounts, onProgress);
+  // =========================================================================
+  // KASUS 2: BERKAS MERUPAKAN GAMBAR BIASA (JPG/PNG/WEBP/KAMERA)
+  // =========================================================================
+  onProgress?.('1/4: Mengoptimasi resolusi & ukuran gambar struk...');
+  const optimizedDataUri = await optimizeReceiptImage(fileDataUri, {
+    maxDimension: 2048,
+    targetMaxBytes: 2 * 1024 * 1024,
+    quality: 0.88
+  });
+
+  return extractSingleImageViaPipeline({
+    imageUri: optimizedDataUri,
+    posCode,
+    userDescription,
+    accounts,
+    onProgress
+  });
 }

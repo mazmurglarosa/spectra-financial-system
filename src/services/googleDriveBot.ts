@@ -2,38 +2,47 @@
  * SPECTRA Google Drive Storage Bot
  * 
  * Bertugas mengalihkan dan menyimpan berkas berukuran besar (foto background login,
- * background booting, logo beresolusi tinggi, dokumen bukti) langsung ke Google Drive:
- * https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing
+ * background booting, logo beresolusi tinggi, dokumen bukti) ke Google Drive secara aman
+ * melalui Backend Gateway Proxy (/api/financial/drive-upload):
  * 
- * Tujuan:
- * 1. Menjaga database Supabase selalu ultra-ringan (hanya beberapa kilobyte)
- * 2. Supabase hanya mencatat metadata teks (URL link) dan histori aktivitas
- * 3. Kapasitas database Supabase dijamin jauh di bawah ambang batas gratis (500 MB)
+ * Keamanan Enterprise:
+ * 1. ZERO HARDCODED SECRET / CREDENTIALS di sisi browser client.
+ * 2. Seluruh request diproxy melalui endpoint Vercel Serverless terautentikasi (/api/financial/drive-upload).
+ * 3. Menjamin database Supabase selalu ultra-ringan (hanya beberapa kilobyte metadata link).
+ * 4. Isolasi ketat: Preview & Staging diblokir dari folder / webhook Google Drive Production.
  */
 
+import { isExternalSyncDisabledOnPreview, getExternalSyncStatus } from './externalSyncGuard';
+
 // FOLDER 1: WEB ASSETS & SYSTEM SETTINGS ONLY (data_web)
-// Digunakan HANYA untuk aset website, background login, background booting, corporate logo, dll.
 export const SPECTRA_WEB_DRIVE_FOLDER_ID = '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn';
 export const SPECTRA_WEB_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn?usp=sharing';
 
 // FOLDER 2: DATA HASIL TRANSAKSI RESMI (AUTO RECORD TRANSACTIONS)
-// Digunakan KHUSUS untuk seluruh bukti fisik transaksi dari modul Auto Record (BT/...)
 export const SPECTRA_TRANSACTIONS_DRIVE_FOLDER_ID = '1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9';
 export const SPECTRA_TRANSACTIONS_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9?usp=sharing';
 
 // Default alias untuk aset web (backward compatibility)
 export const SPECTRA_DRIVE_FOLDER_ID = SPECTRA_WEB_DRIVE_FOLDER_ID;
 export const SPECTRA_DRIVE_FOLDER_URL = SPECTRA_WEB_DRIVE_FOLDER_URL;
-export const GDRIVE_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT/exec';
 
 export interface DriveUploadResponse {
   success: boolean;
+  status?: 'UPLOADED' | 'SIMULATED';
   fileId?: string;
   directUrl?: string;
   viewUrl?: string;
   fileName?: string;
   error?: string;
   message?: string;
+  isMocked?: boolean;
+}
+
+function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)spectra_csrf=([^;]+)/);
+  if (match) return decodeURIComponent(match[1]);
+  return sessionStorage.getItem('spectra_csrf') || localStorage.getItem('spectra_csrf') || '';
 }
 
 /**
@@ -52,7 +61,7 @@ export function formatDriveDirectUrl(fileId: string): string {
 }
 
 /**
- * Unggah berkas berat (Base64 atau Blob) langsung ke folder Google Drive resmi via Bot
+ * Unggah berkas berat (Base64 atau Blob) ke Google Drive secara aman via Backend Gateway Proxy
  */
 export async function uploadHeavyFileToDrive(
   base64OrDataUri: string,
@@ -65,6 +74,23 @@ export async function uploadHeavyFileToDrive(
     folderId?: string;
   }
 ): Promise<DriveUploadResponse> {
+  // 1. FAIL-CLOSED ENVIRONMENT GUARD
+  // Pada Vercel Preview, Staging DB, atau Localhost, isolasi Google Drive perusahaan asli
+  if (isExternalSyncDisabledOnPreview()) {
+    const status = getExternalSyncStatus();
+    console.info(`[ISOLASI ${status.environmentName.toUpperCase()}] uploadHeavyFileToDrive dialihkan ke mock aman. Alasan: ${status.reason}`);
+    return {
+      success: true,
+      status: 'SIMULATED',
+      fileId: undefined,
+      directUrl: undefined,
+      viewUrl: undefined,
+      fileName: fileName,
+      message: `[Simulasi Preview - Data Perusahaan Aman] Pengunggahan ke Google Drive dialihkan ke penyimpanan lokal/IndexedDB pada lingkungan ${status.environmentName.toUpperCase()}.`,
+      isMocked: true
+    };
+  }
+
   try {
     const cleanBase64 = base64OrDataUri.includes(',')
       ? base64OrDataUri.split(',')[1]
@@ -83,41 +109,52 @@ export async function uploadHeavyFileToDrive(
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch(GDRIVE_WEBHOOK_URL, {
+    const csrf = getCsrfToken();
+    const response = await fetch('/api/financial/drive-upload', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrf
       },
+      credentials: 'include',
       body: JSON.stringify(payload),
-      signal: controller.signal,
-      redirect: 'follow'
+      signal: controller.signal
     });
     clearTimeout(timeoutId);
 
-    const result = await response.json();
-    if (result.status === 'success' || result.success) {
-      const fileId = result.fileId;
-      const directUrl = formatDriveDirectUrl(fileId);
+    const result = await response.json().catch(() => null);
+
+    if (response.ok && result && (result.success || result.status === 'success' || result.status === 'SIMULATED')) {
+      const isSimulated = result.status === 'SIMULATED' || result.isMocked === true;
+      const fileId = isSimulated ? undefined : (result.fileId || undefined);
       return {
         success: true,
+        status: isSimulated ? 'SIMULATED' : 'UPLOADED',
         fileId: fileId,
-        directUrl: directUrl,
-        viewUrl: result.viewUrl || `https://drive.google.com/file/d/${fileId}/view`,
+        directUrl: isSimulated ? undefined : (result.directUrl || (fileId ? formatDriveDirectUrl(fileId) : undefined)),
+        viewUrl: isSimulated ? undefined : (result.viewUrl || (fileId ? `https://drive.google.com/file/d/${fileId}/view` : undefined)),
         fileName: result.fileName || fileName,
-        message: result.message || 'Berkas berhasil dialihkan & tersimpan di Google Drive!'
+        message: result.message || 'Berkas berhasil diproses.',
+        isMocked: isSimulated
       };
     } else {
       return {
         success: false,
-        error: result.message || 'Bot Google Drive gagal memproses unggahan.'
+        error: result?.error || result?.message || `Gagal mengunggah berkas via server proxy (HTTP ${response.status}).`
       };
     }
   } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return {
+        success: false,
+        error: 'Permintaan unggah ke Google Drive melampaui batas waktu (timeout 30 detik).'
+      };
+    }
     return {
       success: false,
-      error: `Gagal menghubungkan ke Bot Google Drive: ${err?.message || err}`
+      error: `Gagal menghubungi server proxy Google Drive: ${err?.message || err}`
     };
   }
 }

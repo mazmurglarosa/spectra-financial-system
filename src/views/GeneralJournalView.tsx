@@ -59,9 +59,12 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
   const totalCredit = filteredTransactions.reduce((acc, t) => acc + t.totalCredit, 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
 
-  const handleDelete = (trx: Transaction) => {
+  const handleDelete = async (trx: Transaction) => {
     if (confirm(`Hapus transaksi ${trx.refNumber}: "${trx.description}"? Tindakan ini akan mengupdate semua buku besar dan laporan keuangan.`)) {
-      deleteTransaction(trx.id);
+      const res = await deleteTransaction(trx.id);
+      if (!res.success) {
+        alert(res.error || 'Gagal menghapus transaksi dari server.');
+      }
     }
   };
 
@@ -91,7 +94,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
   };
 
   return (
-    <div className="p-5 space-y-4 animate-fadeIn pb-12">
+    <div className="p-3 sm:p-5 space-y-4 animate-fadeIn pb-16 md:pb-12 max-w-7xl mx-auto w-full">
       {/* Top Banner & Control Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-xl shadow-xs border border-slate-200">
         <div>
@@ -104,11 +107,11 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center space-x-2 flex-wrap gap-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-2 w-full sm:w-auto">
           <button 
             type="button"
             onClick={() => openNewTransactionModal('general')}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1.5 shadow-xs transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-md flex items-center justify-center space-x-1.5 shadow-xs transition cursor-pointer w-full sm:w-auto min-h-[40px] sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
           >
             <Plus className="w-4 h-4" />
             <span>+ Jurnal Baru</span>
@@ -117,7 +120,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           <button 
             type="button"
             onClick={handleExport}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1 border border-slate-300 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center justify-center space-x-1 border border-slate-300 transition cursor-pointer flex-1 sm:flex-none min-h-[38px] sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
           >
             <Download className="w-4 h-4" />
             <span>Export Excel</span>
@@ -126,7 +129,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
           <button 
             type="button"
             onClick={() => window.print()}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center space-x-1 border border-slate-300 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-md flex items-center justify-center space-x-1 border border-slate-300 transition cursor-pointer flex-1 sm:flex-none min-h-[38px] sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1"
           >
             <Printer className="w-4 h-4" />
             <span>Cetak</span>
@@ -137,8 +140,8 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
       {/* Filter Tabs & Search */}
       <div className="bg-white p-3.5 rounded-xl shadow-xs border border-slate-200 space-y-3">
         {/* Type Filter Buttons */}
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-3 text-xs">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-2">Tipe:</span>
+        <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 text-xs overflow-x-auto touch-scroll-x no-scrollbar whitespace-nowrap">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-2 shrink-0">Tipe:</span>
           {[
             { id: 'all', label: 'Semua Transaksi' },
             { id: 'general', label: 'Jurnal Umum (JU)' },
@@ -152,7 +155,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
               key={t.id}
               type="button"
               onClick={() => setSelectedType(t.id)}
-              className={`px-3 py-1 rounded-md font-semibold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-md font-semibold transition cursor-pointer shrink-0 ${
                 selectedType === t.id 
                   ? 'bg-blue-600 text-white shadow-xs' 
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -164,7 +167,7 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
         </div>
 
         {/* Search & Dates */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
           <div className="relative w-full sm:w-72">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
             <input 
@@ -176,32 +179,164 @@ export const GeneralJournalView: React.FC<GeneralJournalViewProps> = ({
             />
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 w-full sm:w-auto">
             <input 
               type="date" 
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white"
+              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white flex-1 sm:flex-none"
             />
             <span className="text-slate-400">-</span>
             <input 
               type="date" 
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white"
+              className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-700 bg-white flex-1 sm:flex-none"
             />
           </div>
 
-          <div className="flex items-center space-x-2 text-xs">
+          <div className="flex items-center justify-between sm:justify-start space-x-2 text-xs pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
             <span className="font-semibold text-slate-500">Total Transaksi:</span>
             <span className="font-bold text-slate-900 font-mono">{filteredTransactions.length}</span>
           </div>
         </div>
       </div>
 
-      {/* Main Journal Table */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+      
+      {/* Mobile Card View (sm:hidden) */}
+      <div className="sm:hidden space-y-3">
+        {filteredTransactions.length === 0 ? (
+          <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200">
+            Tidak ada transaksi jurnal yang ditemukan.
+          </div>
+        ) : (
+          filteredTransactions.map(trx => {
+            let badgeType = "bg-slate-100 text-slate-700";
+            if (trx.type === "adjustment") badgeType = "bg-amber-100 text-amber-800";
+            else if (trx.type === "cash_in") badgeType = "bg-emerald-100 text-emerald-800";
+            else if (trx.type === "cash_out") badgeType = "bg-rose-100 text-rose-800";
+            else if (trx.type === "sales") badgeType = "bg-blue-100 text-blue-800";
+            else if (trx.type === "purchase") badgeType = "bg-purple-100 text-purple-800";
+
+            const trxDebit = trx.lines.reduce((s, l) => s + (l.debit || 0), 0);
+
+            return (
+              <div key={trx.id} className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-2xs space-y-2.5">
+                {/* Header: Ref, Date, Badge, Actions */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono font-bold text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                      {trx.refNumber}
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${badgeType}`}>
+                      {trx.type || 'general'}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      {trx.date}
+                    </span>
+                  </div>
+
+                  {/* Actions with touch target >= 40px */}
+                  <div className="flex items-center gap-1">
+                    <button 
+                      type="button"
+                      onClick={() => onEditTransaction(trx)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                      title="Edit Transaksi"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => handleDelete(trx)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                      title="Hapus Transaksi"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Description & Partner */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-800">{trx.description}</div>
+                  {trx.partner && (
+                    <div className="text-[11px] text-slate-500 mt-0.5">Mitra: {trx.partner}</div>
+                  )}
+                </div>
+
+                {/* Account Lines Breakdown */}
+                <div className="bg-slate-50/80 rounded-lg p-2.5 space-y-1.5 border border-slate-100 text-xs">
+                  {trx.lines.map((line, lIdx) => (
+                    <div key={line.id || lIdx} className="flex items-start justify-between gap-2 border-b border-slate-200/50 last:border-0 pb-1.5 last:pb-0">
+                      <div className={`flex-1 ${line.credit > 0 ? 'pl-3' : ''}`}>
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <span className="font-mono font-bold text-slate-700">{line.accountCode}</span>
+                          <span className="text-slate-400">•</span>
+                          <span className={line.credit > 0 ? 'text-slate-700' : 'font-semibold text-slate-900'}>
+                            {line.accountName}
+                          </span>
+                        </div>
+                        {line.memo && (
+                          <div className="text-[10px] text-slate-400 italic">└ {line.memo}</div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0 font-mono text-[11px]">
+                        {line.debit > 0 && (
+                          <div className="font-semibold text-emerald-700">D: {formatRupiah(line.debit)}</div>
+                        )}
+                        {line.credit > 0 && (
+                          <div className="font-semibold text-slate-700">K: {formatRupiah(line.credit)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Voucher Total */}
+                <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500">
+                  <span>Total Voucher:</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {formatRupiah(trxDebit)}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {/* Mobile Total Balance Card */}
+        <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-xs space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+            <span>TOTAL KESEIMBANGAN:</span>
+            {isBalanced ? (
+              <span className="text-emerald-700 text-xs font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Seimbang</span>
+              </span>
+            ) : (
+              <span className="text-rose-700 text-xs font-bold flex items-center gap-1">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Selisih</span>
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1 border-t border-slate-100">
+            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+              <div className="text-[10px] text-slate-500 font-sans">Total Debit</div>
+              <div className="font-bold text-slate-900 text-xs">{formatRupiah(totalDebit)}</div>
+            </div>
+            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+              <div className="text-[10px] text-slate-500 font-sans">Total Kredit</div>
+              <div className="font-bold text-slate-900 text-xs">{formatRupiah(totalCredit)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Main Journal Table */}
+      <div className="hidden sm:block bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto touch-scroll-x">
           <table className="table-accurate text-xs">
             <thead>
               <tr>
