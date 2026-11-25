@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   define: {
-    '__VERCEL_ENV__': JSON.stringify(process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'),
+    '__VERCEL_ENV__': JSON.stringify(process.env.VERCEL_ENV || process.env.VITE_VERCEL_ENV || ''),
   }
 })

@@ -25,15 +25,46 @@ export interface ExternalSyncStatus {
   reason: string;
 }
 
+export interface SyncGuardContext {
+  hostname?: string;
+  supabaseUrl?: string;
+  vercelEnv?: string;
+}
+
+export const APPROVED_PRODUCTION_DOMAINS: readonly string[] = [
+  'spectra-financial-system.vercel.app',
+  'spectra.nirwanabhumi.co.id',
+  'spectra.my.id',
+  'www.spectra.my.id'
+];
+
+export const PRODUCTION_SUPABASE_PROJECT = 'drsqwxkkcfqvooqzoyvm';
+export const STAGING_SUPABASE_PROJECT = 'xaafjvmdjdlfqdrljjlr';
+
 /**
- * Cek apakah lingkungan saat ini adalah Production resmi.
- * Menggunakan pemisahan lingkungan yang terpercaya:
- * 1. Target database Supabase (Staging `xaafjvmdjdlfqdrljjlr` vs Production `drsqwxkkcfqvooqzoyvm`)
- * 2. Vercel build environment (`VERCEL_ENV`: 'production' vs 'preview' vs 'development')
- * 3. Pola hostname (preview branch / deployment hash vs canonical domain)
+ * Cek apakah hostname merupakan domain Production resmi yang disetujui.
  */
-export function getExternalSyncStatus(): ExternalSyncStatus {
-  if (typeof window === 'undefined') {
+export function isProductionDomain(hostname: string | undefined): boolean {
+  if (!hostname) return false;
+  const clean = hostname.trim().toLowerCase();
+  return APPROVED_PRODUCTION_DOMAINS.includes(clean);
+}
+
+/**
+ * Evaluasi status sinkronisasi eksternal.
+ *
+ * Aturan Ketat Produksi:
+ * Production HANYA aktif jika ketiga syarat terpenuhi serentak:
+ * 1. vercelEnv === 'production'
+ * 2. isProductionDomain(hostname) === true
+ * 3. viteSupabaseUrl mengandung project Production 'drsqwxkkcfqvooqzoyvm'
+ *
+ * Semua kondisi selain itu WAJIB FAIL-CLOSED (Mock Mode / Isolasi Pengujian).
+ */
+export function getExternalSyncStatus(override?: SyncGuardContext): ExternalSyncStatus {
+  const isBrowser = typeof window !== 'undefined';
+
+  if (!isBrowser && !override) {
     return {
       isAllowed: false,
       isMockMode: true,
@@ -42,22 +73,46 @@ export function getExternalSyncStatus(): ExternalSyncStatus {
     };
   }
 
-  const hostname = (window.location.hostname || '').toLowerCase();
-  const viteSupabaseUrl = ((import.meta as any).env?.VITE_SUPABASE_URL || '').toLowerCase();
-  const vercelEnv = typeof __VERCEL_ENV__ !== 'undefined' ? __VERCEL_ENV__ : ((import.meta as any).env?.VITE_VERCEL_ENV || '');
+  const hostname = (
+    override?.hostname !== undefined
+      ? override.hostname
+      : (isBrowser ? window.location.hostname : '')
+  ).toLowerCase().trim();
+
+  const viteSupabaseUrl = (
+    override?.supabaseUrl !== undefined
+      ? override.supabaseUrl
+      : (((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '') as string)
+  ).toLowerCase().trim();
+
+  const vercelEnv = (
+    override?.vercelEnv !== undefined
+      ? override.vercelEnv
+      : (
+          typeof __VERCEL_ENV__ !== 'undefined' && __VERCEL_ENV__
+            ? __VERCEL_ENV__
+            : ((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_VERCEL_ENV) || '')
+        )
+  ).trim();
 
   // 1. Deteksi Target Database Staging (Prioritas Tertinggi: jika DB adalah staging, PASTI bukan produksi)
-  if (viteSupabaseUrl.includes('xaafjvmdjdlfqdrljjlr')) {
+  if (viteSupabaseUrl.includes(STAGING_SUPABASE_PROJECT)) {
     return {
       isAllowed: false,
       isMockMode: true,
       environmentName: 'staging',
-      reason: 'Terhubung ke database Staging (xaafjvmdjdlfqdrljjlr)'
+      reason: `Terhubung ke database Staging (${STAGING_SUPABASE_PROJECT})`
     };
   }
 
   // 2. Deteksi Lingkungan Localhost / Dev
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '0.0.0.0' ||
+    hostname === '::1' ||
+    hostname === '[::1]'
+  ) {
     return {
       isAllowed: false,
       isMockMode: true,
@@ -66,25 +121,31 @@ export function getExternalSyncStatus(): ExternalSyncStatus {
     };
   }
 
-  // 3. Deteksi Vercel Preview secara terpercaya:
+  // 3. Deteksi Vercel Preview & Non-Canonical Deployments:
   // - Vercel build env eksplisit 'preview'
-  // - Atau hostname mengandung branch preview (*-git-*) atau deployment hash spesifik preview
-  const isVercelPreview = 
-    vercelEnv === 'preview' || 
-    hostname.includes('-git-') || 
-    /^[a-z0-9-]+-[a-z0-9]{9,}-.+\.vercel\.app$/.test(hostname);
+  // - Hostname mengandung git branch preview (*-git-*)
+  // - Domain *.vercel.app selain domain canonical yang disetujui
+  const isVercelDomain = hostname.endsWith('.vercel.app');
+  const isExplicitPreviewEnv = vercelEnv === 'preview';
+  const hasGitBranchPattern = hostname.includes('-git-');
+  const isNonCanonicalVercelDeployment = isVercelDomain && !isProductionDomain(hostname);
 
-  if (isVercelPreview) {
+  if (isExplicitPreviewEnv || hasGitBranchPattern || isNonCanonicalVercelDeployment) {
     return {
       isAllowed: false,
       isMockMode: true,
       environmentName: 'preview',
-      reason: 'Berjalan pada Vercel Preview / Branch Deployment'
+      reason: 'Berjalan pada Vercel Preview / Deployment Non-Canonical'
     };
   }
 
-  // 4. Jika terhubung ke database Production (drsqwxkkcfqvooqzoyvm) atau Vercel Production
-  if (viteSupabaseUrl.includes('drsqwxkkcfqvooqzoyvm') || vercelEnv === 'production') {
+  // 4. Verifikasi Mutlak Produksi Resmi:
+  // Wajib memenuhi ketiga syarat secara serentak (fail-closed)
+  const isVercelProdEnv = vercelEnv === 'production';
+  const isApprovedHost = isProductionDomain(hostname);
+  const isProdDb = viteSupabaseUrl.includes(PRODUCTION_SUPABASE_PROJECT);
+
+  if (isVercelProdEnv && isApprovedHost && isProdDb) {
     return {
       isAllowed: true,
       isMockMode: false,
@@ -97,15 +158,15 @@ export function getExternalSyncStatus(): ExternalSyncStatus {
   return {
     isAllowed: false,
     isMockMode: true,
-    environmentName: 'staging',
-    reason: 'Fail-closed: Lingkungan tidak terverifikasi sebagai Production resmi'
+    environmentName: 'preview',
+    reason: 'Fail-closed: Lingkungan tidak memenuhi seluruh kriteria verifikasi Production resmi'
   };
 }
 
 /**
  * Cek cepat apakah sinkronisasi eksternal dinonaktifkan (Mock Mode)
  */
-export function isExternalSyncDisabledOnPreview(): boolean {
-  const status = getExternalSyncStatus();
+export function isExternalSyncDisabledOnPreview(override?: SyncGuardContext): boolean {
+  const status = getExternalSyncStatus(override);
   return status.isMockMode;
 }
