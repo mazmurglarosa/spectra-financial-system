@@ -18,8 +18,19 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ success: false, error: 'Username dan password wajib diisi.' });
   }
 
+  // Inisialisasi Supabase Server Client (Fail-Safe 500 JSON)
+  let supabase: any;
+  try {
+    supabase = getSupabaseServerClient();
+  } catch (err: any) {
+    console.error('[Login] Gagal inisialisasi Supabase Server Client:', err?.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Konfigurasi database server tidak valid atau belum diatur.'
+    });
+  }
+
   // 2. Rate Limiting Brute Force Protection (Maks 5 percobaan gagal per 5 menit per IP/Username)
-  const supabase = getSupabaseServerClient();
   const rateKey = `login_${clientIp}_${username}`;
   const rateCheck = await checkRateLimitCentralized(rateKey, 5, 5 * 60 * 1000, supabase);
   if (!rateCheck.allowed) {
@@ -30,8 +41,6 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const supabase = getSupabaseServerClient();
-    
     // 2. Query user dari database server Supabase
     const { data: users, error: dbError } = await supabase
       .from('system_users')

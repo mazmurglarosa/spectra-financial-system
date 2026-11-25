@@ -7,18 +7,7 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Method not allowed. Hanya POST yang didukung.' });
   }
 
-  // 1. Rate Limiting Registrasi (Maksimal 3 registrasi per 10 menit per IP)
   const clientIp = getClientIp(req);
-  const supabase = getSupabaseServerClient();
-  const rateKey = `register_${clientIp}`;
-  const rateCheck = await checkRateLimitCentralized(rateKey, 3, 10 * 60 * 1000, supabase);
-  if (!rateCheck.allowed) {
-    return res.status(429).json({
-      success: false,
-      error: 'Terlalu banyak permintaan registrasi. Silakan tunggu beberapa menit.'
-    });
-  }
-
   const body = req.body || {};
   const username = String(body.username || '').trim().toLowerCase();
   const password = String(body.password || '');
@@ -27,7 +16,7 @@ export default async function handler(req: any, res: any) {
   const specialCode = String(body.specialCode || '').trim();
   const avatarUrl = String(body.avatarUrl || '').trim();
 
-  // 2. Validasi Input Ketat
+  // 1. Validasi Input Ketat (Fail Fast 400)
   if (!username || username.length < 3) {
     return res.status(400).json({ success: false, error: 'Username minimal 3 karakter alfanumerik.' });
   }
@@ -38,8 +27,29 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ success: false, error: 'Nama Lengkap wajib diisi.' });
   }
 
+  // Inisialisasi Supabase Server Client (Fail-Safe 500 JSON)
+  let supabase: any;
   try {
-    const supabase = getSupabaseServerClient();
+    supabase = getSupabaseServerClient();
+  } catch (err: any) {
+    console.error('[Register] Gagal inisialisasi Supabase Server Client:', err?.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Konfigurasi database server tidak valid atau belum diatur.'
+    });
+  }
+
+  // 2. Rate Limiting Registrasi (Maksimal 3 registrasi per 10 menit per IP)
+  const rateKey = `register_${clientIp}`;
+  const rateCheck = await checkRateLimitCentralized(rateKey, 3, 10 * 60 * 1000, supabase);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: 'Terlalu banyak permintaan registrasi. Silakan tunggu beberapa menit.'
+    });
+  }
+
+  try {
 
     // 3. Cek apakah username sudah terdaftar
     const { data: existing } = await supabase

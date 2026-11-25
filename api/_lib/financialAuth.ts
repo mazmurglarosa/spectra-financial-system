@@ -69,18 +69,6 @@ export async function authenticateFinancialRequest(
   }
 
   const clientIp = getClientIp(req);
-  let supabase: SupabaseClient;
-
-  try {
-    supabase = getSupabaseServerClient();
-  } catch (err: any) {
-    console.error('[FinancialAuth] Gagal inisialisasi Supabase Server Client:', err?.message);
-    res.status(500).json({
-      success: false,
-      error: 'Konfigurasi database server tidak valid atau belum diatur.'
-    });
-    return null;
-  }
 
   // 2. Ekstraksi Token Sesi dari Cookie atau Header Authorization
   const cookies = parseCookies(req.headers?.cookie);
@@ -93,17 +81,41 @@ export async function authenticateFinancialRequest(
     }
   }
 
-  const candidateSession = token ? verifySessionToken(token) : null;
+  // Fail-fast jika tidak ada token: tolak 401 tanpa membebani database
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      error: 'Autentikasi ditolak: Sesi tidak ditemukan. Silakan login terlebih dahulu.'
+    });
+    return null;
+  }
+
+  const session = verifySessionToken(token);
+  if (!session) {
+    res.status(401).json({
+      success: false,
+      error: 'Autentikasi ditolak: Sesi kedaluwarsa atau token tidak valid.'
+    });
+    return null;
+  }
+
+  let supabase: SupabaseClient;
+  try {
+    supabase = getSupabaseServerClient();
+  } catch (err: any) {
+    console.error('[FinancialAuth] Gagal inisialisasi Supabase Server Client:', err?.message);
+    res.status(500).json({
+      success: false,
+      error: 'Konfigurasi database server tidak valid atau belum diatur.'
+    });
+    return null;
+  }
 
   // 3. Centralized Rate Limiting (Dual-Tier Fair Share Partitioning)
   // Pengguna terautentikasi dipartisi per User ID: rate:fin:usr:<userId>
-  // Request belum terautentikasi dipartisi per IP: rate:fin:ip:<clientIp>
-  // Mencegah kolisi satu kantor/NAT memblokir seluruh staf akuntansi.
   const limit = options.rateLimitLimit || 120; // default 120 req / menit
   const windowMs = options.rateLimitWindowMs || 60 * 1000;
-  const rateLimitKey = candidateSession
-    ? `rate:fin:usr:${candidateSession.sub}`
-    : `rate:fin:ip:${clientIp}`;
+  const rateLimitKey = `rate:fin:usr:${session.sub}`;
 
   const rateCheck = await checkRateLimitCentralized(rateLimitKey, limit, windowMs, supabase);
   if (!rateCheck.allowed) {
@@ -131,24 +143,6 @@ export async function authenticateFinancialRequest(
       errorCode: 'RATE_LIMITED',
       retryAfter: retryAfterSec,
       error: 'Terlalu banyak permintaan akses keuangan. Silakan tunggu sesaat.'
-    });
-    return null;
-  }
-
-  // 4. Verifikasi Autentikasi
-  if (!token) {
-    res.status(401).json({
-      success: false,
-      error: 'Autentikasi ditolak: Sesi tidak ditemukan. Silakan login terlebih dahulu.'
-    });
-    return null;
-  }
-
-  const session = candidateSession;
-  if (!session) {
-    res.status(401).json({
-      success: false,
-      error: 'Autentikasi ditolak: Sesi kedaluwarsa atau token tidak valid.'
     });
     return null;
   }
