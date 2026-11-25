@@ -806,10 +806,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
     }
 
-    // 2. Tentukan nomor referensi yang unik
+    // 2. Tentukan nomor referensi yang unik & tolak duplikasi
     let finalRefNumber = (trx.refNumber || '').trim();
     if (!finalRefNumber) {
       finalRefNumber = getNextRefNumber(trx.type || 'general');
+    } else {
+      // Tolak jika transaksi dengan nomor referensi yang sama sudah ada di pembukuan
+      const isDuplicate = transactions.some(
+        t => t.refNumber && t.refNumber.trim().toLowerCase() === finalRefNumber.toLowerCase()
+      );
+      if (isDuplicate) {
+        return {
+          success: false,
+          error: `Transaksi dengan nomor referensi/berkas "${finalRefNumber}" sudah terdaftar dalam pembukuan. Duplikasi transaksi ditolak.`
+        };
+      }
     }
 
     const newTx: Transaction = {

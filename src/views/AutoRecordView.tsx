@@ -60,6 +60,7 @@ import {
   ensureSuggestedJournalWithAutoCreatedAccounts,
   saveRecordedReceipt,
   getRecordedReceipts,
+  deleteRecordedReceipt,
   setPendingJournalDraft,
   RecordedReceipt,
   SAMPLE_RECEIPT_DATA, 
@@ -69,7 +70,7 @@ import {
   BankTransferDetails,
   validateReceiptReadinessForAction
 } from '../services/autoRecordService';
-import { uploadHeavyFileToDrive, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
+import { uploadHeavyFileToDrive, SPECTRA_TRANSACTIONS_DRIVE_FOLDER_ID, SPECTRA_TRANSACTIONS_DRIVE_FOLDER_URL, SPECTRA_DRIVE_FOLDER_URL } from '../services/googleDriveBot';
 import { convertPdfToImages, isPdfFile, isPdfDataUri } from '../services/receiptMediaService';
 import { getExternalSyncStatus, isExternalSyncDisabledOnPreview } from '../services/externalSyncGuard';
 import { 
@@ -99,6 +100,20 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [isRenderingPdf, setIsRenderingPdf] = useState<boolean>(false);
   const [seqNumber, setSeqNumber] = useState<number>(() => getNextDocumentSequence(transactions));
   const [nomorBerkas, setNomorBerkas] = useState<string>(() => generateFileCode(getNextDocumentSequence(transactions)));
+  const [recordedReceipts, setRecordedReceipts] = useState<RecordedReceipt[]>(() => getRecordedReceipts());
+
+  // Sinkronisasi status arsip rekaman bukti lintas tab/komponen
+  useEffect(() => {
+    const handleReceiptUpdate = () => {
+      setRecordedReceipts(getRecordedReceipts());
+    };
+    window.addEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+    window.addEventListener('storage', handleReceiptUpdate);
+    return () => {
+      window.removeEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+      window.removeEventListener('storage', handleReceiptUpdate);
+    };
+  }, []);
 
   // Groq Vision Backend Status (Neutral until verified by actual request or backend verification)
   const [groqStatus, setGroqStatus] = useState<'standby' | 'verified' | 'error'>('standby');
@@ -107,7 +122,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [extractStep, setExtractStep] = useState<string>('');
   const [currentStage, setCurrentStage] = useState<'tahap1' | 'tahap2' | 'riwayat'>('tahap1');
-  const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'bt' | 'other'>('all');
+  const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'pending' | 'posted' | 'bt' | 'other'>('all');
   const [riwayatSearch, setRiwayatSearch] = useState<string>('');
   const isExternalSyncDisabled = isExternalSyncDisabledOnPreview();
   const syncStatus = getExternalSyncStatus();
@@ -119,6 +134,10 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [mathDiscrepancy, setMathDiscrepancy] = useState<boolean>(false);
   const [discrepancyMessage, setDiscrepancyMessage] = useState<string>('');
   const [googleDriveLink, setGoogleDriveLink] = useState<string>('');
+  const [driveFileId, setDriveFileId] = useState<string>('');
+  const [driveDirectUrl, setDriveDirectUrl] = useState<string>('');
+  const [driveViewUrl, setDriveViewUrl] = useState<string>('');
+  const [driveUploadStatus, setDriveUploadStatus] = useState<'IDLE' | 'UPLOADED' | 'SIMULATED' | 'FAILED'>('IDLE');
   const [spreadsheetRows, setSpreadsheetRows] = useState<SpreadsheetRowData[]>([]);
   const [activeSourceEngine, setActiveSourceEngine] = useState<'groq_vision' | 'tesseract_ocr' | 'smart_parser' | null>(null);
   const [hasUnconfirmedFee, setHasUnconfirmedFee] = useState<boolean>(false);
@@ -192,12 +211,16 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     }
   };
 
-  // Sinkronisasi otomatis nomor berkas dengan transactions & event reset
+  // Sinkronisasi otomatis nomor berkas dengan transactions & event reset (Stabil: Jangan ubah saat berkas sedang diolah)
   useEffect(() => {
+    // Kunci nomor berkas jika sedang memproses berkas, sudah ada gambar, atau sedang di Tahap 2
+    if (receiptImage || currentStage !== 'tahap1') {
+      return;
+    }
     const nextSeq = getNextDocumentSequence(transactions);
     setSeqNumber(nextSeq);
     setNomorBerkas(generateFileCode(nextSeq));
-  }, [transactions]);
+  }, [transactions, currentStage, receiptImage]);
 
   useEffect(() => {
     const handleReset = () => {
@@ -231,10 +254,102 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   const [newPosDebitAcc, setNewPosDebitAcc] = useState<string>('10001');
   const [newPosCreditAcc, setNewPosCreditAcc] = useState<string>('20001');
 
+  // Kategori berkas tersimpan
+  const pendingReceipts = useMemo(() => {
+    return recordedReceipts.filter(r => r.status === 'pending_journal');
+  }, [recordedReceipts]);
+
+  const journalizedReceipts = useMemo(() => {
+    return recordedReceipts.filter(r => r.status === 'journalized');
+  }, [recordedReceipts]);
+
   // Filter daftar transaksi terekam
   const autoRecordTransactions = useMemo(() => {
     return transactions.filter(t => t.refNumber && t.refNumber.startsWith('BT/'));
   }, [transactions]);
+
+  // Model terpadu arsip rekaman bukti & transaksi pembukuan
+  const unifiedHistoryItems = useMemo(() => {
+    const list: Array<{
+      id: string;
+      isPendingReceipt: boolean;
+      date: string;
+      refNumber: string;
+      description: string;
+      amount: number;
+      partner?: string;
+      status: 'pending_journal' | 'journalized' | 'posted_general';
+      googleDriveLink?: string;
+      driveViewUrl?: string;
+      receipt?: RecordedReceipt;
+      transaction?: Transaction;
+    }> = [];
+
+    // 1. Masukkan semua berkas dari recordedReceipts
+    recordedReceipts.forEach(r => {
+      const matchingTx = transactions.find(t => t.refNumber === r.nomorBerkas);
+      const isPending = r.status === 'pending_journal' && !matchingTx;
+      list.push({
+        id: r.id,
+        isPendingReceipt: isPending,
+        date: r.date,
+        refNumber: r.nomorBerkas,
+        description: r.keterangan,
+        amount: r.grandTotal,
+        status: isPending ? 'pending_journal' : 'journalized',
+        googleDriveLink: r.googleDriveLink,
+        driveViewUrl: r.driveViewUrl || r.googleDriveLink,
+        receipt: r,
+        transaction: matchingTx
+      });
+    });
+
+    // 2. Masukkan transaksi pembukuan yang belum ada di recordedReceipts
+    transactions.forEach(t => {
+      const alreadyInList = list.some(item => item.refNumber && item.refNumber === t.refNumber);
+      if (!alreadyInList) {
+        list.push({
+          id: t.id,
+          isPendingReceipt: false,
+          date: t.date,
+          refNumber: t.refNumber || 'REF-GENERAL',
+          description: t.description,
+          amount: t.totalDebit || 0,
+          partner: t.partner,
+          status: 'posted_general',
+          transaction: t
+        });
+      }
+    });
+
+    return list.sort((a, b) => b.refNumber.localeCompare(a.refNumber));
+  }, [recordedReceipts, transactions]);
+
+  const filteredUnifiedHistory = useMemo(() => {
+    return unifiedHistoryItems.filter(item => {
+      if (riwayatFilter === 'pending' && item.status !== 'pending_journal') return false;
+      if (riwayatFilter === 'posted' && item.status === 'pending_journal') return false;
+      if (riwayatFilter === 'bt' && !item.refNumber.startsWith('BT/')) return false;
+      if (riwayatFilter === 'other' && item.refNumber.startsWith('BT/')) return false;
+
+      if (riwayatSearch.trim()) {
+        const q = riwayatSearch.toLowerCase();
+        const matchRef = item.refNumber.toLowerCase().includes(q);
+        const matchDesc = item.description.toLowerCase().includes(q);
+        const matchPartner = (item.partner || '').toLowerCase().includes(q);
+        const matchLines = item.transaction?.lines.some(l =>
+          (l.accountName || '').toLowerCase().includes(q) ||
+          (l.accountCode || '').includes(q)
+        );
+        return matchRef || matchDesc || matchPartner || matchLines;
+      }
+      return true;
+    });
+  }, [unifiedHistoryItems, riwayatFilter, riwayatSearch]);
+
+  const totalHistoryDebit = useMemo(() => {
+    return filteredUnifiedHistory.reduce((acc, it) => acc + (it.amount || 0), 0);
+  }, [filteredUnifiedHistory]);
 
   const filteredHistoryTransactions = useMemo(() => {
     return transactions.filter(t => {
@@ -251,10 +366,6 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       return true;
     });
   }, [transactions, riwayatFilter, riwayatSearch]);
-
-  const totalHistoryDebit = useMemo(() => {
-    return filteredHistoryTransactions.reduce((acc, t) => acc + (t.totalDebit || 0), 0);
-  }, [filteredHistoryTransactions]);
 
   const handleExportHistoryExcel = () => {
     const data: any[][] = [
@@ -335,12 +446,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     alert('Contoh transaksi BT/0001/26X26 berhasil ditambahkan ke daftar transaksi terekam!');
   };
 
-  // Update nomor berkas when seq or transactions change
+  // Update nomor berkas when seq or transactions change - TERKUNCI saat berkas sedang diproses / diekstrak
   useEffect(() => {
+    if (receiptImage || currentStage !== 'tahap1' || extractedItems.length > 0) {
+      return;
+    }
     const nextSeq = getNextDocumentSequence(transactions);
     setSeqNumber(nextSeq);
     setNomorBerkas(generateFileCode(nextSeq));
-  }, [transactions]);
+  }, [transactions, receiptImage, currentStage, extractedItems.length]);
 
   // Helper: Analisis Jurnal dan LANGSUNG buat akun baru ke COA jika ada akun yang belum terdaftar (misal: Pajak Pembelian PB1)
   const ensureSuggestedJournalWithAutoCreatedAccounts = (
@@ -520,9 +634,9 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
       setExtractStep('4/4: Sinkronisasi Google Drive & Penamaan Otomatis (' + nomorBerkas + ')...');
 
-      // Upload to Google Drive if image exists
+      // Upload ke Google Drive Folder Transaksi Resmi jika berkas ada dan belum diunggah
       let driveLink = googleDriveLink;
-      if (receiptImage && receiptImage.startsWith('data:')) {
+      if (receiptImage && (!googleDriveLink || !googleDriveLink.includes('drive.google.com'))) {
         try {
           const driveRes = await uploadHeavyFileToDrive(
             receiptImage,
@@ -530,19 +644,26 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             receiptFileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
             {
               documentCode: nomorBerkas,
-              title: `Bukti Transaksi - ${keterangan}`,
-              uploadedBy: 'Auto Record Engine'
+              title: `Bukti Transaksi - ${keterangan || nomorBerkas}`,
+              uploadedBy: 'Auto Record Engine',
+              folderId: SPECTRA_TRANSACTIONS_DRIVE_FOLDER_ID
             }
           );
           if (driveRes.success && driveRes.viewUrl) {
             driveLink = driveRes.viewUrl;
             setGoogleDriveLink(driveLink);
+            setDriveFileId(driveRes.fileId || '');
+            setDriveDirectUrl(driveRes.directUrl || '');
+            setDriveViewUrl(driveLink);
+            setDriveUploadStatus('UPLOADED');
           } else if (driveRes.status === 'SIMULATED' || driveRes.isMocked) {
             driveLink = '[ARSIP_LOKAL_INDEXEDDB]';
             setGoogleDriveLink(driveLink);
+            setDriveUploadStatus('SIMULATED');
           }
         } catch (err) {
           console.warn('Google Drive background sync info:', err);
+          setDriveUploadStatus('FAILED');
         }
       }
 
@@ -795,7 +916,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       spreadsheetRows,
       receiptFileName,
       receiptImage,
-      googleDriveLink,
+      googleDriveLink: googleDriveLink || driveViewUrl || '',
+      driveFileId: driveFileId || undefined,
+      driveViewUrl: driveViewUrl || (googleDriveLink.includes('drive.google.com') ? googleDriveLink : undefined),
+      driveDirectUrl: driveDirectUrl || undefined,
+      driveUploadStatus: driveUploadStatus !== 'IDLE' ? driveUploadStatus : undefined,
+      driveUploadedAt: driveUploadStatus === 'UPLOADED' ? new Date().toISOString() : undefined,
+      spreadsheetSyncStatus: 'PENDING',
+      spreadsheetRowsCount: spreadsheetRows.length,
+      journalStatus: 'PENDING',
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
@@ -805,6 +934,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       alert(`Peringatan: Gagal menyimpan bukti transaksi ke penyimpanan (${saveRes.error || 'kesalahan storage'}). Draft dan berkas gambar tetap dipertahankan.`);
       return;
     }
+
+    setRecordedReceipts(getRecordedReceipts());
 
     setPendingJournalDraft({
       nomorBerkas,
@@ -866,7 +997,15 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       spreadsheetRows,
       receiptFileName,
       receiptImage,
-      googleDriveLink,
+      googleDriveLink: googleDriveLink || driveViewUrl || '',
+      driveFileId: driveFileId || undefined,
+      driveViewUrl: driveViewUrl || (googleDriveLink.includes('drive.google.com') ? googleDriveLink : undefined),
+      driveDirectUrl: driveDirectUrl || undefined,
+      driveUploadStatus: driveUploadStatus !== 'IDLE' ? driveUploadStatus : undefined,
+      driveUploadedAt: driveUploadStatus === 'UPLOADED' ? new Date().toISOString() : undefined,
+      spreadsheetSyncStatus: 'PENDING',
+      spreadsheetRowsCount: spreadsheetRows.length,
+      journalStatus: 'PENDING',
       status: 'pending_journal',
       createdAt: new Date().toISOString()
     };
@@ -876,6 +1015,8 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       alert(`Gagal menyimpan rekaman bukti: ${saveRes.error || 'Penyimpanan gagal'}. Draft tetap dipertahankan.`);
       return;
     }
+
+    setRecordedReceipts(getRecordedReceipts());
 
     commitDocumentSequence(seqNumber);
 
@@ -931,43 +1072,47 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full animate-fadeIn select-none">
       
-      {/* 1. Header Banner & Navigasi Tahap */}
-      <div className="relative rounded-2xl overflow-hidden bg-slate-900 text-white shadow-xl border border-slate-800">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/90 via-slate-900/95 to-indigo-950/90 z-0" />
-        <div className="relative z-10 p-6 md:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-1.5 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/40 text-blue-300 text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-              <span>SPECTRA Auto Record &amp; Intelligent Accounting OCR/HTR</span>
+      {/* 1. Header Enterprise & Navigasi Alur */}
+      <div className="relative rounded-xl overflow-hidden bg-slate-900 text-white shadow-sm border border-slate-800">
+        <div className="p-5 md:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-1 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium">
+              <Scan className="w-3.5 h-3.5 text-blue-400" />
+              <span>SPECTRA Auto Record Engine</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white drop-shadow">
-              Otomasi Perekaman Bukti Transaksi
+            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white">
+              Perekaman &amp; Ekstraksi Bukti Transaksi
             </h1>
-            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-              Mengekstrak nota cetak, struk thermal, &amp; nota tulis tangan (HTR), verifikasi kuantitas &amp; harga, serta sinkronisasi format spreadsheet datasheet_bukti_transaksi.
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Ekstraksi nota cetak, struk thermal, dan bukti transfer via Groq Vision AI dengan verifikasi horizontal-vertikal serta sinkronisasi Drive dan Spreadsheet.
             </p>
           </div>
 
-          {/* Cluster Kontrol Header (Actions & Integrasi) */}
+          {/* Cluster Kontrol Header */}
           <div className="flex flex-col items-start lg:items-end gap-2.5 shrink-0">
             {/* Baris 1: Aksi Utama & Indikator Kode Berkas */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Tombol Buka Jurnal Otomatis Terpisah */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Tombol Buka Jurnal Otomatis */}
               <button
                 type="button"
                 onClick={() => setActiveTab('auto-journal')}
-                className="h-10 inline-flex items-center gap-2 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow cursor-pointer active:scale-95"
-                title="Buka Jurnal Otomatis untuk pembentukan SAK"
+                className="h-9 inline-flex items-center gap-2 px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shadow-xs"
+                title="Buka modul Jurnal Otomatis"
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+                <Layers className="w-3.5 h-3.5 text-blue-200" />
                 <span>Jurnal Otomatis</span>
-                <ArrowRight className="w-3 h-3 text-indigo-200" />
+                {pendingReceipts.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-slate-900">
+                    {pendingReceipts.length}
+                  </span>
+                )}
+                <ArrowRight className="w-3 h-3 text-blue-200" />
               </button>
 
               {/* Box Kode Berkas Selanjutnya dengan Tombol Reset Terpadu */}
-              <div className="h-10 flex items-center bg-slate-800/90 backdrop-blur-md rounded-xl border border-slate-700/80 shadow-sm overflow-hidden divide-x divide-slate-700/80">
-                <div className="px-3.5 py-1 flex flex-col justify-center text-left">
-                  <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider leading-none">Kode Berkas</span>
+              <div className="h-9 flex items-center bg-slate-800 rounded-lg border border-slate-700 shadow-xs overflow-hidden divide-x divide-slate-700">
+                <div className="px-3 py-1 flex flex-col justify-center text-left">
+                  <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider leading-none">Nomor Berkas</span>
                   <span className="text-xs font-mono font-bold text-amber-300 leading-tight mt-0.5">{nomorBerkas}</span>
                 </div>
                 <button
@@ -976,11 +1121,11 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                     setResetFeedback(null);
                     setIsResetModalOpen(true);
                   }}
-                  className="h-full px-2.5 bg-slate-800/40 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 transition-colors flex items-center gap-1.5 cursor-pointer group"
+                  className="h-full px-2.5 bg-slate-800 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 transition-colors flex items-center gap-1 cursor-pointer"
                   title="Reset hitungan nomor berkas kembali ke 1 dan bersihkan database transaksi"
                 >
-                  <RotateCcw className="w-3 h-3 group-hover:-rotate-180 transition-transform duration-300" />
-                  <span className="text-[10px] font-medium tracking-tight">Reset</span>
+                  <RotateCcw className="w-3 h-3" />
+                  <span className="text-[10px] font-medium">Reset</span>
                 </button>
               </div>
 
@@ -989,57 +1134,48 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 href={SPREADSHEET_CONFIG.publicUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="h-10 inline-flex items-center gap-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow cursor-pointer active:scale-95"
+                className="h-9 inline-flex items-center gap-2 px-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg border border-slate-700 transition-colors cursor-pointer shadow-xs"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Buka Sheet</span>
-                <ExternalLink className="w-3 h-3 text-emerald-200" />
+                <ExternalLink className="w-3 h-3 text-slate-400" />
               </a>
             </div>
 
-            {/* Baris 2: Status Integrasi Sistem (Groq Vision & Bot Google Sheet) */}
-            <div className="flex items-center gap-2">
-              {/* Status Keaktifan Groq AI Berbasis Kondisi Nyata */}
+            {/* Baris 2: Status Integrasi Sistem */}
+            <div className="flex items-center gap-2 text-[11px]">
+              {/* Status Groq AI */}
               <div
-                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all whitespace-nowrap shadow-xs ${
+                className={`h-6 inline-flex items-center gap-1.5 px-2 text-[11px] font-medium rounded-md border transition-all whitespace-nowrap ${
                   groqStatus === 'verified'
-                    ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/40'
+                    ? 'bg-slate-800 text-emerald-300 border-emerald-500/40'
                     : groqStatus === 'error'
-                    ? 'bg-slate-800/80 text-amber-300 border-amber-500/40'
-                    : 'bg-slate-800/80 text-sky-300 border-sky-500/30'
+                    ? 'bg-slate-800 text-amber-300 border-amber-500/40'
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
                 }`}
                 title={
                   groqStatus === 'verified'
-                    ? 'Groq AI Vision terverifikasi aktif & sukses mengekstrak bukti transaksi.'
+                    ? 'Groq AI Vision terverifikasi aktif.'
                     : groqStatus === 'error'
-                    ? 'Layanan Groq AI tidak merespons, beralih ke OCR Offline Tesseract.js.'
-                    : 'Groq AI Vision backend tersedia (siaga / belum diverifikasi).'
+                    ? 'Fallback OCR Offline Tesseract.js aktif.'
+                    : 'Groq AI Vision backend siaga.'
                 }
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
                     groqStatus === 'verified'
-                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                      ? 'bg-emerald-400'
                       : groqStatus === 'error'
-                      ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]'
-                      : 'bg-sky-400'
-                  }`}
-                />
-                <Sparkles
-                  className={`w-3 h-3 ${
-                    groqStatus === 'verified'
-                      ? 'text-emerald-400'
-                      : groqStatus === 'error'
-                      ? 'text-amber-400'
-                      : 'text-sky-400'
+                      ? 'bg-amber-400'
+                      : 'bg-slate-400'
                   }`}
                 />
                 <span>
                   {groqStatus === 'verified'
-                    ? 'Groq AI: Terverifikasi'
+                    ? 'Groq AI: Aktif'
                     : groqStatus === 'error'
                     ? 'Groq AI: Fallback Offline'
-                    : 'Groq AI: Standby'}
+                    : 'Groq AI: Siaga'}
                 </span>
               </div>
 
@@ -1051,14 +1187,14 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   setWebhookTestResult(null);
                   setIsWebhookModalOpen(true);
                 }}
-                className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer whitespace-nowrap ${
+                className={`h-6 inline-flex items-center gap-1.5 px-2 text-[11px] font-medium rounded-md border transition-all cursor-pointer whitespace-nowrap ${
                   getSpreadsheetWebhookUrl()
-                    ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:border-slate-600'
-                    : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                    ? 'bg-slate-800 hover:bg-slate-750 text-slate-300 border-slate-700'
+                    : 'bg-slate-800 hover:bg-slate-750 text-slate-400 border-slate-700'
                 }`}
                 title={getSpreadsheetWebhookUrl() ? 'Webhook Apps Script aktif. Klik untuk konfigurasi.' : 'Klik untuk menyetel Webhook Apps Script.'}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${getSpreadsheetWebhookUrl() ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-indigo-400 animate-pulse'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${getSpreadsheetWebhookUrl() ? 'bg-emerald-400' : 'bg-slate-500'}`} />
                 <Bot className="w-3 h-3 text-slate-400" />
                 <span>{getSpreadsheetWebhookUrl() ? 'Bot Sheet: Aktif' : 'Setel Bot Sheet'}</span>
               </button>
@@ -1068,59 +1204,63 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
         {/* Banner Isolasi Preview & Staging */}
         {isExternalSyncDisabled && (
-          <div className="relative z-10 mx-4 md:mx-6 my-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+          <div className="mx-4 md:mx-6 mb-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
               <span>
-                <strong>Mode Isolasi Pengujian ({syncStatus.environmentName.toUpperCase()}):</strong> Pengiriman ke Google Drive &amp; Google Spreadsheet perusahaan dialihkan ke simulasi lokal (Mock Mode). Data pembukuan produksi terlindungi 100%.
+                <strong>Mode Isolasi ({syncStatus.environmentName.toUpperCase()}):</strong> Pengiriman ke Drive &amp; Spreadsheet dialihkan ke simulasi lokal (Mock Mode). Data pembukuan produksi terlindungi 100%.
               </span>
             </div>
             <span className="text-[10px] bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded border border-amber-400/30 shrink-0 self-start sm:self-auto font-bold">
-              Perusahaan Asli Aman
+              Isolasi Aktif
             </span>
           </div>
         )}
 
-        {/* Tab Indicator: Tahap 1 vs Tahap 2 vs Riwayat Transaksi */}
-        <div className="relative z-10 flex border-t border-white/10 bg-black/20 overflow-x-auto touch-scroll-x no-scrollbar">
+        {/* Tab Indicator */}
+        <div className="flex border-t border-slate-800 bg-slate-950/60 overflow-x-auto touch-scroll-x no-scrollbar">
           <button
             type="button"
             onClick={() => setCurrentStage('tahap1')}
-            className={`flex-1 min-w-[200px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+            className={`flex-1 min-w-[200px] py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
               currentStage === 'tahap1'
-                ? 'border-blue-400 text-blue-300 bg-white/5'
+                ? 'border-blue-500 text-white bg-slate-800/40'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-black">1</span>
-            <span>Tahap 1: Master Data &amp; Upload Bukti</span>
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+              currentStage === 'tahap1' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>1</span>
+            <span>Tahap 1: Upload Bukti &amp; POS</span>
           </button>
           <button
             type="button"
             onClick={() => setCurrentStage('tahap2')}
-            className={`flex-1 min-w-[220px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+            className={`flex-1 min-w-[220px] py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
               currentStage === 'tahap2'
-                ? 'border-emerald-400 text-emerald-300 bg-white/5'
+                ? 'border-blue-500 text-white bg-slate-800/40'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
-            <span>Tahap 2: Koreksi Data &amp; Spreadsheet</span>
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+              currentStage === 'tahap2' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>2</span>
+            <span>Tahap 2: Koreksi &amp; Spreadsheet</span>
           </button>
           <button
             type="button"
             onClick={() => setCurrentStage('riwayat')}
-            className={`flex-1 min-w-[220px] py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
+            className={`flex-1 min-w-[220px] py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 transition border-b-2 cursor-pointer ${
               currentStage === 'riwayat'
-                ? 'border-amber-400 text-amber-300 bg-white/5'
+                ? 'border-blue-500 text-white bg-slate-800/40'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <History className="w-4 h-4 text-amber-400" />
-            <span>Daftar Transaksi Terekam ({transactions.length})</span>
-            {autoRecordTransactions.length > 0 && (
+            <History className="w-4 h-4 text-slate-400" />
+            <span>Arsip Rekaman Bukti &amp; Transaksi ({unifiedHistoryItems.length})</span>
+            {pendingReceipts.length > 0 && (
               <span className="bg-amber-400/20 text-amber-300 text-[10px] px-1.5 py-0.5 rounded-full font-mono border border-amber-400/30">
-                {autoRecordTransactions.length} BT
+                {pendingReceipts.length} Draf
               </span>
             )}
           </button>
@@ -1371,134 +1511,159 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             </div>
           </div>
 
-          {/* Section: Daftar Transaksi yang Sebelumnya Sudah Terekam (Quick Preview) */}
-          <div className="lg:col-span-12 bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          {/* Section: Arsip Rekaman Bukti & Transaksi Terekam (Quick Preview) */}
+          <div className="lg:col-span-12 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 border border-amber-200">
-                  <History className="w-5 h-5" />
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700 border border-slate-200">
+                  <History className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <span>Daftar Transaksi yang Sebelumnya Sudah Terekam</span>
-                    <span className="text-[11px] font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-                      {transactions.length} Total Transaksi
+                    <span>Arsip Rekaman Bukti &amp; Transaksi Terekam</span>
+                    <span className="text-[11px] font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
+                      {unifiedHistoryItems.length} Total Berkas
                     </span>
+                    {pendingReceipts.length > 0 && (
+                      <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2 py-0.5 rounded-md border border-amber-200">
+                        {pendingReceipts.length} Menunggu Jurnal
+                      </span>
+                    )}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Dokumen bukti transaksi dan jurnal yang telah disetujui sebelumnya dalam database.
+                    Dokumen bukti transaksi yang telah terekam dan riwayat pembukuan yang tersimpan.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleLoadSampleRecordedTransaction}
-                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 flex items-center gap-1.5 transition cursor-pointer"
-                  title="Tambahkan contoh transaksi BT/0001 ke database"
-                >
-                  <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  <span>+ Muat Contoh BT/0001</span>
-                </button>
+                {pendingReceipts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('auto-journal')}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Proses Jurnal ({pendingReceipts.length})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setCurrentStage('riwayat')}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg border border-slate-200 flex items-center gap-1.5 transition cursor-pointer"
                 >
-                  <span>Buka Semua Riwayat ({transactions.length})</span>
+                  <span>Buka Semua Riwayat ({unifiedHistoryItems.length})</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
 
-            {transactions.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-3">
-                <Receipt className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="text-xs text-slate-500">
-                  Belum ada transaksi yang terekam dalam sistem. Selesaikan proses Tahap 2 atau klik tombol di bawah untuk memuat transaksi contoh.
+            {unifiedHistoryItems.length === 0 ? (
+              <div className="p-8 text-center bg-slate-50 rounded-lg border border-dashed border-slate-200 space-y-2">
+                <Receipt className="w-7 h-7 text-slate-400 mx-auto" />
+                <p className="text-xs text-slate-600 font-medium">
+                  Belum ada bukti transaksi yang terekam.
                 </p>
-                <button
-                  type="button"
-                  onClick={handleLoadSampleRecordedTransaction}
-                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tambahkan Contoh Transaksi BT/0001/26X26</span>
-                </button>
+                <p className="text-[11px] text-slate-400">
+                  Unggah foto struk/nota atau bukti transfer di atas lalu klik "Jalankan Ekstraksi Bukti".
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
                       <th className="py-2.5 px-3 w-10 text-center">No</th>
-                      <th className="py-2.5 px-3 min-w-[110px]">Tanggal</th>
-                      <th className="py-2.5 px-3 min-w-[130px]">No. Berkas / Ref</th>
-                      <th className="py-2.5 px-3 min-w-[240px]">Keterangan Transaksi</th>
-                      <th className="py-2.5 px-3 min-w-[220px]">Rincian Akun Jurnal (Debit / Kredit)</th>
-                      <th className="py-2.5 px-3 text-right min-w-[120px]">Total Nominal</th>
-                      <th className="py-2.5 px-3 text-center w-20">Aksi</th>
+                      <th className="py-2.5 px-3 min-w-[95px]">Tanggal</th>
+                      <th className="py-2.5 px-3 min-w-[130px]">No. Berkas</th>
+                      <th className="py-2.5 px-3 min-w-[220px]">Keterangan</th>
+                      <th className="py-2.5 px-3 text-right min-w-[110px]">Total Nilai</th>
+                      <th className="py-2.5 px-3 text-center min-w-[130px]">Status Pembukuan</th>
+                      <th className="py-2.5 px-3 text-center min-w-[90px]">Google Drive</th>
+                      <th className="py-2.5 px-3 text-center w-28">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {transactions.slice(0, 5).map((trx, idx) => {
-                      const isAutoRecord = trx.refNumber && trx.refNumber.startsWith('BT/');
+                    {unifiedHistoryItems.slice(0, 5).map((item, idx) => {
+                      const isPending = item.isPendingReceipt;
+                      const hasDrive = item.googleDriveLink && item.googleDriveLink.includes('drive.google.com');
+
                       return (
-                        <tr key={trx.id || idx} className="hover:bg-slate-50/70 transition">
+                        <tr key={item.id || idx} className="hover:bg-slate-50/70 transition">
                           <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
                             {idx + 1}
                           </td>
                           <td className="py-2.5 px-3 text-slate-700 text-[11px] whitespace-nowrap">
-                            <span className="flex items-center gap-1">
+                            <span className="flex items-center gap-1 font-mono">
                               <Calendar className="w-3 h-3 text-slate-400" />
-                              {trx.date}
+                              {item.date}
                             </span>
                           </td>
                           <td className="py-2.5 px-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-bold ${
-                              isAutoRecord 
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200' 
-                                : 'bg-slate-100 text-slate-700'
-                            }`}>
-                              {trx.refNumber || 'REF-GENERAL'}
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              {item.refNumber}
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-slate-800 text-xs">
-                            <div className="font-semibold">{trx.description}</div>
-                            {trx.partner && (
-                              <div className="text-[10px] text-slate-400">Pihak: {trx.partner}</div>
+                            <div className="font-medium line-clamp-1">{item.description}</div>
+                            {item.partner && (
+                              <div className="text-[10px] text-slate-400">Pihak: {item.partner}</div>
                             )}
                           </td>
-                          <td className="py-2.5 px-3 text-[11px]">
-                            <div className="space-y-0.5">
-                              {trx.lines.slice(0, 3).map((l, lIdx) => (
-                                <div key={lIdx} className="flex items-center justify-between text-[10px] text-slate-600 gap-2">
-                                  <span className="truncate max-w-[140px]" title={l.accountName}>
-                                    {l.accountCode} - {l.accountName}
-                                  </span>
-                                  <span className="font-mono text-slate-700">
-                                    {l.debit > 0 ? `(D) Rp ${l.debit.toLocaleString('id-ID')}` : `(K) Rp ${l.credit.toLocaleString('id-ID')}`}
-                                  </span>
-                                </div>
-                              ))}
-                              {trx.lines.length > 3 && (
-                                <div className="text-[10px] text-blue-600 italic">+{trx.lines.length - 3} baris akun lainnya</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono text-xs">
-                            Rp {(trx.totalDebit || 0).toLocaleString('id-ID')}
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 tabular-nums">
+                            {formatRupiah(item.amount)}
                           </td>
                           <td className="py-2.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setCurrentStage('riwayat')}
-                              className="p-1 hover:bg-slate-100 text-slate-500 hover:text-blue-600 rounded transition cursor-pointer"
-                              title="Lihat Detail Transaksi"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
+                            {isPending ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>Menunggu Jurnal</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Sudah Dibukukan</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {hasDrive ? (
+                              <a
+                                href={item.googleDriveLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold"
+                                title="Buka berkas di Google Drive"
+                              >
+                                <span>Drive</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-mono">Lokal</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {isPending ? (
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab('auto-journal')}
+                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded border border-blue-200 inline-flex items-center gap-1 cursor-pointer"
+                                title="Buka berkas ini di modul Jurnal Otomatis"
+                              >
+                                <span>Proses Jurnal</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setCurrentStage('riwayat')}
+                                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-blue-600 rounded transition cursor-pointer"
+                                title="Lihat Detail Transaksi"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1822,18 +1987,18 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           </div>
 
           {/* Bagian 4.2: Pemisahan Modul - Teruskan ke Jurnal Otomatis */}
-          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 rounded-2xl border border-purple-200 shadow-sm p-6 space-y-4">
+          <div className="bg-slate-900 text-white rounded-xl border border-slate-800 shadow-sm p-5 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[11px] font-bold">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Modul Jurnal Otomatis Terpisah</span>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px] font-semibold border border-slate-700">
+                  <Layers className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Kesiapan Pembukuan Akuntansi</span>
                 </div>
-                <h3 className="text-sm font-extrabold text-slate-950">
+                <h3 className="text-sm font-bold text-white">
                   Data Bukti Transaksi Siap Diproses ke Jurnal Akuntansi SAK
                 </h3>
-                <p className="text-xs text-slate-600 max-w-2xl">
-                  Nomor berkas <strong className="text-purple-700">{nomorBerkas}</strong> dengan total nilai <strong className="text-purple-700">{formatRupiah(grandTotal)}</strong> telah terverifikasi. Teruskan ke menu <strong>Jurnal Otomatis</strong> untuk analisis akun debit/kredit dan pembukuan ke Jurnal Umum, atau simpan bukti ini ke arsip rekaman bukti.
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Nomor berkas <strong className="text-amber-300 font-mono">{nomorBerkas}</strong> dengan total nilai <strong className="text-emerald-400 font-mono tabular-nums">{formatRupiah(grandTotal)}</strong> telah terverifikasi. Teruskan ke modul <strong>Jurnal Otomatis</strong> untuk pembentukan jurnal SAK debit/kredit, atau simpan ke arsip rekaman bukti.
                 </p>
               </div>
 
@@ -1842,12 +2007,12 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   type="button"
                   disabled={hasUnconfirmedFee}
                   onClick={handleSaveRecordedReceiptOnly}
-                  className={`px-4 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs ${
+                  className={`px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-xs ${
                     hasUnconfirmedFee ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                   }`}
                   title={hasUnconfirmedFee ? 'Konfirmasi biaya transfer bank terlebih dahulu' : 'Simpan Rekaman Saja'}
                 >
-                  <Save className="w-4 h-4 text-slate-500" />
+                  <Save className="w-4 h-4 text-slate-400" />
                   <span>Simpan Rekaman Saja</span>
                 </button>
 
@@ -1855,7 +2020,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                   type="button"
                   disabled={hasUnconfirmedFee}
                   onClick={handleProceedToAutoJournal}
-                  className={`px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-2 shadow-md ${
+                  className={`px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-xs ${
                     hasUnconfirmedFee ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                   }`}
                   title={hasUnconfirmedFee ? 'Konfirmasi biaya transfer bank terlebih dahulu' : 'Lanjutkan ke Jurnal Otomatis'}
@@ -2016,83 +2181,69 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
           
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
-                <Receipt className="w-5 h-5" />
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center text-blue-700 shrink-0 border border-blue-200">
+                <Receipt className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Transaksi</div>
-                <div className="text-xl font-black text-slate-900">{transactions.length} <span className="text-xs font-normal text-slate-500">dokumen</span></div>
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Berkas &amp; Transaksi</div>
+                <div className="text-xl font-bold font-mono text-slate-900">{unifiedHistoryItems.length} <span className="text-xs font-normal text-slate-500">dokumen</span></div>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
-                <Scan className="w-5 h-5" />
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center text-amber-700 shrink-0 border border-amber-200">
+                <Clock className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bukti Auto Record (BT)</div>
-                <div className="text-xl font-black text-amber-600">{autoRecordTransactions.length} <span className="text-xs font-normal text-slate-500">berkas</span></div>
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Menunggu Jurnal</div>
+                <div className="text-xl font-bold font-mono text-amber-600">{pendingReceipts.length} <span className="text-xs font-normal text-slate-500">berkas</span></div>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
-                <CheckCircle2 className="w-5 h-5" />
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-700 shrink-0 border border-emerald-200">
+                <CheckCircle2 className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Nilai Transaksi</div>
-                <div className="text-lg font-black font-mono text-emerald-600">
-                  Rp {totalHistoryDebit.toLocaleString('id-ID')}
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Sudah Dibukukan</div>
+                <div className="text-xl font-bold font-mono text-emerald-600">{transactions.length} <span className="text-xs font-normal text-slate-500">transaksi</span></div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-700 shrink-0 border border-slate-200">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Akumulasi Nilai</div>
+                <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+                  {formatRupiah(totalHistoryDebit)}
                 </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 shrink-0">
-                <Layers className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Keseimbangan SAK</div>
-                <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-emerald-700 font-extrabold">100% Balanced</span>
-                </div>
-                <div className="text-[10px] text-slate-400">Debit = Kredit (Selisih Rp 0)</div>
               </div>
             </div>
           </div>
 
           {/* Table Container Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
             
             {/* Header & Filter Controls */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <History className="w-4 h-4 text-blue-600" />
-                  <span>Daftar Transaksi yang Sebelumnya Sudah Terekam</span>
+                  <span>Arsip Rekaman Bukti &amp; Transaksi Pembukuan</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Semua transaksi yang disetujui tersimpan permanen di database dan tersinkronisasi ke Jurnal Umum &amp; Spreadsheet.
+                  Daftar seluruh berkas hasil rekaman bukti transaksi dan jurnal yang telah disetujui dalam database.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleLoadSampleRecordedTransaction}
-                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 flex items-center gap-1.5 transition cursor-pointer"
-                  title="Tambahkan contoh transaksi BT/0001 ke database"
-                >
-                  <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  <span>+ Muat Contoh BT/0001</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={handleExportHistoryExcel}
-                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs rounded-lg border border-emerald-200 flex items-center gap-1.5 transition cursor-pointer"
                   title="Unduh seluruh daftar transaksi ke format Excel"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -2102,53 +2253,64 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 <button
                   type="button"
                   onClick={() => setCurrentStage('tahap1')}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Scan className="w-3.5 h-3.5" />
-                  <span>+ Rekam Transaksi Baru</span>
+                  <span>+ Rekam Bukti Baru</span>
                 </button>
               </div>
             </div>
 
             {/* Filter Pills & Search Input */}
-            <div className="p-3 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1 mr-1">
+            <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 mr-1">
                   <ListFilter className="w-3.5 h-3.5" />
                   <span>Filter:</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setRiwayatFilter('all')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                     riwayatFilter === 'all'
-                      ? 'bg-blue-600 text-white shadow-xs'
+                      ? 'bg-slate-900 text-white shadow-xs'
                       : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  Semua ({transactions.length})
+                  Semua ({unifiedHistoryItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiwayatFilter('pending')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
+                    riwayatFilter === 'pending'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Draf Menunggu Jurnal ({pendingReceipts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiwayatFilter('posted')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
+                    riwayatFilter === 'posted'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Sudah Dibukukan ({transactions.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setRiwayatFilter('bt')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                     riwayatFilter === 'bt'
-                      ? 'bg-amber-600 text-white shadow-xs'
+                      ? 'bg-blue-600 text-white shadow-xs'
                       : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   Khusus Auto Record BT ({autoRecordTransactions.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRiwayatFilter('other')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                    riwayatFilter === 'other'
-                      ? 'bg-slate-700 text-white shadow-xs'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  Jurnal Lainnya ({transactions.length - autoRecordTransactions.length})
                 </button>
               </div>
 
@@ -2157,35 +2319,27 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Cari ref, keterangan, akun..."
+                  placeholder="Cari ref, keterangan, pihak..."
                   value={riwayatSearch}
                   onChange={(e) => setRiwayatSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
 
             {/* Table */}
-            {filteredHistoryTransactions.length === 0 ? (
+            {filteredUnifiedHistory.length === 0 ? (
               <div className="p-12 text-center space-y-3">
                 <Receipt className="w-10 h-10 text-slate-300 mx-auto" />
-                <div className="text-sm font-bold text-slate-700">Tidak ada transaksi ditemukan</div>
+                <div className="text-sm font-bold text-slate-700">Tidak ada berkas ditemukan</div>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  {riwayatSearch ? 'Coba ubah kata kunci pencarian Anda.' : 'Belum ada transaksi yang tersimpan. Mulai rekam bukti transaksi atau klik tombol muat contoh di bawah.'}
+                  {riwayatSearch ? 'Coba ubah kata kunci pencarian Anda.' : 'Belum ada bukti transaksi yang terekam atau memenuhi filter ini.'}
                 </p>
                 <div className="pt-2 flex items-center justify-center gap-2">
                   <button
                     type="button"
-                    onClick={handleLoadSampleRecordedTransaction}
-                    className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Muat Contoh BT/0001/26X26</span>
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setCurrentStage('tahap1')}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <Scan className="w-3.5 h-3.5" />
                     <span>Unggah Bukti Baru (Tahap 1)</span>
@@ -2196,117 +2350,153 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-700 font-bold">
-                      <th className="py-3 px-3.5 w-12 text-center">No</th>
-                      <th className="py-3 px-3.5 min-w-[100px]">Tanggal</th>
-                      <th className="py-3 px-3.5 min-w-[140px]">No. Berkas / Ref</th>
-                      <th className="py-3 px-3.5 min-w-[240px]">Keterangan Transaksi</th>
-                      <th className="py-3 px-3.5 min-w-[320px]">Rincian Jurnal Akun (Debit &amp; Kredit)</th>
-                      <th className="py-3 px-3.5 text-right min-w-[130px]">Total Nilai</th>
-                      <th className="py-3 px-3.5 text-center min-w-[100px]">Status SAK</th>
-                      <th className="py-3 px-3.5 text-center w-24">Aksi</th>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
+                      <th className="py-2.5 px-3 w-10 text-center">No</th>
+                      <th className="py-2.5 px-3 min-w-[95px]">Tanggal</th>
+                      <th className="py-2.5 px-3 min-w-[130px]">No. Berkas / Ref</th>
+                      <th className="py-2.5 px-3 min-w-[220px]">Keterangan Transaksi</th>
+                      <th className="py-2.5 px-3 min-w-[240px]">Rincian Jurnal Akun / Item</th>
+                      <th className="py-2.5 px-3 text-right min-w-[120px]">Total Nilai</th>
+                      <th className="py-2.5 px-3 text-center min-w-[120px]">Status Pembukuan</th>
+                      <th className="py-2.5 px-3 text-center min-w-[85px]">Google Drive</th>
+                      <th className="py-2.5 px-3 text-center w-28">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredHistoryTransactions.map((trx, idx) => {
-                      const isAutoRecord = trx.refNumber && trx.refNumber.startsWith('BT/');
-                      const isBalanced = (trx.totalDebit || 0) === (trx.totalCredit || 0);
+                    {filteredUnifiedHistory.map((item, idx) => {
+                      const isPending = item.isPendingReceipt;
+                      const hasDrive = item.googleDriveLink && item.googleDriveLink.includes('drive.google.com');
 
                       return (
-                        <tr key={trx.id || idx} className="hover:bg-slate-50/70 transition">
-                          <td className="py-3 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+                        <tr key={item.id || idx} className="hover:bg-slate-50/70 transition">
+                          <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
                             {idx + 1}
                           </td>
-                          <td className="py-3 px-3.5 text-slate-700 text-xs whitespace-nowrap">
-                            <span className="flex items-center gap-1.5 font-medium">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                              {trx.date}
+                          <td className="py-2.5 px-3 text-slate-700 text-[11px] whitespace-nowrap">
+                            <span className="flex items-center gap-1 font-mono">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              {item.date}
                             </span>
                           </td>
-                          <td className="py-3 px-3.5">
-                            <div className="space-y-1">
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${
-                                isAutoRecord 
-                                  ? 'bg-amber-100/70 text-amber-900 border border-amber-300' 
-                                  : 'bg-slate-100 text-slate-800 border border-slate-200'
-                              }`}>
-                                {trx.refNumber || 'REF-GENERAL'}
-                              </span>
-                              {isAutoRecord && (
-                                <div className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
-                                  <Sparkles className="w-3 h-3" />
-                                  <span>Auto Record Bukti</span>
-                                </div>
-                              )}
-                            </div>
+                          <td className="py-2.5 px-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              {item.refNumber}
+                            </span>
                           </td>
-                          <td className="py-3 px-3.5 text-slate-900 text-xs">
-                            <div className="font-bold text-slate-900 leading-snug">{trx.description}</div>
-                            {trx.partner && (
+                          <td className="py-2.5 px-3 text-slate-900 text-xs">
+                            <div className="font-semibold text-slate-900 leading-snug">{item.description}</div>
+                            {item.partner && (
                               <div className="text-[11px] text-slate-500 mt-0.5">
-                                Mitra/Pihak: <strong className="text-slate-700">{trx.partner}</strong>
-                              </div>
-                            )}
-                            {trx.type && (
-                              <div className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wider">
-                                Tipe: {trx.type}
+                                Pihak: <strong className="text-slate-700">{item.partner}</strong>
                               </div>
                             )}
                           </td>
-                          <td className="py-3 px-3.5 text-xs">
-                            <div className="space-y-1.5 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
-                              {trx.lines.map((l, lIdx) => (
-                                <div key={lIdx} className="flex items-center justify-between text-[11px] gap-3">
-                                  <div className="truncate min-w-0" title={l.accountName}>
-                                    <span className="font-mono text-slate-500 mr-1.5">{l.accountCode}</span>
-                                    <span className="font-medium text-slate-800">{l.accountName}</span>
-                                    {l.memo && (
-                                      <span className="text-[10px] text-slate-400 ml-1 italic">({l.memo})</span>
-                                    )}
+                          <td className="py-2.5 px-3 text-xs">
+                            {item.transaction?.lines ? (
+                              <div className="space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                {item.transaction.lines.slice(0, 2).map((l, lIdx) => (
+                                  <div key={lIdx} className="flex items-center justify-between text-[10px] gap-2">
+                                    <span className="truncate max-w-[130px]" title={l.accountName}>
+                                      <span className="font-mono text-slate-500 mr-1">{l.accountCode}</span>
+                                      {l.accountName}
+                                    </span>
+                                    <span className="font-mono text-slate-700">
+                                      {l.debit > 0 ? `(D) Rp ${l.debit.toLocaleString('id-ID')}` : `(K) Rp ${l.credit.toLocaleString('id-ID')}`}
+                                    </span>
                                   </div>
-                                  <div className="font-mono whitespace-nowrap text-right shrink-0">
-                                    {l.debit > 0 ? (
-                                      <span className="text-blue-700 font-bold">(D) Rp {l.debit.toLocaleString('id-ID')}</span>
-                                    ) : (
-                                      <span className="text-slate-700 font-medium">(K) Rp {l.credit.toLocaleString('id-ID')}</span>
-                                    )}
-                                  </div>
+                                ))}
+                                {item.transaction.lines.length > 2 && (
+                                  <div className="text-[10px] text-blue-600 italic">+{item.transaction.lines.length - 2} baris lainnya</div>
+                                )}
+                              </div>
+                            ) : item.receipt?.extractedItems ? (
+                              <div className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                <span className="font-semibold text-slate-800">{item.receipt.extractedItems.length} item terekam</span>
+                                <div className="text-[10px] text-slate-500 truncate max-w-[200px]">
+                                  {item.receipt.extractedItems.map(it => it.name).slice(0, 2).join(', ')}
                                 </div>
-                              ))}
-                            </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[10px] italic">Tidak ada rincian baris</span>
+                            )}
                           </td>
-                          <td className="py-3 px-3.5 text-right font-bold text-slate-900 font-mono text-xs">
-                            Rp {(trx.totalDebit || 0).toLocaleString('id-ID')}
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono text-xs tabular-nums">
+                            {formatRupiah(item.amount)}
                           </td>
-                          <td className="py-3 px-3.5 text-center">
-                            {isBalanced ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                <Check className="w-3 h-3" />
-                                <span>Seimbang</span>
+                          <td className="py-2.5 px-3 text-center">
+                            {isPending ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>Menunggu Jurnal</span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                                <AlertTriangle className="w-3 h-3" />
-                                <span>Selisih</span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Sudah Dibukukan</span>
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-3.5 text-center">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi "${trx.refNumber || trx.description}"?`)) {
-                                  const res = await deleteTransaction(trx.id);
-                                  if (!res.success) {
-                                    alert(res.error || 'Gagal menghapus transaksi dari database.');
-                                  }
-                                }
-                              }}
-                              className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"
-                              title="Hapus Transaksi"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <td className="py-2.5 px-3 text-center">
+                            {hasDrive ? (
+                              <a
+                                href={item.googleDriveLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold"
+                                title="Buka berkas di Google Drive"
+                              >
+                                <span>Drive</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-mono">Lokal</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab('auto-journal')}
+                                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold rounded border border-amber-200 inline-flex items-center gap-1 cursor-pointer"
+                                  title="Proses pembukuan jurnal berkas ini"
+                                >
+                                  <span>Jurnal</span>
+                                  <ArrowRight className="w-3 h-3" />
+                                </button>
+                              )}
+                              {isPending ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Hapus berkas rekaman ${item.refNumber}?`)) {
+                                      deleteRecordedReceipt(item.id);
+                                      setRecordedReceipts(getRecordedReceipts());
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                                  title="Hapus Rekaman Berkas"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              ) : item.transaction ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (window.confirm(`Hapus transaksi pembukuan ${item.refNumber}?`)) {
+                                      const res = await deleteTransaction(item.transaction!.id);
+                                      if (!res.success) {
+                                        alert(res.error || 'Gagal menghapus transaksi dari database.');
+                                      }
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                                  title="Hapus Transaksi"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2317,19 +2507,19 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
             )}
 
             {/* Table Footer */}
-            <div className="p-4 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-600">
               <div>
-                Menampilkan <strong className="text-slate-900">{filteredHistoryTransactions.length}</strong> dari <strong className="text-slate-900">{transactions.length}</strong> total transaksi
+                Menampilkan <strong className="text-slate-900">{filteredUnifiedHistory.length}</strong> dari <strong className="text-slate-900">{unifiedHistoryItems.length}</strong> total berkas &amp; transaksi
               </div>
               <div className="flex items-center gap-4">
                 <div>
-                  Total Akumulasi: <strong className="font-mono text-slate-900 font-bold">Rp {totalHistoryDebit.toLocaleString('id-ID')}</strong>
+                  Total Akumulasi: <strong className="font-mono text-slate-900 font-bold">{formatRupiah(totalHistoryDebit)}</strong>
                 </div>
                 <a
                   href={SPREADSHEET_CONFIG.publicUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-bold"
+                  className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-semibold"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   <span>Lihat di Spreadsheet</span>

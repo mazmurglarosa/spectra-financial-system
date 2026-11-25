@@ -7,6 +7,13 @@ const KNOWN_PRODUCTION_DEPLOYMENT_IDS = new Set([
   'AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT'
 ]);
 
+export const APPROVED_PRODUCTION_DOMAINS = new Set([
+  'spectra-financial-system.vercel.app',
+  'spectra.nirwanabhumi.co.id',
+  'spectra.my.id',
+  'www.spectra.my.id'
+]);
+
 export function detectServerEnvironment(req: any, supabaseUrl?: string): {
   isProduction: boolean;
   isStagingOrPreview: boolean;
@@ -24,7 +31,9 @@ export function detectServerEnvironment(req: any, supabaseUrl?: string): {
 
   const isVercelPreview = vercelEnv === 'preview';
   const isVercelProd = vercelEnv === 'production';
-  const isPreviewHost = host.includes('-git-') || /^[a-z0-9-]+-[a-z0-9]{9,}-.+\.vercel\.app$/.test(host);
+  const isApprovedProdHost = APPROVED_PRODUCTION_DOMAINS.has(host);
+  const isVercelDomain = host.endsWith('.vercel.app');
+  const isPreviewHost = host.includes('-git-') || (isVercelDomain && !isApprovedProdHost);
   const isLocalHost = host.includes('localhost') || host.includes('127.0.0.1') || host.includes('::1') || host === '';
 
   // Multi-Factor Check: Strict Production mewajibkan VERCEL_ENV=production, Database Production, dan domain non-preview

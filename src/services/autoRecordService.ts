@@ -187,7 +187,7 @@ export const DEFAULT_POS_RULES: PosRule[] = [
 ];
 
 const STORAGE_CUSTOM_POS_KEY = 'sikeu_custom_pos_rules_v3';
-const STORAGE_DOC_SEQ_KEY = 'sikeu_auto_record_doc_seq_v3';
+export const STORAGE_DOC_SEQ_KEY = 'sikeu_auto_record_doc_seq_v3';
 
 export function getPosRules(): PosRule[] {
   try {
@@ -241,22 +241,51 @@ export function toRomanMonth(month1to12: number): string {
 
 export function getNextDocumentSequence(existingTransactions: Transaction[] = []): number {
   try {
-    // 1. Check local sequence storage
-    const storedSeq = parseInt(localStorage.getItem(STORAGE_DOC_SEQ_KEY) || '0', 10);
+    let maxFound = 0;
 
-    // 2. Scan existing transactions with refNumber like BT/0001/26X26
-    let maxFound = storedSeq;
-    existingTransactions.forEach(t => {
-      if (t.refNumber && t.refNumber.startsWith('BT/')) {
-        const parts = t.refNumber.split('/');
-        if (parts.length >= 2) {
-          const num = parseInt(parts[1], 10);
-          if (!isNaN(num) && num > maxFound) {
-            maxFound = num;
+    // 1. Scan existing posted transactions (BT/XXXX/...)
+    if (Array.isArray(existingTransactions)) {
+      existingTransactions.forEach(t => {
+        if (t.refNumber && t.refNumber.startsWith('BT/')) {
+          const parts = t.refNumber.split('/');
+          if (parts.length >= 2) {
+            const num = parseInt(parts[1], 10);
+            if (!isNaN(num) && num > maxFound) {
+              maxFound = num;
+            }
           }
         }
+      });
+    }
+
+    // 2. Scan recorded receipts in storage/queue
+    try {
+      const receipts = getRecordedReceipts();
+      if (Array.isArray(receipts)) {
+        receipts.forEach(r => {
+          if (r.nomorBerkas && r.nomorBerkas.startsWith('BT/')) {
+            const parts = r.nomorBerkas.split('/');
+            if (parts.length >= 2) {
+              const num = parseInt(parts[1], 10);
+              if (!isNaN(num) && num > maxFound) {
+                maxFound = num;
+              }
+            }
+          }
+          if (typeof r.seqNumber === 'number' && !isNaN(r.seqNumber) && r.seqNumber > maxFound) {
+            maxFound = r.seqNumber;
+          }
+        });
       }
-    });
+    } catch {}
+
+    // 3. Check persistent committed sequence storage
+    if (typeof localStorage !== 'undefined') {
+      const storedSeq = parseInt(localStorage.getItem(STORAGE_DOC_SEQ_KEY) || '0', 10);
+      if (!isNaN(storedSeq) && storedSeq > maxFound) {
+        maxFound = storedSeq;
+      }
+    }
 
     return maxFound + 1;
   } catch (e) {
@@ -266,7 +295,10 @@ export function getNextDocumentSequence(existingTransactions: Transaction[] = []
 
 export function commitDocumentSequence(seq: number): void {
   try {
-    localStorage.setItem(STORAGE_DOC_SEQ_KEY, String(seq));
+    if (typeof localStorage === 'undefined') return;
+    const current = parseInt(localStorage.getItem(STORAGE_DOC_SEQ_KEY) || '0', 10);
+    const toStore = Math.max(isNaN(current) ? 0 : current, seq);
+    localStorage.setItem(STORAGE_DOC_SEQ_KEY, String(toStore));
   } catch (e) {}
 }
 
@@ -1076,6 +1108,17 @@ export interface RecordedReceipt {
   journalTxId?: string;
   archiveStatus?: 'local' | 'indexeddb' | 'cloud_permanent' | 'simulated';
   imageHash?: string;
+  // Metadata Integrasi Drive & Spreadsheet
+  driveFileId?: string;
+  driveViewUrl?: string;
+  driveDirectUrl?: string;
+  driveUploadStatus?: 'PENDING' | 'UPLOADED' | 'LOCAL_INDEXEDDB' | 'SIMULATED' | 'FAILED';
+  driveUploadedAt?: string;
+  spreadsheetSyncStatus?: 'PENDING' | 'SYNCED' | 'SIMULATED' | 'FAILED';
+  spreadsheetSyncedAt?: string;
+  spreadsheetRowsCount?: number;
+  journalStatus?: 'PENDING' | 'POSTED';
+  journalPostedAt?: string;
 }
 
 export const SPECTRA_RECORDED_RECEIPTS_KEY = 'spectra_recorded_receipts_list';
@@ -1161,6 +1204,7 @@ export async function resolveReceiptImage(receipt: RecordedReceipt): Promise<str
 
 export function getRecordedReceipts(): RecordedReceipt[] {
   try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(SPECTRA_RECORDED_RECEIPTS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {
@@ -1240,16 +1284,33 @@ export async function saveRecordedReceipt(receipt: RecordedReceipt): Promise<{
   }
 }
 
-export function updateRecordedReceiptStatus(nomorBerkas: string, status: 'pending_journal' | 'journalized', journalTxId?: string): void {
+export function updateRecordedReceiptStatus(
+  nomorBerkas: string,
+  status: 'pending_journal' | 'journalized',
+  journalTxId?: string
+): void {
   try {
     const list = getRecordedReceipts();
     const updated = list.map(r => {
-      if (r.nomorBerkas === nomorBerkas) {
-        return { ...r, status, journalTxId };
+      if (r.nomorBerkas === nomorBerkas || r.id === nomorBerkas) {
+        return {
+          ...r,
+          status,
+          journalStatus: status === 'journalized' ? ('POSTED' as const) : ('PENDING' as const),
+          journalTxId: journalTxId || r.journalTxId,
+          journalPostedAt: status === 'journalized' ? new Date().toISOString() : r.journalPostedAt
+        };
       }
       return r;
     });
     localStorage.setItem(SPECTRA_RECORDED_RECEIPTS_KEY, JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('spectra:recorded-receipt-updated', {
+          detail: { nomorBerkas, status, journalTxId }
+        })
+      );
+    }
   } catch (e) {
     console.warn('[STORAGE] Gagal memperbarui status bukti:', e);
   }

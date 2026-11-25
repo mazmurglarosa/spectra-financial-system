@@ -85,7 +85,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
   const [riwayatFilter, setRiwayatFilter] = useState<'all' | 'bt' | 'other'>('all');
   const [riwayatSearch, setRiwayatSearch] = useState<string>('');
 
-  // Load Pending Draft if redirected from Auto Record
+  // Load Pending Draft if redirected from Auto Record or pick up first queue item
   useEffect(() => {
     const draft = getPendingJournalDraft();
     if (draft && draft.nomorBerkas) {
@@ -114,8 +114,14 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       setActiveSubTab('generator');
       clearPendingJournalDraft();
     } else if (journalLines.length === 0) {
-      // Initialize with sample receipt if empty
-      loadSampleJournal();
+      // Jika ada berkas pending di antrean, prioritaskan muat berkas tersebut
+      const pendingList = getRecordedReceipts().filter(r => r.status === 'pending_journal');
+      if (pendingList.length > 0) {
+        handleSelectFromAntrean(pendingList[0]);
+      } else {
+        // Initialize with sample receipt if empty
+        loadSampleJournal();
+      }
     }
   }, []);
 
@@ -261,6 +267,15 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       return;
     }
 
+    // Proteksi duplikasi pembukuan: periksa apakah nomor berkas ini sudah dibukukan
+    const isAlreadyPosted = transactions.some(
+      t => t.refNumber && t.refNumber.trim().toLowerCase() === nomorBerkas.trim().toLowerCase()
+    );
+    if (isAlreadyPosted) {
+      alert(`Gagal Bukukan: Bukti transaksi dengan nomor berkas "${nomorBerkas}" sudah dibukukan sebelumnya ke Jurnal Umum. Duplikasi posting ditolak.`);
+      return;
+    }
+
     setIsPosting(true);
     setPostingError(null);
 
@@ -310,8 +325,10 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
 
       const createdTx = res.transaction;
 
-      // 3. Update status antrean berkas
+      // 3. Update status antrean berkas & segarkan daftar antrean
       updateRecordedReceiptStatus(nomorBerkas, 'journalized', createdTx.id);
+      setAntreanList(getRecordedReceipts());
+      clearPendingJournalDraft();
 
       logActivity(
         'Jurnal Otomatis Approval',
@@ -378,37 +395,37 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
       
-      {/* 1. Header Banner & Navigasi */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-950 via-slate-900 to-indigo-950 rounded-3xl p-6 md:p-8 text-white shadow-xl border border-purple-800/30">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 text-xs font-semibold backdrop-blur-md border border-purple-500/30">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>SPECTRA SAK Intelligent Journal Engine</span>
+      {/* 1. Header Enterprise & Navigasi */}
+      <div className="bg-slate-900 rounded-2xl p-5 md:p-6 text-white border border-slate-800 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-500/10 border border-blue-400/20 text-blue-300 text-xs font-semibold">
+              <Layers className="w-3.5 h-3.5 text-blue-400" />
+              <span>Jurnal Otomatis &bull; Standar SAK</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white drop-shadow">
+            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white">
               Jurnal Otomatis Akuntansi
             </h1>
-            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-              Membentuk jurnal umum akuntansi standar SAK secara otomatis: segregasi akun, pemisahan pajak PB1/PPN &amp; biaya transfer BI-FAST, serta penambahan akun baru COA otomatis.
+            <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+              Membentuk jurnal umum standar SAK secara otomatis: segregasi akun beban, pemisahan pajak PB1/PPN &amp; biaya administrasi bank, serta pembukuan ke Buku Besar.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab('auto-record')}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               title="Buka modul Auto Record untuk scan bukti transaksi"
             >
-              <Scan className="w-4 h-4 text-indigo-400" />
-              <span>Buka Auto Record</span>
+              <Scan className="w-4 h-4 text-sky-400" />
+              <span>Auto Record</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('journals')}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               title="Buka Jurnal Umum & AJP"
             >
               <BookOpen className="w-4 h-4 text-emerald-400" />
@@ -418,33 +435,33 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
         </div>
 
         {/* Tab Sub-Navigation */}
-        <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center gap-2 text-xs font-bold">
+        <div className="mt-5 pt-4 border-t border-slate-800 flex flex-wrap items-center gap-2 text-xs font-medium">
           <button
             type="button"
             onClick={() => setActiveSubTab('generator')}
-            className={`px-4 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
+            className={`px-3.5 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
               activeSubTab === 'generator'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                ? 'bg-white text-slate-900 font-bold shadow-xs'
+                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300'
             }`}
           >
-            <Layers className="w-4 h-4" />
+            <Layers className="w-4 h-4 text-blue-600" />
             <span>Form &amp; Generator Jurnal SAK</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSubTab('antrean')}
-            className={`px-4 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer relative ${
+            className={`px-3.5 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer relative ${
               activeSubTab === 'antrean'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                ? 'bg-white text-slate-900 font-bold shadow-xs'
+                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300'
             }`}
           >
-            <Clock className="w-4 h-4" />
+            <Clock className="w-4 h-4 text-amber-500" />
             <span>Antrean Berkas dari Auto Record</span>
             {pendingCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-900">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-slate-900">
                 {pendingCount}
               </span>
             )}
@@ -453,14 +470,14 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
           <button
             type="button"
             onClick={() => setActiveSubTab('riwayat')}
-            className={`px-4 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
+            className={`px-3.5 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
               activeSubTab === 'riwayat'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                ? 'bg-white text-slate-900 font-bold shadow-xs'
+                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300'
             }`}
           >
-            <History className="w-4 h-4" />
-            <span>Riwayat Jurnal yang Telah Dibukukan ({transactions.filter(t => t.refNumber && t.refNumber.startsWith('BT/')).length})</span>
+            <History className="w-4 h-4 text-emerald-500" />
+            <span>Riwayat Dibukukan ({transactions.filter(t => t.refNumber && t.refNumber.startsWith('BT/')).length})</span>
           </button>
         </div>
       </div>
@@ -471,11 +488,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       {activeSubTab === 'generator' && (
         <div className="space-y-6">
           {/* Parameter Transaksi Panel */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
-                  <Sparkles className="w-5 h-5" />
+                <div className="p-2 bg-blue-50 text-blue-700 rounded-lg">
+                  <Layers className="w-4 h-4" />
                 </div>
                 <div>
                   <h2 className="text-sm font-bold text-slate-900">Parameter Dasar Jurnal Otomatis</h2>
@@ -487,9 +504,9 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                 <button
                   type="button"
                   onClick={loadSampleJournal}
-                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Zap className="w-3.5 h-3.5 text-amber-600" />
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
                   <span>Muat Contoh Nota Resmi (Baut &amp; PB1)</span>
                 </button>
               </div>
@@ -497,32 +514,32 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 mb-1">
                   Nomor Berkas / Ref:
                 </label>
                 <input
                   type="text"
                   value={nomorBerkas}
                   onChange={(e) => setNomorBerkas(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono font-bold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500"
+                  className="w-full px-3 py-2 text-xs font-mono font-bold bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-blue-600 focus:outline-hidden"
                   placeholder="BT/0001/26X26"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 mb-1">
                   Tanggal Transaksi:
                 </label>
                 <input
                   type="date"
                   value={transactionDate}
                   onChange={(e) => setTransactionDate(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500"
+                  className="w-full px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-blue-600 focus:outline-hidden"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 mb-1">
                   Aturan POS (Penentu Akun Lawan):
                 </label>
                 <select
@@ -530,7 +547,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                   onChange={(e) => {
                     setSelectedPosCode(e.target.value);
                   }}
-                  className="w-full px-3 py-2 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500 text-slate-800"
+                  className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-blue-600 focus:outline-hidden text-slate-800"
                 >
                   {posRules.map(p => (
                     <option key={p.code} value={p.code}>
@@ -541,7 +558,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               </div>
 
               <div className="md:col-span-3">
-                <label className="block text-xs font-bold text-slate-800 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 mb-1">
                   Keterangan atas Transaksi:
                 </label>
                 <div className="flex gap-2">
@@ -549,13 +566,13 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                     type="text"
                     value={keterangan}
                     onChange={(e) => setKeterangan(e.target.value)}
-                    className="flex-1 px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500"
+                    className="flex-1 px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-blue-600 focus:outline-hidden"
                     placeholder="Contoh: Pembelian Baut dan Material Pemeliharaan Bengkel"
                   />
                   <button
                     type="button"
                     onClick={handleRegenerateFromItems}
-                    className="px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    className="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shrink-0 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Generate Ulang Jurnal SAK</span>
@@ -565,8 +582,8 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
             </div>
 
             {/* Aturan POS Aktif Banner */}
-            <div className="p-3 bg-purple-50/60 border border-purple-100 rounded-xl text-xs text-purple-950 space-y-1">
-              <div className="font-bold text-[11px] text-purple-900">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+              <div className="font-bold text-[11px] text-slate-900">
                 Aturan POS "{selectedPos.code}": {selectedPos.name}
               </div>
               <div className="text-[11px] text-slate-600">
@@ -577,7 +594,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
 
           {/* Rincian Item / Sumber Berkas (Jika Ada) */}
           {items.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-3">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-slate-500" />
@@ -585,23 +602,23 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                     Rincian Item Sumber Transaksi ({items.length} item)
                   </span>
                 </div>
-                <div className="text-xs font-mono font-bold text-purple-700">
+                <div className="text-xs font-mono font-bold text-blue-700">
                   Total Nilai: {formatRupiah(grandTotal)}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs">
                 {items.map((it, idx) => (
-                  <div key={it.id || idx} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                  <div key={it.id || idx} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between">
                     <div className="min-w-0 pr-2">
                       <div className="font-semibold text-slate-800 truncate">{it.name}</div>
                       <div className="text-[10px] text-slate-500">
                         {it.quantity ? `${it.quantity} ${it.unit || 'pcs'} x ` : ''}
                         {it.unitPrice ? formatRupiah(it.unitPrice) : ''}
-                        {it.isTaxOrFee && <span className="ml-1 text-purple-700 font-bold">({it.taxOrFeeType || 'Pajak/Biaya'})</span>}
+                        {it.isTaxOrFee && <span className="ml-1 text-blue-700 font-bold">({it.taxOrFeeType || 'Pajak/Biaya'})</span>}
                       </div>
                     </div>
-                    <div className="font-mono font-bold text-slate-900 shrink-0">
+                    <div className="font-mono font-bold text-slate-900 shrink-0 tabular-nums">
                       {formatRupiah(it.totalPrice)}
                     </div>
                   </div>
@@ -611,11 +628,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
           )}
 
           {/* Tabel Usulan Jurnal Umum Akuntansi SAK */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-purple-600" />
+                  <Layers className="w-4 h-4 text-blue-600" />
                   <span>Usulan Jurnal Umum Akuntansi (Prinsip SAK)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500">
@@ -642,7 +659,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                 <div 
                   key={line.id} 
                   className={`p-3 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition ${
-                    line.credit > 0 ? 'bg-slate-50/70 border-slate-200' : 'bg-purple-50/30 border-purple-200/60'
+                    line.credit > 0 ? 'bg-slate-50/70 border-slate-200' : 'bg-blue-50/20 border-blue-200/60'
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -651,8 +668,8 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                     </span>
 
                     {/* D/K Badge */}
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider ${
-                      line.debit > 0 ? 'bg-purple-600 text-white' : 'bg-slate-700 text-white'
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
+                      line.debit > 0 ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white'
                     }`}>
                       {line.debit > 0 ? 'DEBIT' : 'KREDIT'}
                     </span>
@@ -662,7 +679,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                       <select
                         value={line.accountCode}
                         onChange={(e) => handleUpdateJournalLine(line.id, 'accountCode', e.target.value)}
-                        className="w-full px-2.5 py-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-purple-500"
+                        className="w-full px-2.5 py-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-600 focus:outline-hidden"
                       >
                         {!accounts.some(a => a.code === line.accountCode) && (
                           <option value={line.accountCode}>
@@ -677,7 +694,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                       </select>
                       {line.isNewAccount && (
                         <div className="text-[10px] font-bold text-amber-700 mt-0.5 flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-amber-500" />
+                          <CheckCircle className="w-3 h-3 text-amber-500" />
                           <span>+ Akun Baru Otomatis: {line.accountName} (Kode: {line.suggestedNewCode || line.accountCode})</span>
                         </div>
                       )}
@@ -692,7 +709,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                         type="number"
                         value={line.debit}
                         onChange={(e) => handleUpdateJournalLine(line.id, 'debit', Number(e.target.value))}
-                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-purple-500"
+                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-600 focus:outline-hidden tabular-nums"
                       />
                     </div>
                     <div>
@@ -701,7 +718,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                         type="number"
                         value={line.credit}
                         onChange={(e) => handleUpdateJournalLine(line.id, 'credit', Number(e.target.value))}
-                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-purple-500"
+                        className="w-28 text-right px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-600 focus:outline-hidden tabular-nums"
                       />
                     </div>
                     <button
@@ -722,11 +739,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               <div className="flex items-center gap-4">
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase">Total Debit:</span>
-                  <div className="font-mono font-bold text-purple-300">{formatRupiah(totalDebitJurnal)}</div>
+                  <div className="font-mono font-bold text-sky-300 tabular-nums">{formatRupiah(totalDebitJurnal)}</div>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase">Total Kredit:</span>
-                  <div className="font-mono font-bold text-emerald-300">{formatRupiah(totalCreditJurnal)}</div>
+                  <div className="font-mono font-bold text-emerald-300 tabular-nums">{formatRupiah(totalCreditJurnal)}</div>
                 </div>
               </div>
 
@@ -748,7 +765,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                 <button
                   type="button"
                   onClick={handleSaveJournalEdits}
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>Kunci Jurnal</span>
@@ -780,7 +797,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                 type="button"
                 disabled={selisihJurnal !== 0 || isPosting}
                 onClick={handleApprove}
-                className="py-3 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
+                className="py-2.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
               >
                 {isPosting ? (
                   <>
@@ -803,11 +820,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       {/* SUBTAB 2: ANTREAN BERKAS DARI AUTO RECORD */}
       {/* ========================================================================= */}
       {activeSubTab === 'antrean' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
             <div>
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-600" />
+                <Clock className="w-4 h-4 text-amber-500" />
                 <span>Antrean Berkas dari Auto Record</span>
               </h2>
               <p className="text-[11px] text-slate-500">
@@ -818,7 +835,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
             <button
               type="button"
               onClick={() => setActiveTab('auto-record')}
-              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
             >
               <Scan className="w-3.5 h-3.5" />
               <span>+ Unggah Bukti Baru di Auto Record</span>
@@ -827,7 +844,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
 
           {antreanList.length === 0 ? (
             <div className="py-12 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                 <FileText className="w-6 h-6" />
               </div>
               <div className="text-xs font-bold text-slate-700">Belum Ada Berkas di Antrean</div>
@@ -837,7 +854,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               <button
                 type="button"
                 onClick={() => setActiveTab('auto-record')}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition cursor-pointer"
               >
                 Buka Auto Record Sekarang
               </button>
@@ -846,7 +863,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                  <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
                     <th className="py-2.5 px-3">No. Berkas</th>
                     <th className="py-2.5 px-3">Tanggal</th>
                     <th className="py-2.5 px-3">Keterangan</th>
@@ -856,10 +873,10 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                     <th className="py-2.5 px-3 text-center">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 font-medium">
                   {antreanList.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/80 transition">
-                      <td className="py-3 px-3 font-mono font-bold text-purple-700">
+                      <td className="py-3 px-3 font-mono font-bold text-blue-700">
                         {item.nomorBerkas}
                       </td>
                       <td className="py-3 px-3 text-slate-600">
@@ -874,7 +891,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                       <td className="py-3 px-3 font-bold text-slate-700">
                         POS [{item.posCode}]
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 tabular-nums">
                         {formatRupiah(item.grandTotal)}
                       </td>
                       <td className="py-3 px-3 text-center">
@@ -892,7 +909,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                         <button
                           type="button"
                           onClick={() => handleSelectFromAntrean(item)}
-                          className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 mx-auto cursor-pointer"
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 mx-auto cursor-pointer"
                         >
                           <span>Proses Jurnal</span>
                           <ArrowRight className="w-3 h-3" />
@@ -911,11 +928,11 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       {/* SUBTAB 3: RIWAYAT JURNAL OTOMATIS YANG TELAH DIBUKUKAN */}
       {/* ========================================================================= */}
       {activeSubTab === 'riwayat' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 md:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <History className="w-4 h-4 text-purple-600" />
+                <History className="w-4 h-4 text-emerald-600" />
                 <span>Riwayat Transaksi Jurnal Otomatis yang Telah Dibukukan</span>
               </h2>
               <p className="text-[11px] text-slate-500">
@@ -927,7 +944,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               <button
                 type="button"
                 onClick={handleExportHistoryExcel}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-600" />
                 <span>Export Excel</span>
@@ -935,7 +952,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
               <button
                 type="button"
                 onClick={() => setActiveTab('journals')}
-                className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Buka Jurnal Umum</span>
@@ -952,14 +969,14 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                 placeholder="Cari berdasarkan nomor berkas, akun, atau keterangan..."
                 value={riwayatSearch}
                 onChange={(e) => setRiwayatSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-purple-500"
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:border-blue-600 focus:outline-hidden"
               />
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
               <select
                 value={riwayatFilter}
                 onChange={(e) => setRiwayatFilter(e.target.value as any)}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden"
               >
                 <option value="all">Semua Transaksi</option>
                 <option value="bt">Khusus Berkas (BT/)</option>
@@ -972,7 +989,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
                   <th className="py-2.5 px-3">Tanggal</th>
                   <th className="py-2.5 px-3">Nomor Ref</th>
                   <th className="py-2.5 px-3">Keterangan</th>
@@ -982,7 +999,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                   <th className="py-2.5 px-3 text-right">Total Kredit</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 font-medium">
                 {filteredHistoryTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
@@ -997,7 +1014,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                     return (
                       <tr key={trx.id} className="hover:bg-slate-50/80 transition">
                         <td className="py-3 px-3 text-slate-600 whitespace-nowrap">{trx.date}</td>
-                        <td className="py-3 px-3 font-mono font-bold text-purple-700 whitespace-nowrap">
+                        <td className="py-3 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
                           {trx.refNumber || '-'}
                         </td>
                         <td className="py-3 px-3 font-medium text-slate-800 max-w-xs truncate">
@@ -1017,10 +1034,10 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                             </div>
                           ))}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 tabular-nums">
                           {formatRupiah(trx.totalDebit)}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 tabular-nums">
                           {formatRupiah(trx.totalCredit)}
                         </td>
                       </tr>
@@ -1036,24 +1053,24 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
       {/* MODAL SUCCESS APPROVAL */}
       {isSuccessModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100 text-center animate-scaleUp">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
-              <CheckCircle2 className="w-8 h-8" />
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-100 text-center animate-scaleUp">
+            <div className="w-14 h-14 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle2 className="w-7 h-7" />
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-bold text-slate-900">
                 Jurnal Otomatis Berhasil Dibukukan!
               </h3>
               <p className="text-xs text-slate-500">
-                Bukti transaksi <strong className="text-purple-700">{nomorBerkas}</strong> telah resmi dibukukan ke <strong>Jurnal Umum &amp; AJP</strong> dan buku besar.
+                Bukti transaksi <strong className="text-blue-700">{nomorBerkas}</strong> telah resmi dibukukan ke <strong>Jurnal Umum &amp; AJP</strong> dan buku besar.
               </p>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-left space-y-1">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-left space-y-1">
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Nominal:</span>
-                <span className="font-mono font-bold text-slate-800">{formatRupiah(totalDebitJurnal)}</span>
+                <span className="font-mono font-bold text-slate-800 tabular-nums">{formatRupiah(totalDebitJurnal)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Status Jurnal:</span>
@@ -1068,7 +1085,7 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                   setIsSuccessModalOpen(false);
                   setActiveSubTab('riwayat');
                 }}
-                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition cursor-pointer"
               >
                 Lihat Riwayat
               </button>
@@ -1078,9 +1095,9 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
                   setIsSuccessModalOpen(false);
                   setActiveTab('journals');
                 }}
-                className="py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-md"
+                className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-xs"
               >
-                Buka Jurnal Umum ➔
+                Buka Jurnal Umum
               </button>
             </div>
           </div>

@@ -17,7 +17,7 @@ import {
   ChevronRight, 
   LogOut,
   Scan,
-  Sparkles,
+  Layers,
   Landmark,
   FileCheck2
 } from 'lucide-react';
@@ -216,10 +216,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => setActiveTab('auto-journal')}
             className={`nav-item ${activeTab === 'auto-journal' ? 'active' : ''}`}
           >
-            <Sparkles className={`w-4 h-4 shrink-0 ${activeTab === 'auto-journal' ? 'text-white' : 'text-purple-600'}`} />
+            <Layers className={`w-4 h-4 shrink-0 ${activeTab === 'auto-journal' ? 'text-white' : 'text-blue-600'}`} />
             <span className="font-medium text-xs">Jurnal Otomatis</span>
-            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'auto-journal' ? 'bg-white/20 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'}`}>
-              SAK AI
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'auto-journal' ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+              SAK
             </span>
             {activeTab === 'auto-journal' && <ChevronRight className="w-3.5 h-3.5 ml-auto text-white/90" />}
           </div>
