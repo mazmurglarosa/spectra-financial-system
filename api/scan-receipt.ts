@@ -6,6 +6,7 @@ import {
   sanitizeCurrencyAmount,
   runTwoWayDeterministicVerification,
   ExtractedItem,
+  BankTransferDetails,
   RealOcrExtractionResult
 } from "./_lib/ocrSanitizer.js";
 
@@ -230,7 +231,7 @@ export default async function handler(req: any, res: any) {
 
   // 6. Buat Prompt Terstruktur untuk Model Vision
   const systemPrompt = `Anda adalah spesialis OCR/HTR akuntansi enterprise pada SPECTRA Financial System.
-Tugas Anda adalah membaca gambar bukti transaksi keuangan Indonesia (struk belanja kasir, nota thermal, faktur resmi, nota tulis tangan/HTR, atau bukti transfer mobile banking BCA/Mandiri/BRI/BNI) secara presisi tinggi.
+Tugas Anda adalah membaca gambar bukti transaksi keuangan Indonesia (struk belanja kasir, nota thermal, faktur resmi, nota tulis tangan/HTR, atau bukti transfer mobile banking BCA/Mandiri/BRI/BNI/flip/BI-FAST) secara presisi tinggi.
 
 PANDUAN EKSTRAKSI ANGKA INDONESIA:
 1. Pemisah ribuan di Indonesia menggunakan tanda titik (contoh: 50.000) atau koma jika format internasional.
@@ -238,6 +239,26 @@ PANDUAN EKSTRAKSI ANGKA INDONESIA:
 3. Tulisan tangan sering menggunakan notasi '10,-' (artinya 10.000 jika dalam konteks ribuan) atau '10k' / '10rb'.
 4. Pisahkan subtotal, pajak (PB1/PPN), diskon, biaya kirim (ongkir), total bayar, dan kembalian secara terpisah.
 5. DILARANG membuat nominal fiktif. Jika teks angka buram/hilang, beri confidence rendah (20-40) dan gunakan angka tertera apa adanya.
+
+PANDUAN KHUSUS BUKTI TRANSFER BANK (BCA, Mandiri, BRI, BNI, BI-FAST, flip, dll):
+1. Identifikasi secara terpisah antara:
+   - "transfer_amount": Nominal uang yang dikirimkan ke penerima (contoh: Rp 2.850.000 untuk transaksi Brevet Pajak CPTT).
+   - "bank_admin_fee": Biaya transaksi/administrasi bank/BI-FAST yang tertera (contoh: Rp 2.500 atau Rp 6.500).
+   - "fee_type": 'BI_FAST' jika tertulis BI-FAST, 'ADMIN_BANK' jika biaya transfer bank umum, 'FREE' jika tertera Rp 0 / Gratis / Bebas Biaya, atau 'NONE' jika bukan transfer bank.
+   - "fee_text_evidence": Kutipan teks persis dari struk yang membuktikan biaya (contoh: "Biaya Transaksi: Rp 2.500" atau "Biaya Admin: Rp 0 (Bebas Biaya)").
+   - "total_debited_amount": Total dana terdebit dari rekening pengirim (transfer_amount + bank_admin_fee, contoh: Rp 2.852.500).
+2. DILARANG KERAS MENGARANG BIAYA (ANTI-FABRICATION):
+   - DILARANG mengasumsikan/menebak biaya (misal mengisi 2500 atau 6500) semata-mata karena ada tulisan 'BI-FAST' atau 'Transfer'.
+   - Jika bukti transfer menyebutkan BI-FAST atau Transfer namun nominal biaya tidak tertulis, terpotong, atau buram:
+     Isi "bank_admin_fee": 0, "has_unconfirmed_fee": true, dan "unconfirmed_fee_note": "Biaya transfer/BI-FAST terindikasi pada struk namun nominal tidak terbaca jelas."
+   - Jika biaya jelas tertera Rp 0, 0,00, Gratis, atau Bebas Biaya:
+     Isi "bank_admin_fee": 0, "fee_type": "FREE", "fee_text_evidence": "Gratis/Rp 0", "has_unconfirmed_fee": false.
+3. Struktur Baris Item & Anti-Double-Count:
+   - Untuk transfer bank, "extracted_items" HARUS memuat:
+     a) Item pokok transaksi (nama jasa/barang/keperluan transfer, contoh "Brevet Pajak CPTT - PT Piranha") dengan unit_price & total_price = transfer_amount (contoh 2.850.000), is_tax_or_fee: false.
+     b) Item biaya bank (jika bank_admin_fee > 0): nama "Biaya Transfer BI-FAST" atau "Biaya Administrasi Bank" dengan total_price = bank_admin_fee (contoh 2.500), is_tax_or_fee: true, tax_or_fee_type: "BI_FAST" atau "ADMIN_BANK".
+   - "declared_grand_total" = total_debited_amount (contoh 2.852.500).
+   - JANGAN menjumlahkan biaya bank dua kali ke dalam item pokok!
 
 WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
 {
@@ -248,6 +269,15 @@ WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
   "tax_amount": 0,
   "discount_amount": 0,
   "shipping_fee": 0,
+  "bank_transfer_details": {
+    "transfer_amount": 0,
+    "bank_admin_fee": 0,
+    "fee_type": "BI_FAST" | "ADMIN_BANK" | "FREE" | "NONE",
+    "fee_text_evidence": "",
+    "total_debited_amount": 0,
+    "has_unconfirmed_fee": false,
+    "unconfirmed_fee_note": ""
+  },
   "declared_grand_total": 0,
   "payment_amount": 0,
   "change_amount": 0,
@@ -255,7 +285,7 @@ WAJIB MENGEMBALIKAN HANYA JSON DENGAN STRUKTUR BERIKUT:
     {
       "name": "Nama barang atau jasa",
       "quantity": 1,
-      "unit": "pcs",
+      "unit": "transaksi",
       "unit_price": 50000,
       "total_price": 50000,
       "confidence": 85,
@@ -385,7 +415,7 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
     });
   }
 
-  // 8. Normalisasi extracted_items (tangani null, object, atau tipe salah)
+  // 8. Normalisasi extracted_items & Bank Transfer Details
   let rawItems: any[] = [];
   if (Array.isArray(parsed.extracted_items)) {
     rawItems = parsed.extracted_items;
@@ -397,6 +427,35 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
     rawItems = Object.values(parsed.items);
   }
 
+  // Ekstrak bank_transfer_details jika dokumen adalah transfer bank atau field tersedia
+  let bankDetails: BankTransferDetails | undefined = undefined;
+  const rawBtd = parsed.bank_transfer_details;
+  const isTransferBankType = parsed.detected_type === 'transfer_bank' || Boolean(rawBtd);
+
+  if (rawBtd && typeof rawBtd === 'object') {
+    const transferAmt = sanitizeCurrencyAmount(rawBtd.transfer_amount, 'Transfer Amount');
+    const adminFee = sanitizeCurrencyAmount(rawBtd.bank_admin_fee, 'Bank Admin Fee');
+    let totalDebited = sanitizeCurrencyAmount(rawBtd.total_debited_amount, 'Total Debited');
+    if (totalDebited === 0 && transferAmt > 0) {
+      totalDebited = transferAmt + adminFee;
+    }
+    const hasUnconfirmed = Boolean(rawBtd.has_unconfirmed_fee);
+    const feeType = rawBtd.fee_type === 'BI_FAST' ? 'BI_FAST'
+      : rawBtd.fee_type === 'ADMIN_BANK' ? 'ADMIN_BANK'
+      : rawBtd.fee_type === 'FREE' ? 'FREE'
+      : 'NONE';
+
+    bankDetails = {
+      transferAmount: transferAmt,
+      bankAdminFee: adminFee,
+      feeType,
+      feeTextEvidence: String(rawBtd.fee_text_evidence || '').trim(),
+      totalDebitedAmount: totalDebited,
+      hasUnconfirmedFee: hasUnconfirmed,
+      unconfirmedFeeNote: rawBtd.unconfirmed_fee_note ? String(rawBtd.unconfirmed_fee_note).trim() : undefined
+    };
+  }
+
   const items: ExtractedItem[] = rawItems.filter(Boolean).map((it: any, idx: number) => {
     const itemName = String(it.name || it.item_name || `Item ${idx + 1}`).trim();
     const sanitizedTotal = sanitizeCurrencyAmount(it.total_price ?? it.total ?? it.subtotal, itemName);
@@ -404,7 +463,6 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
       ? sanitizeCurrencyAmount(it.unit_price, itemName)
       : null;
 
-    // Jangan berikan confidence tinggi palsu jika model tidak menyertakan confidence
     let conf = 50;
     if (it.confidence !== null && it.confidence !== undefined && !isNaN(Number(it.confidence))) {
       conf = Math.max(10, Math.min(100, Math.round(Number(it.confidence))));
@@ -412,39 +470,97 @@ Ekstrak semua baris item barang/jasa beserta subtotal, pajak, diskon, dan grand 
       conf = 75; // Nilai wajar moderat untuk item lengkap
     }
 
+    const lowerName = itemName.toLowerCase();
+    const isBankFee = lowerName.includes('bi-fast') || lowerName.includes('bi fast') ||
+                      lowerName.includes('admin bank') || lowerName.includes('administrasi bank') ||
+                      (lowerName.includes('biaya') && (lowerName.includes('transfer') || lowerName.includes('admin')));
+    const isFeeOrTax = Boolean(it.is_tax_or_fee) || isBankFee;
+
+    let resolvedFeeType = it.tax_or_fee_type;
+    if (isBankFee && !resolvedFeeType) {
+      resolvedFeeType = (lowerName.includes('bi-fast') || lowerName.includes('bi fast')) ? 'BI_FAST' : 'ADMIN_BANK';
+    }
+
     return {
       id: `it-groq-${Date.now()}-${idx}`,
       name: itemName,
       unitPrice: sanitizedUnit,
       quantity: it.quantity !== null && it.quantity !== undefined && !isNaN(Number(it.quantity)) ? Number(it.quantity) : null,
-      unit: String(it.unit || 'pcs').trim(),
+      unit: String(it.unit || (isFeeOrTax ? '' : 'transaksi')).trim(),
       totalPrice: sanitizedTotal,
       confidence: conf,
-      isTaxOrFee: Boolean(it.is_tax_or_fee),
-      taxOrFeeType: it.tax_or_fee_type || undefined
+      isTaxOrFee: isFeeOrTax,
+      taxOrFeeType: resolvedFeeType || undefined
     };
   });
 
-  const declaredGrand = sanitizeCurrencyAmount(
+  // Jika bankDetails memiliki biaya admin > 0 dan belum muncul di items, tambahkan sebagai baris terpisah
+  if (bankDetails && bankDetails.bankAdminFee > 0) {
+    const feeAlreadyInItems = items.some(it =>
+      it.taxOrFeeType === 'BI_FAST' ||
+      it.taxOrFeeType === 'ADMIN_BANK' ||
+      it.name.toLowerCase().includes('bi-fast') ||
+      it.name.toLowerCase().includes('admin bank') ||
+      it.name.toLowerCase().includes('biaya transfer')
+    );
+
+    if (!feeAlreadyInItems) {
+      items.push({
+        id: `it-groq-fee-${Date.now()}`,
+        name: bankDetails.feeType === 'BI_FAST' ? 'Biaya Transfer BI-FAST' : 'Biaya Administrasi Bank',
+        unitPrice: null,
+        quantity: null,
+        unit: '',
+        totalPrice: bankDetails.bankAdminFee,
+        confidence: 95,
+        isTaxOrFee: true,
+        taxOrFeeType: bankDetails.feeType === 'BI_FAST' ? 'BI_FAST' : 'ADMIN_BANK'
+      });
+    }
+
+    // Perlindungan Anti-Double-Count:
+    // Jika hanya terdapat 1 item pokok non-fee dan nominalnya sama dengan totalDebitedAmount,
+    // turunkan nominal item pokok ke transferAmount agar biaya tidak terhitung dua kali.
+    const nonFeeItems = items.filter(it => !it.isTaxOrFee && it.taxOrFeeType !== 'BI_FAST' && it.taxOrFeeType !== 'ADMIN_BANK');
+    if (nonFeeItems.length === 1 && bankDetails.transferAmount > 0) {
+      const mainIt = nonFeeItems[0];
+      if (mainIt.totalPrice === bankDetails.totalDebitedAmount) {
+        mainIt.totalPrice = bankDetails.transferAmount;
+        if (mainIt.unitPrice === bankDetails.totalDebitedAmount) {
+          mainIt.unitPrice = bankDetails.transferAmount;
+        }
+      }
+    }
+  }
+
+  let declaredGrand = sanitizeCurrencyAmount(
     parsed.declared_grand_total ?? parsed.grand_total ?? parsed.total_amount ?? parsed.total,
     userDescription
   );
 
+  // Jika bukti transfer bank, declared grand total yang mewakili pengeluaran kas adalah total dana terdebit
+  if (bankDetails && bankDetails.totalDebitedAmount > 0 && (declaredGrand === 0 || declaredGrand === bankDetails.transferAmount)) {
+    declaredGrand = bankDetails.totalDebitedAmount;
+  }
+
   // 9. Jalankan Verifikasi Deterministik Dua Arah (Horizontal & Vertikal)
   const verification = runTwoWayDeterministicVerification(items, declaredGrand);
 
-    const extractionResult: RealOcrExtractionResult = {
-      detectedType: parsed.detected_type || 'nota_pembelian',
-      sellerOrRecipient: parsed.seller_or_recipient || userDescription || 'Toko / Rekanan',
-      transactionDate: parsed.transaction_date,
-      extractedItems: verification.verifiedItems,
-      declaredGrandTotal: verification.grandTotal,
-      calculatedSum: verification.calculatedSum,
-      mathDiscrepancy: verification.mathDiscrepancy,
-      discrepancyMessage: verification.discrepancyMessage,
-      sourceEngine: 'groq_vision',
-      rawResponse: parsed
-    };
+  const extractionResult: RealOcrExtractionResult = {
+    detectedType: parsed.detected_type || (isTransferBankType ? 'transfer_bank' : 'nota_pembelian'),
+    sellerOrRecipient: parsed.seller_or_recipient || userDescription || 'Toko / Rekanan',
+    transactionDate: parsed.transaction_date,
+    extractedItems: verification.verifiedItems,
+    declaredGrandTotal: verification.grandTotal,
+    calculatedSum: verification.calculatedSum,
+    mathDiscrepancy: verification.mathDiscrepancy,
+    discrepancyMessage: verification.discrepancyMessage,
+    sourceEngine: 'groq_vision',
+    rawResponse: parsed,
+    bankTransferDetails: bankDetails,
+    hasUnconfirmedFee: bankDetails?.hasUnconfirmedFee,
+    unconfirmedFeeNote: bankDetails?.unconfirmedFeeNote
+  };
 
   // 10. Kembalikan Hasil Ekstraksi Bersih ke Frontend
   // PERINGATAN INTEGRITAS: Endpoint ini TIDAK boleh otomatis menyimpan transaksi ke database!

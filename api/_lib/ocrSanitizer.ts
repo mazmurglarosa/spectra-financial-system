@@ -30,6 +30,16 @@ export interface ExtractedItem {
   };
 }
 
+export interface BankTransferDetails {
+  transferAmount: number;
+  bankAdminFee: number;
+  feeType?: 'BI_FAST' | 'ADMIN_BANK' | 'FREE' | 'NONE';
+  feeTextEvidence?: string;
+  totalDebitedAmount: number;
+  hasUnconfirmedFee: boolean;
+  unconfirmedFeeNote?: string;
+}
+
 export interface RealOcrExtractionResult {
   detectedType: 'transfer_bank' | 'nota_pembelian' | 'faktur' | 'struk_thermal' | 'lainnya';
   sellerOrRecipient: string;
@@ -42,6 +52,9 @@ export interface RealOcrExtractionResult {
   sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
   usedModel?: string;
   rawResponse?: any;
+  bankTransferDetails?: BankTransferDetails;
+  hasUnconfirmedFee?: boolean;
+  unconfirmedFeeNote?: string;
 }
 
 /**

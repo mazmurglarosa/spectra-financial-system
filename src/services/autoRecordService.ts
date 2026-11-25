@@ -48,6 +48,16 @@ export interface ExtractedItem {
   originalText?: string;
 }
 
+export interface BankTransferDetails {
+  transferAmount: number;
+  bankAdminFee: number;
+  feeType?: 'BI_FAST' | 'ADMIN_BANK' | 'FREE' | 'NONE';
+  feeTextEvidence?: string;
+  totalDebitedAmount: number;
+  hasUnconfirmedFee: boolean;
+  unconfirmedFeeNote?: string;
+}
+
 export interface RealOcrExtractionResult {
   detectedType: 'transfer_bank' | 'nota_pembelian' | 'faktur' | 'struk_thermal' | 'lainnya';
   sellerOrRecipient: string;
@@ -60,6 +70,9 @@ export interface RealOcrExtractionResult {
   sourceEngine: 'groq_vision' | 'tesseract_ocr' | 'smart_parser';
   usedModel?: string;
   rawResponse?: any;
+  bankTransferDetails?: BankTransferDetails;
+  hasUnconfirmedFee?: boolean;
+  unconfirmedFeeNote?: string;
 }
 
 export interface SpreadsheetRowData {
@@ -178,10 +191,12 @@ const STORAGE_DOC_SEQ_KEY = 'sikeu_auto_record_doc_seq_v3';
 
 export function getPosRules(): PosRule[] {
   try {
-    const raw = localStorage.getItem(STORAGE_CUSTOM_POS_KEY);
-    if (raw) {
-      const customs: PosRule[] = JSON.parse(raw);
-      return [...DEFAULT_POS_RULES, ...customs];
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_CUSTOM_POS_KEY);
+      if (raw) {
+        const customs: PosRule[] = JSON.parse(raw);
+        return [...DEFAULT_POS_RULES, ...customs];
+      }
     }
   } catch (e) {
     console.error('Gagal membaca custom POS rules:', e);
@@ -590,18 +605,20 @@ export function analyzeAndSuggestJournal(
 
   items.forEach(it => {
     const lower = it.name.toLowerCase();
-    const isTax = lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph');
-    const isBankFee = lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
-                      lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
-    const isFreight = lower.includes('ongkir') || lower.includes('kirim');
     const isTrainingOrService = lower.includes('brevet') || lower.includes('pelatihan') || lower.includes('kursus') ||
                                 lower.includes('seminar') || lower.includes('training') || lower.includes('pendidikan') ||
                                 lower.includes('sertifikasi') || lower.includes('jasa') || lower.includes('konsultan') ||
                                 lower.includes('service') || lower.includes('servis') || lower.includes('bengkel') ||
                                 lower.includes('pemeliharaan') || lower.includes('perbaikan') || lower.includes('sewa') ||
                                 lower.includes('iklan') || lower.includes('listrik') || lower.includes('telepon');
+    const isTax = it.taxOrFeeType === 'PB1' || it.taxOrFeeType === 'PPN' ||
+                  ((lower.includes('pajak') || lower.includes('pb1') || lower.includes('ppn') || lower.includes('pph')) && !isTrainingOrService);
+    const isBankFee = it.taxOrFeeType === 'BI_FAST' || it.taxOrFeeType === 'ADMIN_BANK' ||
+                      lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
+                      lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')));
+    const isFreight = lower.includes('ongkir') || lower.includes('kirim') || it.taxOrFeeType === 'ONGKIR';
 
-    if (it.isTaxOrFee || isTax || isBankFee || isFreight) {
+    if (it.isTaxOrFee || isBankFee || isFreight || isTax) {
       taxAndFeeItems.push(it);
     } else if (isTrainingOrService) {
       serviceOrTrainingItems.push(it);
@@ -708,7 +725,9 @@ export function analyzeAndSuggestJournal(
       let targetCat: AccountCategory = 'BEBAN_OPERASIONAL';
       let targetPos: ReportType = 'Lr';
 
-      if (lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') || lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')))) {
+      if (taxItem.taxOrFeeType === 'BI_FAST' || taxItem.taxOrFeeType === 'ADMIN_BANK' ||
+          lower.includes('bi-fast') || lower.includes('bi fast') || lower.includes('admin bank') ||
+          lower.includes('administrasi bank') || (lower.includes('biaya') && (lower.includes('transfer') || lower.includes('transaksi') || lower.includes('admin')))) {
         targetAccName = 'Beban Administrasi Bank';
         targetCat = 'BEBAN_OPERASIONAL';
         targetPos = 'Lr';
@@ -1351,7 +1370,15 @@ if (typeof window !== 'undefined') {
 export function parseBankTransferFromText(
   rawText: string,
   userDescription: string
-): { isBankTransfer: boolean; items: ExtractedItem[]; recipient: string; grandTotal: number } {
+): {
+  isBankTransfer: boolean;
+  items: ExtractedItem[];
+  recipient: string;
+  grandTotal: number;
+  bankTransferDetails?: BankTransferDetails;
+  hasUnconfirmedFee?: boolean;
+  unconfirmedFeeNote?: string;
+} {
   const upper = rawText.toUpperCase();
   const isTransfer = upper.includes('TRANSFER') || upper.includes('BI-FAST') || upper.includes('BI FAST') ||
                      upper.includes('BCA') || upper.includes('MANDIRI') || upper.includes('BNI') ||
@@ -1362,44 +1389,117 @@ export function parseBankTransferFromText(
     return { isBankTransfer: false, items: [], recipient: '', grandTotal: 0 };
   }
 
-  // Cari seluruh angka nominal Rupiah (contoh: IDR 2,850,000.00 atau 2.850.000 atau Rp 2.850.000 atau 2850000.00)
-  const currencyRegex = /(?:IDR|Rp\.?|Jumlah|Nominal|Total)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9}(?:[.,][0-9]{2})?)/gi;
+  // Cari seluruh angka nominal Rupiah dengan penyaringan ketat agar nomor rekening/referensi tidak disalahartikan sebagai nominal
+  const lines = rawText.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
   const numbersFound: number[] = [];
-  let match;
-  while ((match = currencyRegex.exec(rawText)) !== null) {
-    const rawNum = match[1];
-    const parsed = sanitizeCurrencyAmount(rawNum, userDescription);
-    if (parsed > 0 && !numbersFound.includes(parsed)) {
-      numbersFound.push(parsed);
+
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    const isAccountOrRefLine =
+      lowerLine.includes('rekening') ||
+      lowerLine.includes('no. rek') ||
+      lowerLine.includes('no rek') ||
+      lowerLine.includes('account') ||
+      lowerLine.includes('ref:') ||
+      lowerLine.includes('no. ref') ||
+      lowerLine.includes('no ref') ||
+      lowerLine.includes('reference') ||
+      lowerLine.includes('id transaksi') ||
+      lowerLine.includes('transaction id');
+
+    // 1. Pola angka berformat ribuan Indonesia (contoh: 2.850.000 atau 2.850.000,00 atau 2,850,000.00)
+    const formattedMatches = line.match(/(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)/gi);
+    if (formattedMatches) {
+      for (const m of formattedMatches) {
+        const parsed = sanitizeCurrencyAmount(m, userDescription);
+        if (parsed > 0 && !numbersFound.includes(parsed)) {
+          numbersFound.push(parsed);
+        }
+      }
+    }
+
+    // 2. Pola angka tanpa tanda pemisah ribuan HANYA jika bukan baris nomor rekening/ref DAN didahului indikator nominal/mata uang
+    if (!isAccountOrRefLine) {
+      const explicitMatches = line.match(/(?:idr|rp\.?|nominal|jumlah|total|debet|bayar)[\s:=]+([0-9]{4,9}(?:[.,][0-9]{2})?)/gi);
+      if (explicitMatches) {
+        for (const m of explicitMatches) {
+          const parsed = sanitizeCurrencyAmount(m, userDescription);
+          if (parsed > 0 && !numbersFound.includes(parsed)) {
+            numbersFound.push(parsed);
+          }
+        }
+      }
     }
   }
 
   numbersFound.sort((a, b) => b - a);
 
-  // Cari biaya transfer / BI-FAST
+  // Cek apakah bukti transfer secara eksplisit menyatakan bebas biaya / gratis / Rp 0
+  const isExplicitFree = /(?:biaya|admin|transfer|fee)[\s\S]{0,35}?(?:rp\.?\s*0(?:[.,]00)?|gratis|free|bebas\s*biaya|nihil)/i.test(rawText) ||
+    /(?:gratis|free|bebas\s*biaya)[\s\S]{0,35}?(?:biaya|admin|transfer)/i.test(rawText);
+
   let adminFee = 0;
-  const feeRegex = /(?:biaya|fee|bi-fast|admin)[\s\S]{0,35}?(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
+  let feeType: 'BI_FAST' | 'ADMIN_BANK' | 'FREE' | 'NONE' = 'NONE';
+  let feeTextEvidence = '';
+  let hasUnconfirmedFee = false;
+  let unconfirmedFeeNote: string | undefined = undefined;
+
+  // Cari biaya transfer / BI-FAST / admin bank yang tertulis secara eksplisit
+  const feeRegex = /(?:biaya(?:\s*(?:transaksi|transfer|admin|administrasi))?|admin(?:\s*bank)?|fee|bi-fast)[\s:=]+(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/i;
   const feeMatch = rawText.match(feeRegex);
   if (feeMatch) {
-    const parsedFee = sanitizeCurrencyAmount(feeMatch[1], 'Biaya Transfer BI-FAST');
+    const parsedFee = sanitizeCurrencyAmount(feeMatch[1], 'Biaya Transfer');
     if (parsedFee > 0 && parsedFee <= 50000) {
       adminFee = parsedFee;
+      feeTextEvidence = feeMatch[0].trim();
+      const isBiFast = upper.includes('BI-FAST') || upper.includes('BI FAST');
+      feeType = isBiFast ? 'BI_FAST' : 'ADMIN_BANK';
+    } else if (parsedFee === 0) {
+      feeType = 'FREE';
+      feeTextEvidence = feeMatch[0].trim();
     }
   }
 
-  if (adminFee === 0 && (upper.includes('BI-FAST') || upper.includes('BI FAST'))) {
-    adminFee = 2500;
+  if (isExplicitFree && adminFee === 0) {
+    feeType = 'FREE';
+    feeTextEvidence = feeTextEvidence || 'Bebas Biaya / Rp 0';
   }
 
-  // Nominal Pokok
+  // ATURAN ANTI-SPEKULASI: DILARANG mengarang nominal biaya (misal mengasumsikan 2500 atau 6500)
+  // semata-mata karena ada teks BI-FAST atau Transfer. Jika tidak ada angka terbaca, tandai perlu konfirmasi manual.
+  const mentionsFeeKeyword = upper.includes('BI-FAST') || upper.includes('BI FAST') ||
+    upper.includes('BIAYA TRANSFER') || upper.includes('BIAYA ADMIN') || upper.includes('BIAYA TRANSAKSI');
+
+  if (adminFee === 0 && feeType !== 'FREE' && mentionsFeeKeyword) {
+    hasUnconfirmedFee = true;
+    const isBiFast = upper.includes('BI-FAST') || upper.includes('BI FAST');
+    feeType = isBiFast ? 'BI_FAST' : 'ADMIN_BANK';
+    unconfirmedFeeNote = 'Indikasi biaya transfer bank terdeteksi pada struk, namun nominal tidak terbaca jelas. Harap periksa dan konfirmasi manual di Tabel Koreksi.';
+  }
+
+  // Nominal Pokok (Main Amount) & Perlindungan Anti-Double-Count
   let mainAmount = 0;
   if (numbersFound.length > 0) {
     if (adminFee > 0 && numbersFound.length >= 2 && numbersFound[0] === numbersFound[1] + adminFee) {
+      // numbersFound[0] adalah total debet, numbersFound[1] adalah nominal transfer pokok
       mainAmount = numbersFound[1];
     } else if (adminFee > 0 && numbersFound[0] === adminFee && numbersFound.length >= 2) {
       mainAmount = numbersFound[1];
     } else {
-      mainAmount = numbersFound[0] === adminFee && numbersFound.length >= 2 ? numbersFound[1] : numbersFound[0];
+      const nonFeeNumbers = numbersFound.filter(n => n !== adminFee);
+      if (nonFeeNumbers.length === 1 && adminFee > 0) {
+        // Cek apakah angka non-fee tunggal ini sebenarnya adalah Total Debet / Total Transaksi
+        const isLabeledTotal = /(?:total(?:\s*debet|\s*bayar|\s*transaksi)?|debet|jumlah\s*terdebet)[\s:=]+(?:idr|rp\.?)?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,9})/i.test(rawText);
+        if (isLabeledTotal && nonFeeNumbers[0] > adminFee) {
+          mainAmount = nonFeeNumbers[0] - adminFee;
+        } else {
+          mainAmount = nonFeeNumbers[0];
+        }
+      } else if (nonFeeNumbers.length > 0) {
+        mainAmount = nonFeeNumbers[0];
+      } else {
+        mainAmount = numbersFound[0];
+      }
     }
   }
 
@@ -1451,7 +1551,7 @@ export function parseBankTransferFromText(
 
   // Sanitasi akhir sebelum membuat item
   mainAmount = sanitizeCurrencyAmount(mainAmount, mainItemName);
-  adminFee = sanitizeCurrencyAmount(adminFee, 'Biaya Transfer BI-FAST');
+  adminFee = sanitizeCurrencyAmount(adminFee, 'Biaya Transfer');
 
   const items: ExtractedItem[] = [];
 
@@ -1463,31 +1563,92 @@ export function parseBankTransferFromText(
       quantity: 1,
       unit: 'transaksi',
       totalPrice: mainAmount,
-      confidence: 96
+      confidence: 96,
+      isTaxOrFee: false
     });
   }
 
   if (adminFee > 0) {
     items.push({
       id: `it-${Date.now()}-admin`,
-      name: 'Biaya Transfer BI-FAST',
+      name: feeType === 'BI_FAST' ? 'Biaya Transfer BI-FAST' : 'Biaya Administrasi Bank',
       unitPrice: null,
       quantity: null,
       unit: '',
       totalPrice: adminFee,
       confidence: 98,
       isTaxOrFee: true,
-      taxOrFeeType: 'BI_FAST'
+      taxOrFeeType: feeType === 'BI_FAST' ? 'BI_FAST' : 'ADMIN_BANK'
+    });
+  }
+
+  // Jika dokumen adalah transfer bank tetapi nominal tidak teridentifikasi sama sekali, buat baris koreksi manual
+  if (items.length === 0 && isTransfer) {
+    items.push({
+      id: `it-${Date.now()}-main`,
+      name: mainItemName,
+      unitPrice: 0,
+      quantity: 1,
+      unit: 'transaksi',
+      totalPrice: 0,
+      confidence: 30,
+      isTaxOrFee: false,
+      hasDiscrepancy: true,
+      discrepancyNote: 'Nominal transfer tidak terbaca jelas pada berkas. Harap input manual pada Tabel Koreksi.'
     });
   }
 
   const grandTotal = mainAmount + adminFee;
 
+  const bankTransferDetails: BankTransferDetails = {
+    transferAmount: mainAmount,
+    bankAdminFee: adminFee,
+    feeType,
+    feeTextEvidence,
+    totalDebitedAmount: grandTotal,
+    hasUnconfirmedFee,
+    unconfirmedFeeNote
+  };
+
   return {
-    isBankTransfer: items.length > 0,
+    isBankTransfer: items.length > 0 || isTransfer,
     items,
     recipient: penerima || mainItemName,
-    grandTotal
+    grandTotal,
+    bankTransferDetails,
+    hasUnconfirmedFee,
+    unconfirmedFeeNote
+  };
+}
+
+/**
+ * Memvalidasi apakah transaksi bukti belanja/transfer siap diproses
+ * (Simpan Rekaman Saja, Lanjutkan ke Jurnal Otomatis, Kirim ke Spreadsheet):
+ * - Menolak pemrosesan jika hasUnconfirmedFee === true (indikasi biaya transfer belum dikonfirmasi)
+ * - Menolak pemrosesan jika grandTotal <= 0 atau tidak ada item bernilai positif
+ */
+export function validateReceiptReadinessForAction(params: {
+  grandTotal: number;
+  extractedItems: ExtractedItem[];
+  hasUnconfirmedFee?: boolean;
+}): { canProceed: boolean; errorReason?: string } {
+  if (params.hasUnconfirmedFee) {
+    return {
+      canProceed: false,
+      errorReason: 'Terdapat indikasi biaya transfer bank yang belum dikonfirmasi. Harap masukkan nominal biaya manual atau verifikasi bebas biaya terlebih dahulu pada Tabel Koreksi Tahap 2.'
+    };
+  }
+
+  const hasPositiveItem = (params.extractedItems || []).some(it => (Number(it.totalPrice) || 0) > 0);
+  if (!params.grandTotal || params.grandTotal <= 0 || !hasPositiveItem) {
+    return {
+      canProceed: false,
+      errorReason: 'Total transaksi harus lebih besar dari Rp 0 dan seluruh item non-diskon/non-bonus harus memiliki nominal yang valid.'
+    };
+  }
+
+  return {
+    canProceed: true
   };
 }
 
@@ -1601,7 +1762,10 @@ export async function extractTransactionWithOfflineOcr(
       calculatedSum: verif.calculatedSum,
       mathDiscrepancy: verif.mathDiscrepancy,
       discrepancyMessage: verif.discrepancyMessage,
-      sourceEngine: 'tesseract_ocr'
+      sourceEngine: 'tesseract_ocr',
+      bankTransferDetails: bankParsed.bankTransferDetails,
+      hasUnconfirmedFee: bankParsed.hasUnconfirmedFee,
+      unconfirmedFeeNote: bankParsed.unconfirmedFeeNote
     };
   }
 
