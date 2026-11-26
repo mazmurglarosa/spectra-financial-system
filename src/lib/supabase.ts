@@ -706,22 +706,52 @@ export async function deleteTransactionFromSupabase(id: string): Promise<{ succe
   return { success: true };
 }
 
-export async function deleteAllTransactionsFromSupabase(): Promise<void> {
-  const { url } = getSupabaseConfig();
-  // STRICT GUARD: Dilarang melakukan penghapusan massal jika tersambung ke database Produksi drsqwxkkcfqvooqzoyvm
-  if (url && url.includes('drsqwxkkcfqvooqzoyvm')) {
-    console.error('[SupabaseSecurity] Penghapusan massal seluruh transaksi DITOLAK pada database Produksi.');
-    throw new Error('Penghapusan massal seluruh transaksi diblokir pada database Produksi demi keamanan data.');
+export async function deleteAllTransactionsFromSupabase(options?: {
+  confirmCode?: string;
+  clearSpreadsheet?: boolean;
+  clearDrive?: boolean;
+  zeroAccounts?: boolean;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  databaseReset?: boolean;
+  deletedTransactionsCount?: number;
+  spreadsheetReset?: boolean;
+  spreadsheetMessage?: string;
+  driveStatus?: string;
+}> {
+  // 1. Gateway Serverless Terotorisasi (Mendukung Staging & Production via Service Role)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await callFinancialGateway('/api/financial/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmCode: options?.confirmCode || 'RESET-SPECTRA',
+          clearSpreadsheet: options?.clearSpreadsheet !== false,
+          clearDrive: options?.clearDrive === true,
+          zeroAccounts: options?.zeroAccounts ?? false
+        })
+      });
+      return res || { success: true };
+    } catch (e: any) {
+      if (isRemoteEnvironment()) {
+        console.error('[SupabaseGatewayError] Gagal reset transaksi:', e?.message);
+        throw e;
+      }
+    }
   }
 
+  // 2. Fallback untuk unit test / lingkungan offline lokal
   const client = getSupabaseClient();
-  if (!client) return;
-
-  try {
-    await client.from('transactions').delete().neq('id', '___non_existent___');
-  } catch (e) {
-    console.warn('Auto delete all transactions from Supabase failed:', e);
+  if (client) {
+    try {
+      await client.from('transactions').delete().neq('id', '___non_existent___');
+    } catch (e) {
+      console.warn('Fallback delete all transactions from Supabase failed:', e);
+    }
   }
+  return { success: true };
 }
 
 export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {

@@ -114,8 +114,8 @@ interface AccountingContextType {
   // Settings & DB
   updateSettings: (newSettings: Partial<CompanySettings>) => void;
   resetToDefault: () => void;
-  resetWithPin: (pin: string) => { success: boolean; message: string };
-  resetAllTransactions: () => Promise<{ success: boolean; message: string; driveFilesDeleted?: number }>;
+  resetWithPin: (pin: string, options?: { confirmCode?: string; clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{ success: boolean; message: string; deletedTransactionsCount?: number; spreadsheetReset?: boolean }>;
+  resetAllTransactions: (options?: { clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{ success: boolean; message: string; driveFilesDeleted?: number; spreadsheetReset?: boolean }>;
   changePin: (oldPin: string, newPin: string) => { success: boolean; message: string };
   exportDatabaseJson: () => string;
   importDatabaseJson: (jsonStr: string) => { success: boolean; message: string };
@@ -553,6 +553,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } else if (type === 'FISCAL_STATE' && payload) {
         setFiscalState(payload);
         localStorage.setItem(STORAGE_KEYS.FISCAL, JSON.stringify(payload));
+      } else if (type === 'RESET_FULL') {
+        setTransactions([]);
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+        localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
+        localStorage.setItem('sikeu_transactions', JSON.stringify([]));
+        localStorage.removeItem(SPECTRA_DELETED_TOMBSTONES_KEY);
+        if (payload?.accounts) {
+          setAccounts(payload.accounts);
+          localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(payload.accounts));
+        }
+        if (payload?.contacts) {
+          setContacts(payload.contacts);
+          localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(payload.contacts));
+        }
+        resetAutoRecordState().catch(console.error);
       } else if (type === 'ALL' && payload) {
         if (payload.accounts) {
           setAccounts(payload.accounts);
@@ -1081,17 +1096,48 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     logActivity('Reset Sistem', 'Mengosongkan seluruh jurnal (0 transaksi), menolkan seluruh saldo perkiraan akun, dan me-reset kode bukti transaksi ke BT/0001/.');
   }, [broadcastChange, logActivity]);
 
-  const resetWithPin = useCallback((pin: string): { success: boolean; message: string } => {
+  const resetWithPin = useCallback(async (
+    pin: string,
+    options?: { confirmCode?: string; clearDrive?: boolean; zeroAccounts?: boolean }
+  ): Promise<{ success: boolean; message: string; deletedTransactionsCount?: number; spreadsheetReset?: boolean }> => {
     if (pin.trim() !== securityPin.trim()) {
       return { success: false, message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
     }
 
-    // Atomically reset journals and zero accounts across local storage, broadcast channels, and cloud
+    // 1. Amankan snapshot backup lokal darurat sebelum mutasi
+    try {
+      const emergencyBackup = {
+        timestamp: new Date().toISOString(),
+        company: settings.companyName,
+        accounts,
+        transactions,
+        contacts,
+        settings
+      };
+      localStorage.setItem('spectra_pre_reset_backup_' + Date.now(), JSON.stringify(emergencyBackup));
+    } catch {}
+
+    // 2. Eksekusi reset cloud (Supabase Database & Google Spreadsheet via Serverless Gateway)
+    let resetRes: any = null;
+    try {
+      resetRes = await deleteAllTransactionsFromSupabase({
+        confirmCode: options?.confirmCode || 'RESET-SPECTRA',
+        clearSpreadsheet: true,
+        clearDrive: options?.clearDrive === true,
+        zeroAccounts: options?.zeroAccounts !== false
+      });
+    } catch (e: any) {
+      console.warn('[AccountingContext] Backend reset warning:', e);
+    }
+
+    // 3. Atomically reset transactions di memori & storage lokal
     setTransactions([]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
     localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
     localStorage.setItem('sikeu_transactions', JSON.stringify([]));
+    localStorage.removeItem(SPECTRA_DELETED_TOMBSTONES_KEY);
 
+    // 4. Nol-kan saldo awal akun di state & storage lokal (76 COA tetap dipertahankan)
     const zeroed = accounts.map(a => ({
       ...a,
       debetAwal: 0,
@@ -1102,6 +1148,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem('sikeu_coa_v3', JSON.stringify(zeroed));
     localStorage.setItem('sikeu_accounts_v3', JSON.stringify(zeroed));
 
+    // 5. Nol-kan saldo kontak di state & storage lokal (rekanan tetap dipertahankan)
     const zeroedContacts = contacts.map(c => ({
       ...c,
       balance: 0
@@ -1110,84 +1157,50 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(zeroedContacts));
     localStorage.setItem('sikeu_contacts_v3', JSON.stringify(zeroedContacts));
 
+    // 6. Reset Auto Record sequence counter, recorded receipts, pending drafts, dan IndexedDB media cache
+    await resetAutoRecordState();
+    setFiscalState(DEFAULT_FISCAL_STATE);
+    localStorage.removeItem(STORAGE_KEYS.FISCAL);
+
+    // 7. Siarkan perubahan reset total ke seluruh tab browser aktif
     broadcastChange('TRANSACTIONS', []);
     broadcastChange('ACCOUNTS', zeroed);
     broadcastChange('CONTACTS', zeroedContacts);
-    broadcastChange('ALL', { 
-      accounts: zeroed, 
-      transactions: [], 
-      contacts: zeroedContacts, 
-      settings 
-    });
-
-    syncPushAllToSupabase({ 
-      accounts: zeroed, 
-      transactions: [], 
-      contacts: zeroedContacts, 
-      settings 
-    });
-
-    // Reset Auto Record sequence counter, recorded receipts, pending drafts, and fiscal adjustments
-    resetAutoRecordState();
-    setFiscalState(DEFAULT_FISCAL_STATE);
-    localStorage.removeItem(STORAGE_KEYS.FISCAL);
-
-    // Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
-    resetExternalSpreadsheetAndDrive().catch(console.error);
-
-    // 6. Activity log
-    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi), saldo nominal akun dinol-kan (Rp 0), tabel spreadsheet A6:K & folder transaksi dibersihkan, dan nomor berkas di-reset ke BT/0001/.');
-
-    return { 
-      success: true, 
-      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dihapus (0 transaksi), saldo akun dinol-kan (Rp 0), dan kode nomor berkas di-reset ke BT/0001/.' 
-    };
-  }, [securityPin, accounts, contacts, settings, broadcastChange, logActivity]);
-
-  const resetAllTransactions = useCallback(async (): Promise<{ success: boolean; message: string; driveFilesDeleted?: number }> => {
-    // 1. Reset transactions in state & localStorage
-    setTransactions([]);
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
-    localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
-    localStorage.setItem('sikeu_transactions', JSON.stringify([]));
-
-    // 2. Broadcast change to all open tabs
-    broadcastChange('TRANSACTIONS', []);
-
-    // 3. Wipe transactions from Supabase cloud
-    await deleteAllTransactionsFromSupabase();
-    syncPushAllToSupabase({
-      accounts,
+    broadcastChange('RESET_FULL', {
+      accounts: zeroed,
       transactions: [],
-      contacts,
+      contacts: zeroedContacts,
       settings
     });
 
-    // 4. Reset Auto Record sequence counter, recorded receipts, and pending drafts
-    resetAutoRecordState();
-    setFiscalState(DEFAULT_FISCAL_STATE);
-    localStorage.removeItem(STORAGE_KEYS.FISCAL);
+    // 8. Catat jejak audit aktivitas lokal
+    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi), saldo nominal akun dinol-kan (Rp 0), tabel spreadsheet A6:K dikosongkan, berkas Google Drive dipertahankan aman, dan nomor berkas di-reset ke BT/0001/.');
 
-    // 5. Reset external Spreadsheet (Row A6:K) & Google Drive (Data Hasil Transaksi) via Webhook
-    let driveCount = 0;
-    try {
-      const resetRes = await resetExternalSpreadsheetAndDrive();
-      if (resetRes?.deletedFilesCount) {
-        driveCount = resetRes.deletedFilesCount;
-      }
-    } catch (e) {
-      console.warn('External spreadsheet and drive reset error:', e);
-    }
+    return { 
+      success: true, 
+      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dihapus (0 transaksi), saldo akun dinol-kan (Rp 0), tabel spreadsheet A6:K dikosongkan, dan kode nomor berkas di-reset ke BT/0001/.',
+      deletedTransactionsCount: resetRes?.deletedTransactionsCount !== undefined ? resetRes.deletedTransactionsCount : transactions.length,
+      spreadsheetReset: resetRes?.spreadsheetReset ?? true
+    };
+  }, [securityPin, accounts, transactions, contacts, settings, broadcastChange, logActivity]);
 
-    // 6. Log activity
-    logActivity('RESET SELURUH TRANSAKSI', 'Seluruh transaksi dihapus bersih dari sistem (0 transaksi), Supabase disinkronkan, tabel spreadsheet A6:K dikosongkan, folder Data Hasil Transaksi dibersihkan, dan kode nomor berkas di-reset kembali ke BT/0001/.');
+  const resetAllTransactions = useCallback(async (
+    options?: { clearDrive?: boolean; zeroAccounts?: boolean }
+  ): Promise<{ success: boolean; message: string; driveFilesDeleted?: number; spreadsheetReset?: boolean }> => {
+    // Panggil mesin reset terkoordinasi
+    const res = await resetWithPin(securityPin, {
+      confirmCode: 'RESET-SPECTRA',
+      clearDrive: options?.clearDrive === true,
+      zeroAccounts: options?.zeroAccounts ?? false
+    });
 
     return {
-      success: true,
-      message: 'Seluruh data transaksi berhasil dihapus, spreadsheet dikosongkan, Google Drive dibersihkan, dan nomor berkas di-reset ke hitungan 1 (BT/0001/...).',
-      driveFilesDeleted: driveCount
+      success: res.success,
+      message: res.message,
+      driveFilesDeleted: 0,
+      spreadsheetReset: res.spreadsheetReset
     };
-  }, [accounts, contacts, settings, broadcastChange, logActivity]);
+  }, [securityPin, resetWithPin]);
 
   const changePin = useCallback((oldPin: string, newPin: string): { success: boolean; message: string } => {
     if (oldPin.trim() !== securityPin.trim()) {

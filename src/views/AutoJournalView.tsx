@@ -130,6 +130,31 @@ export const AutoJournalView: React.FC<AutoJournalViewProps> = ({ setActiveTab }
     setAntreanList(getRecordedReceipts());
   }, [activeSubTab]);
 
+  // Sinkronisasi reset otomatis antar-tab & antar-komponen
+  useEffect(() => {
+    const handleReset = () => {
+      setAntreanList([]);
+      setJournalLines([]);
+      setItems([]);
+      setGrandTotal(0);
+      setGoogleDriveLink('');
+      setNomorBerkas('');
+      setTransactionDate(new Date().toISOString().slice(0, 10));
+      setKeterangan('');
+    };
+    const handleReceiptUpdate = (e: any) => {
+      if (e?.detail?.receipts) {
+        setAntreanList(e.detail.receipts);
+      }
+    };
+    window.addEventListener('spectra:reset-auto-record', handleReset);
+    window.addEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+    return () => {
+      window.removeEventListener('spectra:reset-auto-record', handleReset);
+      window.removeEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+    };
+  }, []);
+
   // Selected POS Rule Detail
   const selectedPos = useMemo(() => {
     return posRules.find(p => p.code === selectedPosCode) || posRules[0];

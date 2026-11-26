@@ -7,6 +7,7 @@ import syncPullHandler from './_handlers/financial/sync-pull.js';
 import syncPushHandler from './_handlers/financial/sync-push.js';
 import spreadsheetSyncHandler from './_handlers/financial/spreadsheet-sync.js';
 import driveUploadHandler from './_handlers/financial/drive-upload.js';
+import resetHandler from './_handlers/financial/reset.js';
 import { resolveSubpath, handleCorsAndSecurity } from './_lib/routerHelper.js';
 
 interface RouteDefinition {
@@ -23,7 +24,8 @@ const FINANCIAL_ROUTES: Record<string, RouteDefinition> = {
   'sync-pull': { methods: ['GET', 'POST', 'OPTIONS'], handler: syncPullHandler },
   'sync-push': { methods: ['POST', 'OPTIONS'], handler: syncPushHandler },
   'spreadsheet-sync': { methods: ['POST', 'OPTIONS'], handler: spreadsheetSyncHandler },
-  'drive-upload': { methods: ['POST', 'OPTIONS'], handler: driveUploadHandler }
+  'drive-upload': { methods: ['POST', 'OPTIONS'], handler: driveUploadHandler },
+  'reset': { methods: ['POST', 'OPTIONS'], handler: resetHandler }
 };
 
 export default async function handler(req: any, res: any) {

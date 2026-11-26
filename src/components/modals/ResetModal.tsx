@@ -9,7 +9,11 @@ import {
   CheckCircle2, 
   Trash2, 
   Coins, 
-  Check 
+  Check,
+  Download,
+  Database,
+  FileSpreadsheet,
+  FolderLock
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -20,40 +24,89 @@ interface ResetModalProps {
 }
 
 export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { resetWithPin } = useAccounting();
+  const { resetWithPin, exportDatabaseJson, transactions } = useAccounting();
   const [pin, setPin] = useState('');
+  const [confirmText, setConfirmText] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [preserveDrive, setPreserveDrive] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [backupDownloaded, setBackupDownloaded] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [successInfo, setSuccessInfo] = useState('');
+  const [resetStats, setResetStats] = useState<{ deletedCount: number; spreadsheetOk: boolean } | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleDownloadBackup = () => {
+    try {
+      const jsonStr = exportDatabaseJson();
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `spectra_backup_pre_reset_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackupDownloaded(true);
+    } catch (e: any) {
+      setErrorMsg('Gagal mengunduh cadangan: ' + e?.message);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    const res = resetWithPin(pin);
-    if (res.success) {
-      setIsSuccess(true);
-      setSuccessInfo(res.message);
-      setPin('');
-      if (onSuccess) onSuccess();
-    } else {
-      setErrorMsg(res.message);
+    if (confirmText.trim() !== 'RESET-SPECTRA') {
+      setErrorMsg('Ketik "RESET-SPECTRA" dengan tepat pada kotak konfirmasi.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await resetWithPin(pin, {
+        confirmCode: 'RESET-SPECTRA',
+        clearDrive: !preserveDrive,
+        zeroAccounts: true
+      });
+
+      if (res.success) {
+        setIsSuccess(true);
+        setSuccessInfo(res.message);
+        setResetStats({
+          deletedCount: res.deletedTransactionsCount || 0,
+          spreadsheetOk: res.spreadsheetReset ?? true
+        });
+        setPin('');
+        setConfirmText('');
+        if (onSuccess) onSuccess();
+      } else {
+        setErrorMsg(res.message);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal mengeksekusi reset sistem.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return;
     setIsSuccess(false);
     setErrorMsg('');
     setPin('');
+    setConfirmText('');
+    setBackupDownloaded(false);
+    setResetStats(null);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-fadeIn border border-slate-200">
+      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-fadeIn border border-slate-200">
         
         {/* Header */}
         <div className={`text-white px-5 py-3.5 flex justify-between items-center transition-colors ${
@@ -66,13 +119,14 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
               <ShieldAlert className="w-5 h-5 text-rose-200" />
             )}
             <h3 className="font-bold text-sm">
-              {isSuccess ? 'Sistem Berhasil Direset' : 'Otorisasi Keamanan: Perintah RESET'}
+              {isSuccess ? 'Sistem Berhasil Direset' : 'Otorisasi Keamanan: Perintah RESET SISTEM'}
             </h3>
           </div>
           <button 
             type="button" 
+            disabled={isSubmitting}
             onClick={handleClose} 
-            className="text-white/80 hover:text-white text-xl font-bold cursor-pointer"
+            className="text-white/80 hover:text-white text-xl font-bold cursor-pointer disabled:opacity-50"
           >
             &times;
           </button>
@@ -86,7 +140,7 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
                 <Check className="w-8 h-8 stroke-[3]" />
               </div>
               <h4 className="text-base font-bold text-slate-900">
-                RESET SISTEM BERHASIL
+                RESET SISTEM TOTAL BERHASIL
               </h4>
               <p className="text-xs text-slate-600 max-w-sm mx-auto">
                 {successInfo || 'Semua transaksi dan jurnal telah dibersihkan menjadi 0, dan seluruh saldo perkiraan akun telah dinol-kan (Rp 0).'}
@@ -99,37 +153,37 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>0 Transaksi</b> (Semua jurnal umum, mutasi kas, & penyesuaian dihapus)</span>
+                <span><b>Database Cloud &amp; Lokal:</b> 0 Transaksi (dihapus bersih dari tabel transaksi)</span>
               </div>
               <div className="flex items-center space-x-2 text-slate-800">
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>Rp 0 Saldo Akun</b> (Seluruh saldo debet & kredit perkiraan akun dinolkan)</span>
+                <span><b>Master Bagan Akun:</b> 76 Akun COA tetap utuh (seluruh saldo dinolkan Rp 0)</span>
               </div>
               <div className="flex items-center space-x-2 text-slate-800">
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>Rp 0 Saldo Kontak</b> (Saldo piutang pelanggan & utang pemasok dinolkan)</span>
+                <span><b>Google Spreadsheet ("datasheet_bukti_transaksi"):</b> Baris A6:K dikosongkan (Header baris 1-5 aman)</span>
               </div>
               <div className="flex items-center space-x-2 text-slate-800">
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>BT/0001/...</b> (Nomor berkas transaksi Auto Record di-reset mulai dari 1)</span>
+                <span><b>Google Drive:</b> {preserveDrive ? 'File bukti transaksi dipertahankan aman di folder' : 'File bukti transaksi dibersihkan'}</span>
               </div>
               <div className="flex items-center space-x-2 text-slate-800">
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>Spreadsheet &amp; Drive</b> (Tabel baris A6:K &amp; folder Data Hasil Transaksi dikosongkan)</span>
+                <span><b>Nomor Berkas Auto Record:</b> Kembali mulai dari hitungan awal 1 (<b>BT/0001/...</b>)</span>
               </div>
               <div className="flex items-center space-x-2 text-slate-800">
                 <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 </div>
-                <span><b>Laporan PSAK & Neraca</b> siap menerima data pembukuan baru</span>
+                <span><b>Cache Browser:</b> LocalStorage, IndexedDB media, &amp; Antrean draft jurnal dibersihkan</span>
               </div>
             </div>
 
@@ -149,51 +203,102 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-1">
               <p className="font-bold flex items-center space-x-1">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>PERINGATAN TINDAKAN KRITIS!</span>
+                <span>PERINGATAN TINDAKAN KRITIS: RESET PEMBUKUAN</span>
               </p>
               <p>
-                Tindakan <b>RESET SISTEM</b> akan <b>menghapus seluruh transaksi jurnal</b> (baik Jurnal Umum, Penyesuaian, Kas/Bank, Penjualan & Pembelian) dan <b>me-nol-kan kembali seluruh nominal saldo akun (Rp 0)</b> untuk memulai pembukuan baru yang bersih.
+                Tindakan ini akan <b>menghapus seluruh transaksi jurnal ({transactions.length} transaksi)</b> dan <b>me-nol-kan saldo awal akun (Rp 0)</b> untuk memulai periode baru.
+              </p>
+              <p className="text-[11px] text-rose-700 font-medium">
+                🛡️ <b>Yang tetap aman:</b> 76 Akun Bagan Perkiraan (COA), Rekanan, Pengguna sistem, dan Pengaturan Perusahaan.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200">
-              <div className="flex items-center space-x-1.5">
-                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                <span>Hapus Semua Jurnal</span>
+            {/* Tombol Cadangan Pra-Reset */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Cadangkan Data Sebelum Reset</span>
+                </div>
+                <div className="text-[10.5px] text-slate-500">
+                  Unduh snapshot JSON ({transactions.length} transaksi) sebagai arsip.
+                </div>
               </div>
-              <div className="flex items-center space-x-1.5">
-                <Coins className="w-3.5 h-3.5 text-rose-500" />
-                <span>Nol-kan Saldo Akun (Rp 0)</span>
-              </div>
+              <button
+                type="button"
+                onClick={handleDownloadBackup}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition flex items-center gap-1.5 cursor-pointer ${
+                  backupDownloaded
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{backupDownloaded ? 'Tercadangkan' : 'Unduh JSON'}</span>
+              </button>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Masukkan PIN Keamanan Anda:
-              </label>
-              <div className="relative">
-                <input 
-                  type={showPin ? 'text' : 'password'}
-                  required 
-                  maxLength={12}
-                  value={pin}
-                  onChange={e => setPin(e.target.value)}
-                  placeholder="Masukkan PIN (Bawaan: 1234)" 
-                  className="w-full text-center tracking-widest text-base font-mono border-2 border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:border-rose-600 focus:outline-none focus:ring-1 focus:ring-rose-600 bg-white"
-                  autoFocus
+            {/* Opsi Google Drive */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={preserveDrive}
+                  onChange={e => setPreserveDrive(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                 />
-                <button 
-                  type="button" 
-                  onClick={() => setShowPin(!showPin)}
-                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                <div className="text-xs">
+                  <span className="font-bold text-slate-800 block">Pertahankan berkas di Google Drive (Direkomendasikan)</span>
+                  <span className="text-[11px] text-slate-500 block">
+                    Data transaksi di Spreadsheet akan dikosongkan (A6:K), namun dokumen nota asli di Google Drive tetap tersimpan aman.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Input PIN & Konfirmasi Teks */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  1. Masukkan PIN Otorisasi Reset:
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    required
+                    maxLength={12}
+                    value={pin}
+                    onChange={e => setPin(e.target.value)}
+                    placeholder="Masukkan PIN Keamanan (Bawaan: 1234)"
+                    className="w-full text-center tracking-widest text-base font-mono border-2 border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:border-rose-600 focus:outline-none focus:ring-1 focus:ring-rose-600 bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPin(!showPin)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  2. Konfirmasi Teks (Ketik <code className="bg-rose-100 text-rose-800 px-1 py-0.5 rounded font-mono font-bold">RESET-SPECTRA</code>):
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={confirmText}
+                  onChange={e => setConfirmText(e.target.value)}
+                  placeholder="Ketik RESET-SPECTRA di sini"
+                  className="w-full text-center font-mono font-bold uppercase text-xs border-2 border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:border-rose-600 focus:outline-none focus:ring-1 focus:ring-rose-600 bg-white"
+                />
               </div>
 
               {errorMsg && (
-                <div className="text-[11px] text-rose-600 font-semibold mt-1.5 flex items-center space-x-1">
-                  <XCircle className="w-3.5 h-3.5" />
+                <div className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center space-x-1">
+                  <XCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{errorMsg}</span>
                 </div>
               )}
@@ -202,17 +307,28 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
             <div className="flex justify-end space-x-2 pt-2 border-t border-slate-200">
               <button 
                 type="button" 
+                disabled={isSubmitting}
                 onClick={handleClose} 
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 transition cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 transition cursor-pointer disabled:opacity-50"
               >
                 Batal
               </button>
               <button 
                 type="submit" 
-                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm flex items-center space-x-1.5 transition cursor-pointer"
+                disabled={isSubmitting || confirmText.trim() !== 'RESET-SPECTRA'}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Verifikasi & Lakukan RESET</span>
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Mengeksekusi Reset...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Verifikasi &amp; Eksekusi RESET</span>
+                  </>
+                )}
               </button>
             </div>
           </form>

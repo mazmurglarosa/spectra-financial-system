@@ -193,6 +193,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setManualFeeInput('');
       setManualFeeType('BI_FAST');
       setKeterangan('');
+      setRecordedReceipts([]);
       setResetFeedback({
         type: 'success',
         message: res?.message || 'Seluruh transaksi berhasil di-reset total dan nomor berkas dimulai kembali dari 1.'
@@ -241,9 +242,19 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setBankTransferDetails(null);
       setManualFeeInput('');
       setManualFeeType('BI_FAST');
+      setRecordedReceipts([]);
+    };
+    const handleReceiptUpdate = (e: any) => {
+      if (e?.detail?.receipts) {
+        setRecordedReceipts(e.detail.receipts);
+      }
     };
     window.addEventListener('spectra:reset-auto-record', handleReset);
-    return () => window.removeEventListener('spectra:reset-auto-record', handleReset);
+    window.addEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+    return () => {
+      window.removeEventListener('spectra:reset-auto-record', handleReset);
+      window.removeEventListener('spectra:recorded-receipt-updated', handleReceiptUpdate);
+    };
   }, []);
 
   // Custom POS Form State
@@ -3019,7 +3030,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
                 <li className="flex items-start gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</div>
                   <div>
-                    <strong className="text-slate-800">Google Drive ("Data Hasil Transaksi"):</strong> Berkas bukti transfer &amp; nota transaksi di folder khusus (<code>1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9</code>) dipindahkan ke Sampah (Trash).
+                    <strong className="text-slate-800">Google Drive:</strong> Berkas bukti transfer &amp; nota fisik di folder Google Drive tetap tersimpan aman (tidak dihapus otomatis).
                   </div>
                 </li>
                 <li className="flex items-start gap-2.5">

@@ -153,7 +153,57 @@ function doPost(e) {
       }
       cache.put(nonceKey, '1', 600); // Kunci selama 10 menit
 
-      // 7. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi Presisi / Idempotency via _spectra_idempotency)
+      // 7. AKSI RESET TRANSAKSI TEROTORISASI (CLEAR_TRANSACTIONS_A6_K / RESET_TRANSACTIONS)
+      if (payload.action === 'CLEAR_TRANSACTIONS_A6_K' || payload.action === 'RESET_TRANSACTIONS') {
+        var sheet = getTargetSheet();
+        var ss = sheet.getParent();
+        var lastRow = sheet.getLastRow();
+        var clearedRows = 0;
+        if (lastRow >= CONFIG.START_ROW) {
+          clearedRows = lastRow - CONFIG.START_ROW + 1;
+          // HANYA menghapus isi sel (clearContent) dari kolom A s.d. K mulai baris 6
+          // Mempertahankan baris 1 s.d. 5 (header & judul) serta rumus & format tabel
+          sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, clearedRows, CONFIG.TOTAL_COLS).clearContent();
+        }
+
+        // Bersihkan riwayat idempotensi baris 2 ke bawah agar nomor berkas berikutnya tidak berkonflik
+        try {
+          var idempSheet = ss.getSheetByName('_spectra_idempotency');
+          if (idempSheet && idempSheet.getLastRow() > 1) {
+            idempSheet.getRange(2, 1, idempSheet.getLastRow() - 1, 6).clearContent();
+          }
+        } catch (idempErr) {}
+
+        var deletedFilesCount = 0;
+        var driveStatus = 'RETAINED';
+        if (payload.clearDrive === true) {
+          try {
+            var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+            var transFiles = transFolder.getFiles();
+            while (transFiles.hasNext()) {
+              var f = transFiles.next();
+              f.setTrashed(true);
+              deletedFilesCount++;
+            }
+            driveStatus = 'TRASHED';
+          } catch (eDrive) {}
+        }
+
+        var resetResponse = {
+          status: 'success',
+          action: 'CLEAR_TRANSACTIONS_A6_K',
+          message: 'Tabel transaksi A6:K berhasil dikosongkan (' + clearedRows + ' baris). Header baris 1 s.d. 5 dan format tabel tetap utuh.',
+          clearedRows: clearedRows,
+          driveStatus: driveStatus,
+          deletedFilesCount: deletedFilesCount,
+          timestamp: new Date().toISOString()
+        };
+
+        return ContentService.createTextOutput(JSON.stringify(resetResponse))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      // 8. INSERT ROWS TRANSAKSI (Dengan Pencegahan Duplikasi Presisi / Idempotency via _spectra_idempotency)
       var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
       if (!rows || rows.length === 0) {
         throw new Error('Array baris transaksi (rows) kosong.');
@@ -420,10 +470,20 @@ function formatTableRange(sheet, startRow, numRows) {
 
 function eksekusiResetTotal() {
   var sheet = getTargetSheet();
+  var ss = sheet.getParent();
   var lastRow = sheet.getLastRow();
+  var clearedRows = 0;
   if (lastRow >= CONFIG.START_ROW) {
-    sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, lastRow - CONFIG.START_ROW + 1, CONFIG.TOTAL_COLS).clearContent().clearFormat();
+    clearedRows = lastRow - CONFIG.START_ROW + 1;
+    // HANYA menghapus isi sel (clearContent), mempertahankan format & garis tabel
+    sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, clearedRows, CONFIG.TOTAL_COLS).clearContent();
   }
+  try {
+    var idempSheet = ss.getSheetByName('_spectra_idempotency');
+    if (idempSheet && idempSheet.getLastRow() > 1) {
+      idempSheet.getRange(2, 1, idempSheet.getLastRow() - 1, 6).clearContent();
+    }
+  } catch (eIdemp) {}
   var deletedFilesCount = 0;
   try {
     var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
@@ -436,7 +496,7 @@ function eksekusiResetTotal() {
   } catch (e1) {
     Logger.log('Error cleaning trans folder: ' + e1);
   }
-  return { success: true, deletedFilesCount: deletedFilesCount };
+  return { success: true, clearedRows: clearedRows, deletedFilesCount: deletedFilesCount };
 }
 
 function eksekusiResetTotalDenganKonfirmasi() {
@@ -699,13 +759,57 @@ export async function syncRowsToGoogleSpreadsheet(
 }
 
 export async function resetExternalSpreadsheetAndDrive(
-  _webhookUrl?: string
-): Promise<{ success: boolean; message: string; deletedFilesCount?: number; isMockMode?: boolean }> {
-  console.warn('[GoogleSpreadsheetBot] Reset eksternal via webhook telah dinonaktifkan demi perlindungan data perusahaan.');
-  return {
-    success: false,
-    isMockMode: true,
-    message: 'Perintah reset total via webhook eksternal telah dinonaktifkan permanen demi perlindungan keamanan data perusahaan. Jika perlu melakukan reset, silakan gunakan menu resmi di dalam Google Sheets: "⚡ SPECTRA Bot -> Reset Total".',
-    deletedFilesCount: 0
-  };
+  options?: { clearDrive?: boolean; webhookUrl?: string } | string
+): Promise<{ success: boolean; message: string; deletedFilesCount?: number; isMockMode?: boolean; clearedRows?: number }> {
+  try {
+    const isPreviewDisabled = isExternalSyncDisabledOnPreview();
+    if (isPreviewDisabled) {
+      return {
+        success: true,
+        isMockMode: true,
+        message: 'Mode Isolasi Pengujian: Reset spreadsheet disimulasikan (tidak menyentuh sheet produksi).',
+        deletedFilesCount: 0,
+        clearedRows: 0
+      };
+    }
+
+    const clearDrive = typeof options === 'object' && options?.clearDrive === true;
+    const csrf = getCsrfToken();
+    const res = await fetch('/api/financial/reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrf
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        confirmCode: 'RESET-SPECTRA',
+        clearSpreadsheet: true,
+        clearDrive: clearDrive,
+        zeroAccounts: false // Pemanggilan khusus spreadsheet tidak me-reset database jika dipanggil mandiri
+      })
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (res.ok && data && (data.success || data.spreadsheetReset)) {
+      return {
+        success: true,
+        message: data.spreadsheetMessage || data.message || 'Tabel transaksi A6:K di Google Spreadsheet berhasil dikosongkan.',
+        deletedFilesCount: data.deletedFilesCount || 0,
+        clearedRows: data.clearedRows || 0,
+        isMockMode: false
+      };
+    }
+
+    return {
+      success: false,
+      message: data?.error || data?.spreadsheetMessage || `Gagal mereset spreadsheet (HTTP ${res.status}).`
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Gagal mereset spreadsheet eksternal: ${err?.message || err}`
+    };
+  }
 }

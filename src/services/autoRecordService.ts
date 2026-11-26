@@ -302,16 +302,25 @@ export function commitDocumentSequence(seq: number): void {
   } catch (e) {}
 }
 
-export function resetAutoRecordState(): void {
+export async function resetAutoRecordState(): Promise<void> {
   try {
-    localStorage.removeItem(STORAGE_DOC_SEQ_KEY);
-    localStorage.removeItem('sikeu_auto_record_doc_seq');
-    localStorage.setItem(STORAGE_DOC_SEQ_KEY, '0');
-    localStorage.setItem('sikeu_auto_record_doc_seq', '0');
-    localStorage.removeItem(SPECTRA_RECORDED_RECEIPTS_KEY);
-    localStorage.removeItem('spectra_pending_journal_draft');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_DOC_SEQ_KEY);
+      localStorage.removeItem('sikeu_auto_record_doc_seq');
+      localStorage.setItem(STORAGE_DOC_SEQ_KEY, '0');
+      localStorage.setItem('sikeu_auto_record_doc_seq', '0');
+      localStorage.removeItem(SPECTRA_RECORDED_RECEIPTS_KEY);
+      localStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
+      localStorage.removeItem('spectra_pending_journal_draft');
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(SPECTRA_PENDING_JOURNAL_KEY);
+      sessionStorage.removeItem('spectra_pending_journal_draft');
+    }
+    await clearReceiptImagesIdbAsync();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('spectra:reset-auto-record'));
+      window.dispatchEvent(new CustomEvent('spectra:recorded-receipt-updated', { detail: { receipts: [] } }));
     }
   } catch (e) {
     console.error('Failed to reset auto record state:', e);
@@ -1143,6 +1152,37 @@ function openReceiptIdb(): Promise<IDBDatabase | null> {
       req.onerror = () => resolve(null);
     } catch {
       resolve(null);
+    }
+  });
+}
+
+export async function clearReceiptImagesIdbAsync(): Promise<boolean> {
+  if (typeof window === 'undefined' || !window.indexedDB) return true;
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          resolve(true);
+          return;
+        }
+        try {
+          const tx = db.transaction(IDB_STORE, 'readwrite');
+          const store = tx.objectStore(IDB_STORE);
+          const clearReq = store.clear();
+          clearReq.onsuccess = () => resolve(true);
+          clearReq.onerror = () => resolve(false);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+          tx.onabort = () => resolve(false);
+        } catch {
+          resolve(false);
+        }
+      };
+      req.onerror = () => resolve(false);
+    } catch {
+      resolve(false);
     }
   });
 }
