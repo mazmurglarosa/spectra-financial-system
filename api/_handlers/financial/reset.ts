@@ -87,10 +87,27 @@ export default async function handler(req: any, res: any) {
     const setList = setRes.data?.[0] || null;
     const txCount = txList.length;
 
-    // Buat snapshot cadangan terverifikasi dengan checksum SHA-256
+    // Buat snapshot cadangan terverifikasi dengan checksum SHA-256 untuk Google Drive (HEMAT KUOTA SUPABASE FREE)
+    const envCtx = detectServerEnvironment(req, (supabase as any)?.supabaseUrl);
+    let targetWebhookUrl = '';
+    let targetBotSecret = '';
+
+    if (envCtx.isProduction) {
+      targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
+      targetBotSecret = (process.env.SPECTRA_BOT_SECRET_PRODUCTION || process.env.SPECTRA_BOT_SECRET || '').trim();
+    } else {
+      targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
+      targetBotSecret = (process.env.SPECTRA_BOT_SECRET_STAGING || process.env.SPECTRA_BOT_SECRET || '').trim();
+    }
+
     const snapshotPayload = {
-      version: '2.0-atomic-snapshot',
+      version: '2.0-atomic-drive-snapshot',
       createdAt: new Date().toISOString(),
+      createdBy: dbUser.username,
+      environment: envCtx.environmentName,
+      transactionsCount: txCount,
+      accountsCount: accList.length,
+      contactsCount: conList.length,
       transactions: txList,
       accounts: accList,
       contacts: conList,
@@ -98,33 +115,108 @@ export default async function handler(req: any, res: any) {
     };
     const serializedSnapshot = JSON.stringify(snapshotPayload);
     const checksum = crypto.createHash('sha256').update(serializedSnapshot).digest('hex');
-    const backupId = `snapshot-pre-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const retentionDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    const backupFileName = `spectra-backup-pre-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`;
+    let driveBackupId = '';
 
-    // Simpan snapshot ke tabel system_backups
-    const { error: snapErr } = await supabase.from('system_backups').insert({
-      id: backupId,
-      created_at: new Date().toISOString(),
-      created_by: dbUser.username,
-      backup_type: 'pre_reset_snapshot',
-      sha256_checksum: checksum,
-      retention_until: retentionDate,
-      transactions_count: txCount,
-      accounts_count: accList.length,
-      contacts_count: conList.length,
-      snapshot_data: snapshotPayload,
-      is_verified: true,
-      verified_at: new Date().toISOString()
-    });
+    // Wajib simpan cadangan ke Google Drive sebelum reset jika ada transaksi aktif (Fail-Closed)
+    if (txCount > 0) {
+      if (!targetWebhookUrl || !targetBotSecret) {
+        return res.status(500).json({
+          success: false,
+          status: 'FAILED',
+          error: `Gagal membuat snapshot Google Drive: Webhook Google Apps Script belum disetel (${envCtx.environmentName.toUpperCase()}). SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET kosong. Operasi reset dibatalkan demi keselamatan ${txCount} data transaksi aktif (Fail-Closed).`,
+          databaseReset: false
+        });
+      }
 
-    if (snapErr) {
-      console.error('[ResetSystemSnapshotError] Gagal menyimpan snapshot cadangan ke system_backups:', snapErr.message);
-      return res.status(500).json({
-        success: false,
-        status: 'FAILED',
-        error: `Gagal membuat snapshot cadangan terverifikasi: ${snapErr.message}. Operasi reset dibatalkan (Fail-Closed).`,
-        databaseReset: false
-      });
+      if (targetWebhookUrl.includes('AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT')) {
+        return res.status(500).json({
+          success: false,
+          status: 'FAILED',
+          error: 'Webhook Apps Script terkonfigurasi mengarah ke proyek IMS Document Control. Reset dibatalkan demi melindungi integritas sistem IMS. Pasang deployment SPECTRA Bot terpisah.',
+          databaseReset: false
+        });
+      }
+
+      try {
+        const saveCtrl = new AbortController();
+        const saveTimeout = setTimeout(() => saveCtrl.abort(), 20000);
+
+        const saveRes = await fetch(targetWebhookUrl.trim(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'SAVE_BACKUP_JSON',
+            secret: targetBotSecret,
+            fileName: backupFileName,
+            content: serializedSnapshot,
+            sha256: checksum,
+            transactionsCount: txCount,
+            createdBy: dbUser.username,
+            timestamp: new Date().toISOString()
+          }),
+          signal: saveCtrl.signal,
+          redirect: 'follow'
+        });
+        clearTimeout(saveTimeout);
+
+        const saveResult: any = await saveRes.json().catch(() => null);
+
+        if (!saveResult || (saveResult.status !== 'success' && !saveResult.success) || !saveResult.fileId || !saveResult.isVerifiedReadable) {
+          const errMsg = saveResult?.message || `HTTP ${saveRes.status}`;
+          console.error('[ResetSystemBackupError] Gagal menyimpan snapshot ke Google Drive:', errMsg);
+          return res.status(500).json({
+            success: false,
+            status: 'FAILED',
+            error: `Gagal membuat snapshot cadangan di Google Drive: ${errMsg}. Operasi reset dibatalkan demi keamanan data (Fail-Closed).`,
+            databaseReset: false
+          });
+        }
+
+        driveBackupId = `drive:${saveResult.fileId}:sha256:${checksum}`;
+      } catch (backupFetchErr: any) {
+        console.error('[ResetSystemBackupFetchError] Gagal menghubungi Google Drive bot:', backupFetchErr.message);
+        return res.status(500).json({
+          success: false,
+          status: 'FAILED',
+          error: `Gagal menghubungi Google Drive bot untuk membuat cadangan: ${backupFetchErr.message || 'Timeout'}. Operasi reset dibatalkan (Fail-Closed).`,
+          databaseReset: false
+        });
+      }
+    } else {
+      // 0 transaksi aktif saat ini di database
+      if (targetWebhookUrl && targetBotSecret && !targetWebhookUrl.includes('AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT')) {
+        try {
+          const saveCtrl = new AbortController();
+          const saveTimeout = setTimeout(() => saveCtrl.abort(), 10000);
+          const saveRes = await fetch(targetWebhookUrl.trim(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'SAVE_BACKUP_JSON',
+              secret: targetBotSecret,
+              fileName: backupFileName,
+              content: serializedSnapshot,
+              sha256: checksum,
+              transactionsCount: 0,
+              createdBy: dbUser.username,
+              timestamp: new Date().toISOString()
+            }),
+            signal: saveCtrl.signal,
+            redirect: 'follow'
+          });
+          clearTimeout(saveTimeout);
+          const saveResult: any = await saveRes.json().catch(() => null);
+          if (saveResult?.fileId) {
+            driveBackupId = `drive:${saveResult.fileId}:sha256:${checksum}`;
+          }
+        } catch (e) {
+          // ignore error since txCount is 0
+        }
+      }
+      if (!driveBackupId) {
+        driveBackupId = `drive:empty-0-tx-${Date.now()}:sha256:${checksum}`;
+      }
     }
 
     // 5. EKSEKUSI RESET ATOMIK MELALUI RPC POSTGRESQL (All-or-Nothing Transaction)
@@ -138,51 +230,21 @@ export default async function handler(req: any, res: any) {
       p_actor_username: dbUser.username,
       p_actor_fullname: dbUser.fullName,
       p_actor_position: dbUser.position,
-      p_backup_id: backupId
+      p_backup_id: driveBackupId
     });
 
     if (rpcErr) {
-      console.warn('[ResetSystemRpcWarning] Pemanggilan RPC reset_spectra_system gagal, menjalankan fallback transaksi terproteksi:', rpcErr.message);
-
-      // Fallback manual terproteksi jika RPC belum ter-deploy
-      const { error: delErr } = await supabase.from('transactions').delete().neq('id', '___non_existent___');
-      if (delErr) {
-        return res.status(500).json({
-          success: false,
-          status: 'FAILED',
-          error: `Gagal mengosongkan transaksi di database: ${delErr.message}.`,
-          databaseReset: false
-        });
-      }
-
-      if (shouldZeroAccounts) {
-        const { error: accErr } = await supabase.from('accounts').update({ debet_awal: 0, kredit_awal: 0 }).neq('id', '___non_existent___');
-        if (accErr) {
-          return res.status(500).json({
-            success: false,
-            status: 'FAILED',
-            error: `Transaksi dihapus namun gagal menolkan saldo akun: ${accErr.message}.`,
-            databaseReset: true
-          });
-        }
-      }
-
-      await supabase.from('contacts').update({ balance: 0 }).neq('id', '___non_existent___');
-      await supabase.from('activity_logs').insert({
-        id: `log-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
-        timestamp: new Date().toLocaleString('id-ID'),
-        username: dbUser.username,
-        full_name: dbUser.fullName,
-        position: dbUser.position,
-        action: 'RESET PEMBUKUAN TOTAL',
-        detail: `Reset total sistem: ${txCount} transaksi dihapus, saldo akun dinolkan. Backup: ${backupId}`
+      console.error('[ResetSystemRpcError] RPC reset_spectra_system gagal:', rpcErr.message);
+      return res.status(500).json({
+        success: false,
+        status: 'FAILED',
+        error: `Gagal mengeksekusi reset atomik di database: ${rpcErr.message}. Operasi dibatalkan (Fail-Closed).`,
+        databaseReset: false
       });
-      rpcSuccess = true;
-    } else {
-      rpcSuccess = true;
-      rpcDetails = rpcData;
     }
 
+    rpcSuccess = true;
+    rpcDetails = rpcData;
     const databaseReset = true;
 
     // 6. KOORDINASI RESET GOOGLE SPREADSHEET DENGAN PROBE KOMPATIBILITAS SEBENARNYA
@@ -194,19 +256,6 @@ export default async function handler(req: any, res: any) {
     const shouldClearDrive = payload.clearDrive === true;
 
     if (shouldClearSpreadsheet) {
-      const envCtx = detectServerEnvironment(req, (supabase as any)?.supabaseUrl);
-
-      let targetWebhookUrl = '';
-      let targetBotSecret = '';
-
-      if (envCtx.isProduction) {
-        targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_PRODUCTION || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
-        targetBotSecret = (process.env.SPECTRA_BOT_SECRET_PRODUCTION || process.env.SPECTRA_BOT_SECRET || '').trim();
-      } else {
-        targetWebhookUrl = (process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL_STAGING || process.env.SPECTRA_SPREADSHEET_WEBHOOK_URL || '').trim();
-        targetBotSecret = (process.env.SPECTRA_BOT_SECRET_STAGING || process.env.SPECTRA_BOT_SECRET || '').trim();
-      }
-
       if (!targetWebhookUrl || !targetBotSecret) {
         spreadsheetReset = false;
         isPartialFailure = true;
@@ -318,7 +367,9 @@ export default async function handler(req: any, res: any) {
         accountsPreserved: true,
         spreadsheetReset: false,
         spreadsheetMessage,
-        backupId,
+        backupId: driveBackupId,
+        driveBackupId,
+        checksum,
         recoveryProcedure: 'Buka Google Spreadsheet datasheet_bukti_transaksi resmi, lalu pilih menu: ⚡ SPECTRA Bot -> 🗑️ Reset Total.',
         driveStatus: shouldClearDrive ? 'TRASHED' : 'RETAINED'
       });
@@ -333,7 +384,9 @@ export default async function handler(req: any, res: any) {
       accountsPreserved: true,
       spreadsheetReset: true,
       spreadsheetMessage,
-      backupId,
+      backupId: driveBackupId,
+      driveBackupId,
+      checksum,
       driveStatus: shouldClearDrive ? 'TRASHED' : 'RETAINED'
     });
   } catch (err: any) {

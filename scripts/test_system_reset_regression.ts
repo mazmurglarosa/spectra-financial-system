@@ -15,6 +15,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { 
   getNextDocumentSequence, 
   generateFileCode,
@@ -473,6 +474,46 @@ runTest('IMS Segregation: Active IMS Project AKfycb... is protected and rejected
 
   assert.strictEqual(targetActionAllowed, false, 'IMS script must NEVER be called by reset or sync');
   assert.ok(rejectionMessage.includes('Proyek IMS dilindungi aman'), 'Must explain IMS protection');
+});
+
+// ----------------------------------------------------------------------------
+// Test 17: Google Drive Backup JSON Structure & SHA-256 Checksum Verification
+// ----------------------------------------------------------------------------
+runTest('Google Drive Backup: Formats JSON snapshot with valid SHA-256 hash & verification metadata', () => {
+  const dummySnapshot = {
+    version: '2.0-atomic-drive-snapshot',
+    createdAt: new Date().toISOString(),
+    transactionsCount: 3,
+    transactions: [{ id: 't1' }, { id: 't2' }, { id: 't3' }],
+    accounts: [{ id: 'a1' }],
+    contacts: [{ id: 'c1' }]
+  };
+
+  const serialized = JSON.stringify(dummySnapshot);
+  const hash = crypto.createHash('sha256').update(serialized).digest('hex');
+  assert.strictEqual(hash.length, 64, 'SHA-256 hash must be 64 hexadecimal characters');
+
+  const driveBackupId = `drive:1TestDriveId_xyz:sha256:${hash}`;
+  assert.ok(driveBackupId.startsWith('drive:'), 'Backup ID must indicate drive origin');
+  assert.ok(driveBackupId.includes(':sha256:'), 'Backup ID must embed sha256 checksum');
+
+  // Verify parsing back
+  const parsed = JSON.parse(serialized);
+  assert.strictEqual(parsed.transactionsCount, 3);
+  assert.strictEqual(parsed.transactions.length, 3);
+});
+
+// ----------------------------------------------------------------------------
+// Test 18: Zero-Storage Policy: Migration 011 contains no CREATE TABLE system_backups
+// ----------------------------------------------------------------------------
+runTest('Supabase Free Tier Policy: Migration 011 contains 0 new tables & pure RPC DDL', () => {
+  const migrationPath = path.resolve(process.cwd(), 'supabase/migrations/011_atomic_system_reset.sql');
+  assert.ok(fs.existsSync(migrationPath), 'Migration 011 file must exist');
+
+  const sqlContent = fs.readFileSync(migrationPath, 'utf8');
+  assert.strictEqual(sqlContent.includes('CREATE TABLE'), false, 'Migration 011 must NOT create any tables in Supabase (Free Tier Storage Preservation)');
+  assert.ok(sqlContent.includes('CREATE OR REPLACE FUNCTION public.reset_spectra_system'), 'Must define reset_spectra_system RPC');
+  assert.ok(sqlContent.includes('CREATE OR REPLACE FUNCTION public.restore_spectra_from_snapshot'), 'Must define restore_spectra_from_snapshot RPC');
 });
 
 // ----------------------------------------------------------------------------

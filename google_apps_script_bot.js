@@ -37,7 +37,8 @@ var CONFIG = {
   START_COL: 1,                                                         // Kolom A (Kolom ke-1)
   TOTAL_COLS: 11,                                                       // Kolom A s.d. K (11 kolom)
   TRANSACTIONS_FOLDER_ID: '1W4Z0NCD_UhCbopryM4li2V0LgqDe_oE9',         // Folder Data Hasil Transaksi
-  WEB_DATA_FOLDER_ID: '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn'              // Folder data_web (khusus web assets)
+  WEB_DATA_FOLDER_ID: '1W0rIE3dXHVm6JwB9glV0yWB80QcEUywn',              // Folder data_web (khusus web assets)
+  BACKUP_FOLDER_NAME: 'SPECTRA_SYSTEM_BACKUPS'                          // Folder Khusus Snapshot Backup JSON
 };
 
 /**
@@ -50,6 +51,7 @@ function onOpen() {
     .addItem('🎨 Rapikan Format Tabel (A6:K)', 'rapikanFormatTabel')
     .addSeparator()
     .addItem('📦 Pindahkan Berkas BT Lama ke Folder Data Hasil Transaksi', 'pindahkanBuktiTransaksiKeDataHasil')
+    .addItem('💾 Info Folder Backup JSON Sistem', 'tampilkanInfoFolderBackup')
     .addSeparator()
     .addItem('🗑️ Reset Total: Kosongkan Tabel (A6:K) & Folder Hasil Transaksi', 'eksekusiResetTotalDenganKonfirmasi')
     .addToUi();
@@ -100,6 +102,55 @@ function doPost(e) {
     }
 
     var payload = JSON.parse(rawContent);
+
+    // =========================================================================
+    // ACTION: Simpan Backup JSON ke Google Drive (SAVE_BACKUP_JSON)
+    // =========================================================================
+    if (payload.action === 'SAVE_BACKUP_JSON') {
+      var fileName = payload.fileName || ('spectra-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json');
+      var contentStr = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content, null, 2);
+      var backupFolder = getOrCreateBackupFolder();
+      var file = backupFolder.createFile(fileName, contentStr, MimeType.PLAIN_TEXT);
+      var fileId = file.getId();
+      var fileSize = file.getSize();
+      
+      // Verifikasi file terbaca ulang (Readable & Non-empty)
+      var checkContent = file.getBlob().getDataAsString();
+      var isVerifiedReadable = checkContent.length > 0 && checkContent.length === contentStr.length;
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        action: 'SAVE_BACKUP_JSON',
+        fileId: fileId,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileUrl: file.getUrl(),
+        isVerifiedReadable: isVerifiedReadable,
+        sha256: payload.sha256 || null,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // ACTION: Baca Backup JSON dari Google Drive (READ_BACKUP_JSON)
+    // =========================================================================
+    if (payload.action === 'READ_BACKUP_JSON') {
+      if (!payload.fileId) {
+        throw new Error('fileId wajib disertakan untuk membaca backup.');
+      }
+      var targetFile = DriveApp.getFileById(payload.fileId);
+      var readContent = targetFile.getBlob().getDataAsString();
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        action: 'READ_BACKUP_JSON',
+        fileId: payload.fileId,
+        fileName: targetFile.getName(),
+        fileSize: targetFile.getSize(),
+        content: readContent,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // =========================================================================
     // ACTION: Reset Total Sistem / Kosongkan Baris A6:K (Administrator Reset)
@@ -515,4 +566,38 @@ function rapikanFormatTabel() {
   } else {
     SpreadsheetApp.getUi().alert('Belum ada data pada baris 6 ke bawah.');
   }
+}
+
+/**
+ * FUNGSI HELPER: Ambil atau Buat Folder Khusus Backup JSON Sistem di Google Drive
+ */
+function getOrCreateBackupFolder() {
+  try {
+    var parentFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+    var subFolders = parentFolder.getFoldersByName(CONFIG.BACKUP_FOLDER_NAME);
+    if (subFolders.hasNext()) {
+      return subFolders.next();
+    }
+    return parentFolder.createFolder(CONFIG.BACKUP_FOLDER_NAME);
+  } catch (err) {
+    Logger.log('Fallback ke folder transaksi: ' + err);
+    return DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+  }
+}
+
+/**
+ * FUNGSI MENU: Tampilkan Info Folder Backup JSON
+ */
+function tampilkanInfoFolderBackup() {
+  var folder = getOrCreateBackupFolder();
+  var ui = SpreadsheetApp.getUi();
+  ui.alert(
+    'Folder Backup JSON SPECTRA',
+    'Folder pencadangan JSON sebelum reset sistem:\n\n' +
+    'Nama: ' + folder.getName() + '\n' +
+    'ID: ' + folder.getId() + '\n' +
+    'URL: ' + folder.getUrl() + '\n\n' +
+    'Seluruh snapshot transaksi diunggah secara otomatis ke folder ini sebelum reset.',
+    ui.ButtonSet.OK
+  );
 }

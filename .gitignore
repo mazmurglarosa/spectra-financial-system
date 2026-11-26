@@ -47,6 +47,7 @@ Daftar_Pencapaian_Dan_Pekerjaan_SPECTRA.docx
 Logbook_Perubahan_Sistem_SPECTRA.xlsx
 *.docx
 *.xlsx
+TAMBAHAN/
 
 # Local inspection and staging runner scripts
 scripts/inspect_*
