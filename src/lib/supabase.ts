@@ -713,11 +713,14 @@ export async function deleteAllTransactionsFromSupabase(options?: {
   zeroAccounts?: boolean;
 }): Promise<{
   success: boolean;
+  status?: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED' | 'REJECTED';
   message?: string;
+  error?: string;
   databaseReset?: boolean;
   deletedTransactionsCount?: number;
   spreadsheetReset?: boolean;
   spreadsheetMessage?: string;
+  recoveryProcedure?: string;
   driveStatus?: string;
 }> {
   // 1. Gateway Serverless Terotorisasi (Mendukung Staging & Production via Service Role)
@@ -733,12 +736,15 @@ export async function deleteAllTransactionsFromSupabase(options?: {
           zeroAccounts: options?.zeroAccounts ?? false
         })
       });
-      return res || { success: true };
+      return res || { success: false, status: 'FAILED', error: 'Respons kosong dari server gateway.' };
     } catch (e: any) {
-      if (isRemoteEnvironment()) {
-        console.error('[SupabaseGatewayError] Gagal reset transaksi:', e?.message);
-        throw e;
-      }
+      console.error('[SupabaseGatewayError] Gagal reset transaksi:', e?.message);
+      return {
+        success: false,
+        status: 'FAILED',
+        error: e?.message || 'Gagal memproses reset di server gateway.',
+        databaseReset: false
+      };
     }
   }
 
@@ -746,12 +752,15 @@ export async function deleteAllTransactionsFromSupabase(options?: {
   const client = getSupabaseClient();
   if (client) {
     try {
-      await client.from('transactions').delete().neq('id', '___non_existent___');
-    } catch (e) {
+      const { error } = await client.from('transactions').delete().neq('id', '___non_existent___');
+      if (error) throw error;
+      return { success: true, status: 'SUCCESS', databaseReset: true, spreadsheetReset: false };
+    } catch (e: any) {
       console.warn('Fallback delete all transactions from Supabase failed:', e);
+      return { success: false, status: 'FAILED', error: e?.message, databaseReset: false };
     }
   }
-  return { success: true };
+  return { success: false, status: 'FAILED', error: 'Koneksi client Supabase tidak tersedia.', databaseReset: false };
 }
 
 export async function pushSettingsToSupabase(rawSettings: CompanySettings): Promise<void> {

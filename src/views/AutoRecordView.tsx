@@ -168,13 +168,24 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
   // Modal Reset Transaksi & Nomor Berkas
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
   const [isResettingTransactions, setIsResettingTransactions] = useState<boolean>(false);
-  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string; recoveryProcedure?: string } | null>(null);
 
   const handleConfirmReset = async () => {
     setIsResettingTransactions(true);
     setResetFeedback(null);
     try {
       const res = await resetAllTransactions();
+
+      // Fail-closed guard: jika status FAILED atau bukan sukses dan bukan partial
+      if (res.status === 'FAILED' || (!res.success && res.status !== 'PARTIAL_FAILURE')) {
+        setResetFeedback({
+          type: 'error',
+          message: res.message || res.error || 'Gagal mengeksekusi reset: database cloud tidak dapat dibersihkan.'
+        });
+        return;
+      }
+
+      // Jika database berhasil di-reset (SUCCESS maupun PARTIAL_FAILURE)
       setSeqNumber(1);
       setNomorBerkas(generateFileCode(1));
       setSpreadsheetRows([]);
@@ -194,14 +205,23 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
       setManualFeeType('BI_FAST');
       setKeterangan('');
       setRecordedReceipts([]);
-      setResetFeedback({
-        type: 'success',
-        message: res?.message || 'Seluruh transaksi berhasil di-reset total dan nomor berkas dimulai kembali dari 1.'
-      });
-      setTimeout(() => {
-        setIsResetModalOpen(false);
-        setResetFeedback(null);
-      }, 1600);
+
+      if (res.status === 'PARTIAL_FAILURE') {
+        setResetFeedback({
+          type: 'warning',
+          message: res.message,
+          recoveryProcedure: res.recoveryProcedure
+        });
+      } else {
+        setResetFeedback({
+          type: 'success',
+          message: res?.message || 'Seluruh transaksi berhasil di-reset total dan nomor berkas dimulai kembali dari 1.'
+        });
+        setTimeout(() => {
+          setIsResetModalOpen(false);
+          setResetFeedback(null);
+        }, 1600);
+      }
     } catch (err: any) {
       setResetFeedback({
         type: 'error',
@@ -3044,17 +3064,28 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
 
             {/* Feedback / Alert */}
             {resetFeedback && (
-              <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+              <div className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2.5 ${
                 resetFeedback.type === 'success'
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : resetFeedback.type === 'warning'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300'
                   : 'bg-rose-50 text-rose-800 border-rose-200'
               }`}>
                 {resetFeedback.type === 'success' ? (
-                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : resetFeedback.type === 'warning' ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 ) : (
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
-                <span>{resetFeedback.message}</span>
+                <div className="space-y-1">
+                  <span>{resetFeedback.message}</span>
+                  {resetFeedback.recoveryProcedure && (
+                    <div className="mt-1 p-2 bg-amber-100/70 rounded text-[11px] font-mono text-amber-900 font-normal">
+                      <strong>Langkah Pemulihan:</strong> {resetFeedback.recoveryProcedure}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

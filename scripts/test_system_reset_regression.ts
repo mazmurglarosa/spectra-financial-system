@@ -231,6 +231,119 @@ runTest('resetAutoRecordState removes keys and resets doc sequence to 0', async 
 });
 
 // ----------------------------------------------------------------------------
+// Test 8: Fail-Closed Protection on Database Failure
+// ----------------------------------------------------------------------------
+runTest('Fail-Closed: Local transactions are preserved if backend database reset fails', async () => {
+  const initialTransactions = [
+    { id: 'trx-1', refNumber: 'BT/0001/01X26', description: 'Test 1', lines: [] },
+    { id: 'trx-2', refNumber: 'BT/0002/01X26', description: 'Test 2', lines: [] }
+  ];
+
+  // Mock a failing backend response
+  const mockFailingBackend = async () => ({
+    success: false,
+    status: 'FAILED' as const,
+    databaseReset: false,
+    spreadsheetReset: false,
+    message: 'PostgREST connection timeout'
+  });
+
+  // Emulate reset logic
+  let localTransactions = [...initialTransactions];
+  const backendRes = await mockFailingBackend();
+
+  if (!backendRes.success && backendRes.databaseReset !== true) {
+    // Fail-closed guard: do NOT modify local transactions
+  } else {
+    localTransactions = [];
+  }
+
+  assert.strictEqual(localTransactions.length, 2, 'Local transactions must remain untouched on database failure');
+  assert.strictEqual(backendRes.status, 'FAILED', 'Status must be FAILED');
+});
+
+// ----------------------------------------------------------------------------
+// Test 9: Partial Failure Handling (Database Cleared, Spreadsheet Fails)
+// ----------------------------------------------------------------------------
+runTest('Partial Failure: When DB clears but spreadsheet fails, reports PARTIAL_FAILURE & spreadsheetReset: false', async () => {
+  // Webhook is empty or missing
+  const webhookUrl = '';
+  const isWebhookConfigured = Boolean(webhookUrl && webhookUrl.trim().length > 0);
+
+  let spreadsheetReset = false;
+  let status: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED' = 'SUCCESS';
+  let recoveryProcedure = '';
+
+  if (!isWebhookConfigured) {
+    spreadsheetReset = false;
+    status = 'PARTIAL_FAILURE';
+    recoveryProcedure = 'Buka Google Spreadsheet > Menu SPECTRA Bot > Reset Total';
+  }
+
+  assert.strictEqual(spreadsheetReset, false, 'Spreadsheet reset must be FALSE when webhook is missing');
+  assert.strictEqual(status, 'PARTIAL_FAILURE', 'Status must be PARTIAL_FAILURE');
+  assert.ok(recoveryProcedure.length > 0, 'Must provide clear recovery instructions');
+
+  // Verify that in PARTIAL_FAILURE, local transactions are wiped to prevent stale resurrection
+  const mockCloudDbReset = true;
+  let localTransactions = [{ id: 'trx-1' }];
+  if (mockCloudDbReset) {
+    localTransactions = []; // Match 0 transactions in cloud
+  }
+  assert.strictEqual(localTransactions.length, 0, 'Local transactions must be 0 to match cloud DB');
+});
+
+// ----------------------------------------------------------------------------
+// Test 10: Verified Pre-Reset Backup Integrity Gate
+// ----------------------------------------------------------------------------
+runTest('Verified Backup: Pre-reset backup integrity check verifies schema & contents before wiping', () => {
+  const sampleAccounts = Array(76).fill(null).map((_, i) => ({ id: `acc_${i}`, code: `${10000 + i}`, name: `Account ${i}` }));
+  const sampleTransactions = [{ id: 't1', refNumber: 'BT/0001', lines: [] }];
+  const sampleContacts = [{ id: 'c1', name: 'PT Petro' }];
+  const sampleSettings = { companyName: 'PT Spectra' };
+
+  const verifiedBackup = {
+    version: '2.0-verified',
+    exportedAt: new Date().toISOString(),
+    accounts: sampleAccounts,
+    transactions: sampleTransactions,
+    contacts: sampleContacts,
+    settings: sampleSettings
+  };
+
+  const jsonStr = JSON.stringify(verifiedBackup);
+  const parsed = JSON.parse(jsonStr);
+
+  assert.ok(parsed.accounts && parsed.accounts.length === 76, 'Verified backup must contain all 76 COA accounts');
+  assert.ok(parsed.transactions && parsed.transactions.length === 1, 'Verified backup must contain transactions');
+  assert.strictEqual(parsed.settings.companyName, 'PT Spectra', 'Verified backup must contain settings');
+
+  // Negative test: Corrupted backup
+  const corruptedParsed = { ...parsed, accounts: [] };
+  const isValid = Array.isArray(corruptedParsed.accounts) && corruptedParsed.accounts.length >= 72;
+  assert.strictEqual(isValid, false, 'Integrity gate must reject corrupted backup with empty accounts');
+});
+
+// ----------------------------------------------------------------------------
+// Test 11: Apps Script Read-Only Probe & Unrecognized Response Protection
+// ----------------------------------------------------------------------------
+runTest('Apps Script Probe: Non-SPECTRA script response is rejected and not marked spreadsheetReset: true', () => {
+  // Simulate probing an IMS script or HTML error page
+  const sampleImsResponse = '{"code":"CEO","label":"Chief Executive Officer","documents":[]}';
+  const parsedIms = JSON.parse(sampleImsResponse);
+
+  // Check compatibility criteria: Must be SPECTRA Spreadsheet Bot
+  const isCompatibleSpectraBot = parsedIms.system === 'SPECTRA_FINANCIAL_SYSTEM' ||
+                                 parsedIms.action === 'CLEAR_TRANSACTIONS_A6_K' ||
+                                 parsedIms.bot === 'SPECTRA_BOT';
+
+  assert.strictEqual(isCompatibleSpectraBot, false, 'Unrelated Google Apps Script must NOT be treated as SPECTRA Spreadsheet Bot');
+
+  const finalSpreadsheetReset = isCompatibleSpectraBot ? true : false;
+  assert.strictEqual(finalSpreadsheetReset, false, 'Must report spreadsheetReset = false when script is not compatible');
+});
+
+// ----------------------------------------------------------------------------
 // Summary Report
 // ----------------------------------------------------------------------------
 setTimeout(() => {

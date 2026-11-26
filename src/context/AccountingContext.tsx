@@ -114,8 +114,24 @@ interface AccountingContextType {
   // Settings & DB
   updateSettings: (newSettings: Partial<CompanySettings>) => void;
   resetToDefault: () => void;
-  resetWithPin: (pin: string, options?: { confirmCode?: string; clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{ success: boolean; message: string; deletedTransactionsCount?: number; spreadsheetReset?: boolean }>;
-  resetAllTransactions: (options?: { clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{ success: boolean; message: string; driveFilesDeleted?: number; spreadsheetReset?: boolean }>;
+  resetWithPin: (pin: string, options?: { confirmCode?: string; clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{
+    success: boolean;
+    status?: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+    message: string;
+    error?: string;
+    deletedTransactionsCount?: number;
+    spreadsheetReset?: boolean;
+    recoveryProcedure?: string;
+  }>;
+  resetAllTransactions: (options?: { clearDrive?: boolean; zeroAccounts?: boolean }) => Promise<{
+    success: boolean;
+    status?: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+    message: string;
+    error?: string;
+    driveFilesDeleted?: number;
+    spreadsheetReset?: boolean;
+    recoveryProcedure?: string;
+  }>;
   changePin: (oldPin: string, newPin: string) => { success: boolean; message: string };
   exportDatabaseJson: () => string;
   importDatabaseJson: (jsonStr: string) => { success: boolean; message: string };
@@ -1099,23 +1115,51 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const resetWithPin = useCallback(async (
     pin: string,
     options?: { confirmCode?: string; clearDrive?: boolean; zeroAccounts?: boolean }
-  ): Promise<{ success: boolean; message: string; deletedTransactionsCount?: number; spreadsheetReset?: boolean }> => {
+  ): Promise<{
+    success: boolean;
+    status?: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+    message: string;
+    error?: string;
+    deletedTransactionsCount?: number;
+    spreadsheetReset?: boolean;
+    recoveryProcedure?: string;
+  }> => {
     if (pin.trim() !== securityPin.trim()) {
-      return { success: false, message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
+      return { success: false, status: 'FAILED', message: 'PIN Otorisasi salah! Akses RESET ditolak.' };
     }
 
-    // 1. Amankan snapshot backup lokal darurat sebelum mutasi
+    // 1. Verifikasi Data & Buat Cadangan Terverifikasi (Verified Pre-Reset Backup)
+    const verifiedBackup = {
+      version: 'SPECTRA_BACKUP_V1',
+      timestamp: new Date().toISOString(),
+      companyName: settings.companyName,
+      totalTransactions: transactions.length,
+      transactions: transactions.map(t => ({ ...t })),
+      accounts: accounts.map(a => ({ ...a })),
+      contacts: contacts.map(c => ({ ...c })),
+      settings: { ...settings }
+    };
+
+    let serializedBackup = '';
     try {
-      const emergencyBackup = {
-        timestamp: new Date().toISOString(),
-        company: settings.companyName,
-        accounts,
-        transactions,
-        contacts,
-        settings
+      serializedBackup = JSON.stringify(verifiedBackup);
+      const testParse = JSON.parse(serializedBackup);
+      if (!testParse || !Array.isArray(testParse.transactions) || testParse.transactions.length !== transactions.length) {
+        return {
+          success: false,
+          status: 'FAILED',
+          message: 'Validasi integritas data cadangan gagal. Operasi reset dibatalkan demi keamanan data (Fail-Closed).'
+        };
+      }
+      localStorage.setItem('spectra_verified_pre_reset_backup', serializedBackup);
+      localStorage.setItem(`spectra_backup_${Date.now()}`, serializedBackup);
+    } catch (backupErr: any) {
+      return {
+        success: false,
+        status: 'FAILED',
+        message: 'Gagal membuat cadangan terverifikasi sebelum reset: ' + (backupErr?.message || backupErr) + '. Operasi reset dibatalkan (Fail-Closed).'
       };
-      localStorage.setItem('spectra_pre_reset_backup_' + Date.now(), JSON.stringify(emergencyBackup));
-    } catch {}
+    }
 
     // 2. Eksekusi reset cloud (Supabase Database & Google Spreadsheet via Serverless Gateway)
     let resetRes: any = null;
@@ -1127,10 +1171,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         zeroAccounts: options?.zeroAccounts !== false
       });
     } catch (e: any) {
-      console.warn('[AccountingContext] Backend reset warning:', e);
+      // FAIL-CLOSED MUTLAK: Jika pemanggilan backend melempar exception, JANGAN bersihkan state lokal!
+      console.error('[AccountingContext] Backend reset exception:', e);
+      return {
+        success: false,
+        status: 'FAILED',
+        message: `Gagal mengeksekusi reset di database server: ${e?.message || e}. Seluruh data lokal tetap dipertahankan aman tanpa perubahan (Fail-Closed).`
+      };
     }
 
-    // 3. Atomically reset transactions di memori & storage lokal
+    // FAIL-CLOSED MUTLAK: Jika databaseReset gagal, tolak dan pertahankan data lokal
+    if (!resetRes || resetRes.databaseReset !== true) {
+      return {
+        success: false,
+        status: 'FAILED',
+        message: `Database server menolak reset: ${resetRes?.error || resetRes?.message || 'Respon tidak valid'}. Seluruh data lokal tetap dipertahankan aman tanpa perubahan (Fail-Closed).`
+      };
+    }
+
+    // 3. Database Cloud SUKSES dikosongkan.
+    // Bersihkan state transaksi lokal agar konsisten dengan cloud (mencegah data lama tersinkron ulang ke database)
     setTransactions([]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
     localStorage.setItem('sikeu_transactions_v3', JSON.stringify([]));
@@ -1174,19 +1234,41 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // 8. Catat jejak audit aktivitas lokal
-    logActivity('RESET PEMBUKUAN (BERHASIL)', 'Seluruh transaksi jurnal dihapus bersih (0 transaksi), saldo nominal akun dinol-kan (Rp 0), tabel spreadsheet A6:K dikosongkan, berkas Google Drive dipertahankan aman, dan nomor berkas di-reset ke BT/0001/.');
+    logActivity('RESET PEMBUKUAN', `Eksekusi reset: databaseReset=${resetRes.databaseReset}, spreadsheetReset=${resetRes.spreadsheetReset}`);
 
-    return { 
-      success: true, 
-      message: 'SUKSES: Reset sistem berhasil! Semua transaksi dihapus (0 transaksi), saldo akun dinol-kan (Rp 0), tabel spreadsheet A6:K dikosongkan, dan kode nomor berkas di-reset ke BT/0001/.',
-      deletedTransactionsCount: resetRes?.deletedTransactionsCount !== undefined ? resetRes.deletedTransactionsCount : transactions.length,
-      spreadsheetReset: resetRes?.spreadsheetReset ?? true
+    // 9. Evaluasi status parsial vs sukses total
+    if (resetRes.spreadsheetReset === false || resetRes.status === 'PARTIAL_FAILURE') {
+      return {
+        success: false,
+        status: 'PARTIAL_FAILURE',
+        message: resetRes.message || 'Reset database Supabase berhasil (0 transaksi), namun Google Spreadsheet belum berhasil dikosongkan.',
+        error: resetRes.error || resetRes.spreadsheetMessage,
+        deletedTransactionsCount: resetRes.deletedTransactionsCount !== undefined ? resetRes.deletedTransactionsCount : transactions.length,
+        spreadsheetReset: false,
+        recoveryProcedure: resetRes.recoveryProcedure || 'Buka Google Spreadsheet datasheet_bukti_transaksi resmi, lalu pilih menu: ⚡ SPECTRA Bot -> 🗑️ Reset Total.'
+      };
+    }
+
+    return {
+      success: true,
+      status: 'SUCCESS',
+      message: 'SUKSES: Reset sistem total berhasil! Semua transaksi dihapus (0 transaksi), saldo akun dinol-kan (Rp 0), spreadsheet A6:K dikosongkan, dan kode nomor berkas di-reset ke BT/0001/.',
+      deletedTransactionsCount: resetRes.deletedTransactionsCount !== undefined ? resetRes.deletedTransactionsCount : transactions.length,
+      spreadsheetReset: true
     };
   }, [securityPin, accounts, transactions, contacts, settings, broadcastChange, logActivity]);
 
   const resetAllTransactions = useCallback(async (
     options?: { clearDrive?: boolean; zeroAccounts?: boolean }
-  ): Promise<{ success: boolean; message: string; driveFilesDeleted?: number; spreadsheetReset?: boolean }> => {
+  ): Promise<{
+    success: boolean;
+    status?: 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+    message: string;
+    error?: string;
+    driveFilesDeleted?: number;
+    spreadsheetReset?: boolean;
+    recoveryProcedure?: string;
+  }> => {
     // Panggil mesin reset terkoordinasi
     const res = await resetWithPin(securityPin, {
       confirmCode: 'RESET-SPECTRA',
@@ -1196,9 +1278,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return {
       success: res.success,
+      status: res.status,
       message: res.message,
+      error: res.error,
       driveFilesDeleted: 0,
-      spreadsheetReset: res.spreadsheetReset
+      spreadsheetReset: res.spreadsheetReset,
+      recoveryProcedure: res.recoveryProcedure
     };
   }, [securityPin, resetWithPin]);
 

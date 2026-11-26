@@ -33,7 +33,10 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
   const [backupDownloaded, setBackupDownloaded] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isPartial, setIsPartial] = useState(false);
   const [successInfo, setSuccessInfo] = useState('');
+  const [partialInfo, setPartialInfo] = useState('');
+  const [recoveryProcedure, setRecoveryProcedure] = useState('');
   const [resetStats, setResetStats] = useState<{ deletedCount: number; spreadsheetOk: boolean } | null>(null);
 
   if (!isOpen) return null;
@@ -83,8 +86,19 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
         setPin('');
         setConfirmText('');
         if (onSuccess) onSuccess();
+      } else if (res.status === 'PARTIAL_FAILURE') {
+        setIsPartial(true);
+        setPartialInfo(res.message);
+        setRecoveryProcedure(res.recoveryProcedure || 'Buka Google Spreadsheet > Menu SPECTRA Bot > Reset Total');
+        setResetStats({
+          deletedCount: res.deletedTransactionsCount || 0,
+          spreadsheetOk: false
+        });
+        setPin('');
+        setConfirmText('');
+        if (onSuccess) onSuccess();
       } else {
-        setErrorMsg(res.message);
+        setErrorMsg(res.message || 'Gagal mengeksekusi reset sistem.');
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Gagal mengeksekusi reset sistem.');
@@ -96,11 +110,14 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
   const handleClose = () => {
     if (isSubmitting) return;
     setIsSuccess(false);
+    setIsPartial(false);
     setErrorMsg('');
     setPin('');
     setConfirmText('');
     setBackupDownloaded(false);
     setResetStats(null);
+    setPartialInfo('');
+    setRecoveryProcedure('');
     onClose();
   };
 
@@ -110,16 +127,22 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
         
         {/* Header */}
         <div className={`text-white px-5 py-3.5 flex justify-between items-center transition-colors ${
-          isSuccess ? 'bg-emerald-700' : 'bg-rose-700'
+          isSuccess ? 'bg-emerald-700' : isPartial ? 'bg-amber-600' : 'bg-rose-700'
         }`}>
           <div className="flex items-center space-x-2">
             {isSuccess ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+            ) : isPartial ? (
+              <AlertTriangle className="w-5 h-5 text-amber-200" />
             ) : (
               <ShieldAlert className="w-5 h-5 text-rose-200" />
             )}
             <h3 className="font-bold text-sm">
-              {isSuccess ? 'Sistem Berhasil Direset' : 'Otorisasi Keamanan: Perintah RESET SISTEM'}
+              {isSuccess
+                ? 'Sistem Berhasil Direset'
+                : isPartial
+                ? 'Reset Parsial: Tindakan Spreadsheet Diperlukan'
+                : 'Otorisasi Keamanan: Perintah RESET SISTEM'}
             </h3>
           </div>
           <button 
@@ -195,6 +218,64 @@ export const ResetModal: React.FC<ResetModalProps> = ({ isOpen, onClose, onSucce
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Mulai Pembukuan Baru yang Bersih</span>
+              </button>
+            </div>
+          </div>
+        ) : isPartial ? (
+          <div className="p-6 space-y-5 animate-fadeIn">
+            <div className="text-center space-y-2">
+              <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                <AlertTriangle className="w-8 h-8 stroke-[2.5]" />
+              </div>
+              <h4 className="text-base font-bold text-slate-900">
+                RESET DATABASE BERHASIL (PERLU TINDAKAN SPREADSHEET)
+              </h4>
+              <p className="text-xs text-slate-600 max-w-sm mx-auto">
+                {partialInfo || 'Database Supabase dan cache lokal telah berhasil dikosongkan (0 transaksi). Namun sinkronisasi Google Spreadsheet gagal atau Apps Script tidak kompatibel.'}
+              </p>
+            </div>
+
+            {/* Checklist items */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 space-y-2 text-xs">
+              <div className="flex items-center space-x-2 text-slate-800">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <span><b>Database Cloud &amp; Lokal:</b> 0 Transaksi (dihapus bersih dari tabel transaksi)</span>
+              </div>
+              <div className="flex items-center space-x-2 text-slate-800">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <span><b>Master Bagan Akun:</b> 76 Akun COA tetap utuh (seluruh saldo dinolkan Rp 0)</span>
+              </div>
+              <div className="flex items-start space-x-2 text-amber-900 bg-amber-50 p-2.5 rounded border border-amber-200">
+                <div className="w-5 h-5 rounded-full bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <div className="space-y-1">
+                  <span><b>Google Spreadsheet ("datasheet_bukti_transaksi"):</b> Gagal dikosongkan otomatis.</span>
+                  <div className="text-[11px] font-semibold text-amber-800">
+                    Langkah Pemulihan: {recoveryProcedure || 'Buka Google Spreadsheet > Menu SPECTRA Bot > Reset Total'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 text-slate-800">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <span><b>Nomor Berkas Auto Record:</b> Kembali mulai dari hitungan awal 1 (<b>BT/0001/...</b>)</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg shadow-sm flex items-center justify-center space-x-2 transition cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Pahami &amp; Selesaikan</span>
               </button>
             </div>
           </div>
