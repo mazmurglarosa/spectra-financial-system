@@ -66,6 +66,7 @@ function doGet(e) {
 
     var response = {
       status: 'online',
+      system: 'SPECTRA_FINANCIAL_SYSTEM',
       bot: 'SPECTRA Spreadsheet & Drive Automation Bot',
       sheetName: sheet.getName(),
       startRow: CONFIG.START_ROW,
@@ -101,18 +102,41 @@ function doPost(e) {
     var payload = JSON.parse(rawContent);
 
     // =========================================================================
-    // ACTION: Reset Total Sistem (Administrator Reset)
+    // ACTION: Reset Total Sistem / Kosongkan Baris A6:K (Administrator Reset)
     // =========================================================================
-    if (payload.action === 'resetSystem' || payload.action === 'wipeData' || payload.action === 'clearAll') {
-      var resetResult = eksekusiResetTotal();
+    if (payload.action === 'CLEAR_TRANSACTIONS_A6_K' || payload.action === 'resetSystem' || payload.action === 'wipeData' || payload.action === 'clearAll') {
+      var shouldClearDrive = payload.clearDrive === true;
+      var resetResult = eksekusiResetTotal(shouldClearDrive);
       var resetResponse = {
         status: 'success',
-        message: 'SUKSES RESET: Tabel Spreadsheet (A6:K) telah dikosongkan dan ' + resetResult.deletedFilesCount + ' berkas transaksi di Google Drive telah dibersihkan.',
+        action: 'CLEAR_TRANSACTIONS_A6_K',
+        message: 'SUKSES RESET: Tabel Spreadsheet (A6:K) telah dikosongkan. Baris data tersisa: ' + resetResult.dataRowsRemaining + '.',
+        rowsCleared: resetResult.rowsCleared,
+        dataRowsRemaining: resetResult.dataRowsRemaining,
+        isCleared: resetResult.isCleared,
         deletedFilesCount: resetResult.deletedFilesCount,
         timestamp: new Date().toISOString()
       };
       return ContentService.createTextOutput(JSON.stringify(resetResponse))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // ACTION: Verifikasi Kekosongan Tabel (VERIFY_EMPTY)
+    // =========================================================================
+    if (payload.action === 'VERIFY_EMPTY' || payload.action === 'checkEmpty') {
+      var sheetVerify = getTargetSheet();
+      var currentLastRow = sheetVerify.getLastRow();
+      var remaining = Math.max(0, currentLastRow - CONFIG.START_ROW + 1);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        action: 'VERIFY_EMPTY',
+        isEmpty: remaining === 0,
+        currentLastRow: currentLastRow,
+        startRow: CONFIG.START_ROW,
+        dataRowsRemaining: remaining,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // =========================================================================
@@ -304,62 +328,75 @@ function formatTableRange(sheet, startRow, numRows) {
 /**
  * FUNGSI INTI: Eksekusi Reset Total (Tabel A6:K & Folder Google Drive)
  */
-function eksekusiResetTotal() {
+function eksekusiResetTotal(shouldClearDrive) {
   var sheet = getTargetSheet();
   var lastRow = sheet.getLastRow();
   
   // 1. Kosongkan tabel Spreadsheet mulai dari baris A6 ke bawah
+  var rowsCleared = 0;
   if (lastRow >= CONFIG.START_ROW) {
-    sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, lastRow - CONFIG.START_ROW + 1, CONFIG.TOTAL_COLS).clearContent().clearFormat();
+    rowsCleared = lastRow - CONFIG.START_ROW + 1;
+    sheet.getRange(CONFIG.START_ROW, CONFIG.START_COL, rowsCleared, CONFIG.TOTAL_COLS).clearContent().clearFormat();
   }
 
   var deletedFilesCount = 0;
 
-  // 2. Kosongkan semua berkas di folder "Data Hasil Transaksi"
-  try {
-    var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
-    var transFiles = transFolder.getFiles();
-    while (transFiles.hasNext()) {
-      var f = transFiles.next();
-      f.setTrashed(true);
-      deletedFilesCount++;
-    }
-  } catch (e1) {
-    Logger.log('Error cleaning trans folder: ' + e1);
-  }
-
-  // 3. Bersihkan berkas transaksi (BT/...) yang tersisa di folder "data_web"
-  // Berkas web (background, logo, settings) TETAP AMAN tidak dihapus!
-  try {
-    var webFolder = DriveApp.getFolderById(CONFIG.WEB_DATA_FOLDER_ID);
-    var webFiles = webFolder.getFiles();
-    while (webFiles.hasNext()) {
-      var wf = webFiles.next();
-      var name = wf.getName();
-      var isTransactionFile = name.indexOf('BT') !== -1 || 
-                              name.indexOf('Bukti Transfer') !== -1 ||
-                              name.indexOf('Nota') !== -1 ||
-                              name.indexOf('Struk') !== -1;
-      
-      var isWebAsset = name.indexOf('SPECTRA-SETTINGS') !== -1 || 
-                       name.indexOf('SPECTRA-STORAGE') !== -1 || 
-                       name.indexOf('SPECTRA-OFFLOAD-TEST') !== -1 ||
-                       name.indexOf('spectra_test_sync') !== -1 ||
-                       name.indexOf('background') !== -1 ||
-                       name.indexOf('corporate') !== -1 ||
-                       name.indexOf('booting') !== -1 ||
-                       name.indexOf('login') !== -1;
-
-      if (isTransactionFile && !isWebAsset) {
-        wf.setTrashed(true);
+  // 2. Kosongkan berkas di folder "Data Hasil Transaksi" HANYA jika shouldClearDrive === true
+  if (shouldClearDrive === true) {
+    try {
+      var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
+      var transFiles = transFolder.getFiles();
+      while (transFiles.hasNext()) {
+        var f = transFiles.next();
+        f.setTrashed(true);
         deletedFilesCount++;
       }
+    } catch (e1) {
+      Logger.log('Error cleaning trans folder: ' + e1);
     }
-  } catch (e2) {
-    Logger.log('Error cleaning misplaced files in web folder: ' + e2);
+
+    // Bersihkan berkas transaksi (BT/...) yang tersisa di folder "data_web"
+    // Berkas web (background, logo, settings) TETAP AMAN tidak dihapus!
+    try {
+      var webFolder = DriveApp.getFolderById(CONFIG.WEB_DATA_FOLDER_ID);
+      var webFiles = webFolder.getFiles();
+      while (webFiles.hasNext()) {
+        var wf = webFiles.next();
+        var name = wf.getName();
+        var isTransactionFile = name.indexOf('BT') !== -1 ||
+                                name.indexOf('Bukti Transfer') !== -1 ||
+                                name.indexOf('Nota') !== -1 ||
+                                name.indexOf('Struk') !== -1;
+
+        var isWebAsset = name.indexOf('SPECTRA-SETTINGS') !== -1 ||
+                         name.indexOf('SPECTRA-STORAGE') !== -1 ||
+                         name.indexOf('SPECTRA-OFFLOAD-TEST') !== -1 ||
+                         name.indexOf('spectra_test_sync') !== -1 ||
+                         name.indexOf('background') !== -1 ||
+                         name.indexOf('corporate') !== -1 ||
+                         name.indexOf('booting') !== -1 ||
+                         name.indexOf('login') !== -1;
+
+        if (isTransactionFile && !isWebAsset) {
+          wf.setTrashed(true);
+          deletedFilesCount++;
+        }
+      }
+    } catch (e2) {
+      Logger.log('Error cleaning misplaced files in web folder: ' + e2);
+    }
   }
 
-  return { success: true, deletedFilesCount: deletedFilesCount };
+  var finalLastRow = sheet.getLastRow();
+  var dataRowsRemaining = Math.max(0, finalLastRow - CONFIG.START_ROW + 1);
+
+  return {
+    success: true,
+    rowsCleared: rowsCleared,
+    deletedFilesCount: deletedFilesCount,
+    dataRowsRemaining: dataRowsRemaining,
+    isCleared: dataRowsRemaining === 0
+  };
 }
 
 /**

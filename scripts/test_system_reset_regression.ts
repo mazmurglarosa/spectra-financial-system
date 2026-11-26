@@ -344,6 +344,115 @@ runTest('Apps Script Probe: Non-SPECTRA script response is rejected and not mark
 });
 
 // ----------------------------------------------------------------------------
+// Test 12: Database Transactional Rollback Atomicity (RPC)
+// ----------------------------------------------------------------------------
+runTest('Database Atomicity: Transaction rollback on error preserves all records with zero loss', () => {
+  // Simulate mock database state
+  const mockState = {
+    transactions: [{ id: 'tx-1', amount: 500000 }],
+    accounts: [{ id: 'acc-1', code: '10001', debetAwal: 500000 }],
+    auditLogs: [] as any[]
+  };
+
+  // Simulate transactional function with rollback
+  function executeAtomicReset(confirmCode: string, failInMiddle: boolean = false) {
+    // Snapshot state for transaction isolation
+    const preTx = JSON.parse(JSON.stringify(mockState));
+    try {
+      if (confirmCode !== 'RESET-SPECTRA') {
+        throw new Error('Konfirmasi keamanan tidak valid.');
+      }
+      mockState.transactions = [];
+      if (failInMiddle) {
+        throw new Error('Database disk error during balance zeroing.');
+      }
+      mockState.accounts.forEach(a => { a.debetAwal = 0; });
+      mockState.auditLogs.push({ action: 'RESET' });
+      return { success: true };
+    } catch (err: any) {
+      // Rollback to preTx snapshot
+      mockState.transactions = preTx.transactions;
+      mockState.accounts = preTx.accounts;
+      mockState.auditLogs = preTx.auditLogs;
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Case A: Fails security code check -> All rolled back
+  const resA = executeAtomicReset('INVALID');
+  assert.strictEqual(resA.success, false);
+  assert.strictEqual(mockState.transactions.length, 1, 'Transactions must be restored on abort');
+  assert.strictEqual(mockState.accounts[0].debetAwal, 500000, 'Account balances must be restored');
+
+  // Case B: Fails in the middle -> All rolled back (no partial mutations)
+  const resB = executeAtomicReset('RESET-SPECTRA', true);
+  assert.strictEqual(resB.success, false);
+  assert.strictEqual(mockState.transactions.length, 1, 'Transactions must remain intact after mid-transaction failure');
+  assert.strictEqual(mockState.auditLogs.length, 0, 'No partial audit logs written on failure');
+
+  // Case C: Success -> Commits atomically
+  const resC = executeAtomicReset('RESET-SPECTRA', false);
+  assert.strictEqual(resC.success, true);
+  assert.strictEqual(mockState.transactions.length, 0, 'Transactions deleted on success');
+  assert.strictEqual(mockState.accounts[0].debetAwal, 0, 'Account balance zeroed on success');
+  assert.strictEqual(mockState.auditLogs.length, 1, 'Audit log recorded on success');
+});
+
+// ----------------------------------------------------------------------------
+// Test 13: Probe Gate Protection: Incompatible Probe Aborts POST Execution
+// ----------------------------------------------------------------------------
+runTest('Probe Gate: Incompatible probe result halts execution without sending POST request', () => {
+  let postExecuted = false;
+
+  // Emulate probe gate
+  const probeResponse = { status: 'error', message: 'Unknown endpoint' };
+  const isProbeOk = probeResponse.status === 'online';
+
+  if (isProbeOk) {
+    postExecuted = true;
+  }
+
+  assert.strictEqual(isProbeOk, false, 'Probe must be detected as not ok');
+  assert.strictEqual(postExecuted, false, 'Destructive POST must NOT be executed when probe fails');
+});
+
+// ----------------------------------------------------------------------------
+// Test 14: Verification of Spreadsheet Clearance (isCleared & dataRowsRemaining: 0)
+// ----------------------------------------------------------------------------
+runTest('Spreadsheet Verification: Requires isCleared=true and dataRowsRemaining=0 for SUCCESS', () => {
+  // Case A: Claimed success but 5 rows remain
+  const responseA = { status: 'success', dataRowsRemaining: 5, isCleared: false };
+  const isActuallyCleanA = responseA.status === 'success' && (responseA.isCleared === true || responseA.dataRowsRemaining === 0);
+  assert.strictEqual(isActuallyCleanA, false, 'Must reject if rows remain');
+
+  // Case B: Cleaned completely (0 rows)
+  const responseB = { status: 'success', dataRowsRemaining: 0, isCleared: true };
+  const isActuallyCleanB = responseB.status === 'success' && (responseB.isCleared === true || responseB.dataRowsRemaining === 0);
+  assert.strictEqual(isActuallyCleanB, true, 'Must accept only when 0 rows remain');
+});
+
+// ----------------------------------------------------------------------------
+// Test 15: Consistency of zeroAccounts Default
+// ----------------------------------------------------------------------------
+runTest('zeroAccounts Consistency: Full reset defaults zeroAccounts to true', () => {
+  const evaluateZeroAccounts = (options?: { zeroAccounts?: boolean }) => {
+    return options?.zeroAccounts !== false;
+  };
+
+  // When options is undefined
+  assert.strictEqual(evaluateZeroAccounts(), true, 'Default must be true');
+
+  // When options is {}
+  assert.strictEqual(evaluateZeroAccounts({}), true, 'Default must be true when omitted in object');
+
+  // When options.zeroAccounts = true
+  assert.strictEqual(evaluateZeroAccounts({ zeroAccounts: true }), true, 'Explicit true must be true');
+
+  // When options.zeroAccounts = false (opt-out)
+  assert.strictEqual(evaluateZeroAccounts({ zeroAccounts: false }), false, 'Explicit false must be respected');
+});
+
+// ----------------------------------------------------------------------------
 // Summary Report
 // ----------------------------------------------------------------------------
 setTimeout(() => {

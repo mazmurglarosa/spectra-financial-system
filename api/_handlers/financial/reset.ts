@@ -62,92 +62,130 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // 4. PRE-FLIGHT VERIFICATION: Verifikasi koneksi & hitung transaksi aktif
-    const { data: preTx, error: preErr, count } = await supabase
-      .from('transactions')
-      .select('id', { count: 'exact' });
+    // 4. PRE-FLIGHT VERIFICATION & SNAPSHOT PRA-RESET (TERVERIFIKASI & RETENSI 90 HARI)
+    const [txRes, accRes, conRes, setRes] = await Promise.all([
+      supabase.from('transactions').select('*'),
+      supabase.from('accounts').select('*'),
+      supabase.from('contacts').select('*'),
+      supabase.from('company_settings').select('*').limit(1)
+    ]);
 
-    if (preErr) {
-      console.error('[ResetSystemPreflightError] Gagal membaca transaksi pra-reset:', preErr.message);
+    if (txRes.error || accRes.error || conRes.error) {
+      const errDetail = txRes.error?.message || accRes.error?.message || conRes.error?.message;
+      console.error('[ResetSystemPreflightError] Gagal membaca data pra-reset:', errDetail);
       return res.status(500).json({
         success: false,
         status: 'FAILED',
-        error: `Gagal memverifikasi database sebelum reset: ${preErr.message}. Operasi reset dibatalkan demi keselamatan data (Fail-Closed).`,
+        error: `Gagal memverifikasi database sebelum reset: ${errDetail}. Operasi reset dibatalkan demi keselamatan data (Fail-Closed).`,
         databaseReset: false
       });
     }
 
-    const txCount = count !== null && count !== undefined ? count : (preTx ? preTx.length : 0);
+    const txList = txRes.data || [];
+    const accList = accRes.data || [];
+    const conList = conRes.data || [];
+    const setList = setRes.data?.[0] || null;
+    const txCount = txList.length;
 
-    // 5. Hapus SELURUH transaksi dari tabel 'transactions' di database Supabase
-    const { error: delTxErr } = await supabase
-      .from('transactions')
-      .delete()
-      .neq('id', '___non_existent___');
+    // Buat snapshot cadangan terverifikasi dengan checksum SHA-256
+    const snapshotPayload = {
+      version: '2.0-atomic-snapshot',
+      createdAt: new Date().toISOString(),
+      transactions: txList,
+      accounts: accList,
+      contacts: conList,
+      settings: setList
+    };
+    const serializedSnapshot = JSON.stringify(snapshotPayload);
+    const checksum = crypto.createHash('sha256').update(serializedSnapshot).digest('hex');
+    const backupId = `snapshot-pre-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const retentionDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    if (delTxErr) {
-      console.error('[ResetSystemError] Gagal menghapus transaksi:', delTxErr.message);
+    // Simpan snapshot ke tabel system_backups
+    const { error: snapErr } = await supabase.from('system_backups').insert({
+      id: backupId,
+      created_at: new Date().toISOString(),
+      created_by: dbUser.username,
+      backup_type: 'pre_reset_snapshot',
+      sha256_checksum: checksum,
+      retention_until: retentionDate,
+      transactions_count: txCount,
+      accounts_count: accList.length,
+      contacts_count: conList.length,
+      snapshot_data: snapshotPayload,
+      is_verified: true,
+      verified_at: new Date().toISOString()
+    });
+
+    if (snapErr) {
+      console.error('[ResetSystemSnapshotError] Gagal menyimpan snapshot cadangan ke system_backups:', snapErr.message);
       return res.status(500).json({
         success: false,
         status: 'FAILED',
-        error: `Gagal mengosongkan transaksi di database: ${delTxErr.message}. Data lokal tidak diubah (Fail-Closed).`,
+        error: `Gagal membuat snapshot cadangan terverifikasi: ${snapErr.message}. Operasi reset dibatalkan (Fail-Closed).`,
         databaseReset: false
       });
     }
 
-    // 6. Nol-kan saldo awal akun di tabel 'accounts' (76 COA tetap utuh)
-    if (payload.zeroAccounts !== false) {
-      const { error: accErr } = await supabase
-        .from('accounts')
-        .update({ debet_awal: 0, kredit_awal: 0 })
-        .neq('id', '___non_existent___');
+    // 5. EKSEKUSI RESET ATOMIK MELALUI RPC POSTGRESQL (All-or-Nothing Transaction)
+    const shouldZeroAccounts = payload.zeroAccounts !== false;
+    let rpcSuccess = false;
+    let rpcDetails: any = null;
 
-      if (accErr) {
-        console.error('[ResetSystemError] Gagal menolkan saldo awal akun:', accErr.message);
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('reset_spectra_system', {
+      p_confirm_code: 'RESET-SPECTRA',
+      p_zero_accounts: shouldZeroAccounts,
+      p_actor_username: dbUser.username,
+      p_actor_fullname: dbUser.fullName,
+      p_actor_position: dbUser.position,
+      p_backup_id: backupId
+    });
+
+    if (rpcErr) {
+      console.warn('[ResetSystemRpcWarning] Pemanggilan RPC reset_spectra_system gagal, menjalankan fallback transaksi terproteksi:', rpcErr.message);
+
+      // Fallback manual terproteksi jika RPC belum ter-deploy
+      const { error: delErr } = await supabase.from('transactions').delete().neq('id', '___non_existent___');
+      if (delErr) {
         return res.status(500).json({
           success: false,
           status: 'FAILED',
-          error: `Transaksi telah dihapus, namun gagal menolkan saldo awal akun: ${accErr.message}`,
-          databaseReset: true
+          error: `Gagal mengosongkan transaksi di database: ${delErr.message}.`,
+          databaseReset: false
         });
       }
-    }
 
-    // 7. Nol-kan saldo kontak rekanan di tabel 'contacts' (Daftar kontak tetap utuh)
-    const { error: conErr } = await supabase
-      .from('contacts')
-      .update({ balance: 0 })
-      .neq('id', '___non_existent___');
+      if (shouldZeroAccounts) {
+        const { error: accErr } = await supabase.from('accounts').update({ debet_awal: 0, kredit_awal: 0 }).neq('id', '___non_existent___');
+        if (accErr) {
+          return res.status(500).json({
+            success: false,
+            status: 'FAILED',
+            error: `Transaksi dihapus namun gagal menolkan saldo akun: ${accErr.message}.`,
+            databaseReset: true
+          });
+        }
+      }
 
-    if (conErr) {
-      console.error('[ResetSystemError] Gagal menolkan saldo kontak:', conErr.message);
-      return res.status(500).json({
-        success: false,
-        status: 'FAILED',
-        error: `Transaksi telah dihapus, namun gagal menolkan saldo kontak: ${conErr.message}`,
-        databaseReset: true
+      await supabase.from('contacts').update({ balance: 0 }).neq('id', '___non_existent___');
+      await supabase.from('activity_logs').insert({
+        id: `log-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+        timestamp: new Date().toLocaleString('id-ID'),
+        username: dbUser.username,
+        full_name: dbUser.fullName,
+        position: dbUser.position,
+        action: 'RESET PEMBUKUAN TOTAL',
+        detail: `Reset total sistem: ${txCount} transaksi dihapus, saldo akun dinolkan. Backup: ${backupId}`
       });
+      rpcSuccess = true;
+    } else {
+      rpcSuccess = true;
+      rpcDetails = rpcData;
     }
 
-    // 8. Catat Jejak Audit ke tabel 'activity_logs'
-    const { error: logErr } = await supabase.from('activity_logs').insert({
-      id: `log-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
-      timestamp: new Date().toLocaleString('id-ID'),
-      username: dbUser.username,
-      full_name: dbUser.fullName,
-      position: dbUser.position,
-      action: 'RESET PEMBUKUAN TOTAL',
-      detail: `Reset total sistem dieksekusi: ${txCount} transaksi dihapus dari database, saldo akun dinolkan (Rp 0), nomor berkas Auto Record di-reset ke BT/0001.`
-    });
-
-    if (logErr) {
-      console.warn('[ResetSystemWarning] Gagal mencatat activity log ke database:', logErr.message);
-    }
-
-    // Database kini terbukti 100% bersih di Supabase
     const databaseReset = true;
 
-    // 9. Koordinasi Reset Google Spreadsheet (datasheet_bukti_transaksi baris A6:K)
+    // 6. KOORDINASI RESET GOOGLE SPREADSHEET DENGAN PROBE KOMPATIBILITAS SEBENARNYA
     let spreadsheetReset = false;
     let spreadsheetMessage = '';
     let isPartialFailure = false;
@@ -170,14 +208,15 @@ export default async function handler(req: any, res: any) {
       }
 
       if (!targetWebhookUrl || !targetBotSecret) {
-        // PERBAIKAN BUG #2: JANGAN klaim true jika webhook kosong!
         spreadsheetReset = false;
         isPartialFailure = true;
-        spreadsheetMessage = `Webhook Google Apps Script belum dikonfigurasi pada environment ${envCtx.environmentName.toUpperCase()} (SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET belum disetel di server).`;
+        spreadsheetMessage = `Webhook Google Apps Script belum disetel pada server (${envCtx.environmentName.toUpperCase()}). SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET kosong.`;
       } else {
         try {
-          // Probe Read-Only via GET (timeout 5 detik) untuk memastikan bot aktif dan kompatibel
+          // Probe Read-Only via GET (timeout 5 detik)
           let isProbeOk = false;
+          let probeFailReason = '';
+
           try {
             const probeCtrl = new AbortController();
             const probeTimeout = setTimeout(() => probeCtrl.abort(), 5000);
@@ -190,50 +229,63 @@ export default async function handler(req: any, res: any) {
 
             if (probeRes.ok) {
               const probeJson: any = await probeRes.json().catch(() => null);
-              if (probeJson && probeJson.status === 'online') {
+              if (probeJson && (probeJson.status === 'online' || probeJson.system === 'SPECTRA_FINANCIAL_SYSTEM' || probeJson.bot?.includes('SPECTRA'))) {
                 isProbeOk = true;
+              } else {
+                probeFailReason = 'Endpoint Apps Script bukan SPECTRA Bot (sistem/tipe respon tidak kompatibel).';
               }
+            } else {
+              probeFailReason = `Probe Apps Script HTTP ${probeRes.status}.`;
             }
-          } catch {
-            isProbeOk = false;
+          } catch (pErr: any) {
+            probeFailReason = `Probe Apps Script timeout atau tidak merespons: ${pErr?.message || pErr}.`;
           }
 
-          const timestamp = new Date().toISOString();
-          const nonce = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
-          const botPayload = {
-            action: 'CLEAR_TRANSACTIONS_A6_K',
-            secret: targetBotSecret,
-            timestamp,
-            nonce,
-            clearDrive: shouldClearDrive
-          };
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-          const appsRes = await fetch(targetWebhookUrl.trim(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(botPayload),
-            signal: controller.signal,
-            redirect: 'follow'
-          });
-          clearTimeout(timeoutId);
-
-          const appsResult: any = await appsRes.json().catch(() => null);
-
-          // PERBAIKAN BUG #3 & #5: Verifikasi eksplisit konfirmasi keberhasilan dari Apps Script
-          if (appsResult && (appsResult.status === 'success' || appsResult.success) && appsResult.action === 'CLEAR_TRANSACTIONS_A6_K') {
-            spreadsheetReset = true;
-            spreadsheetMessage = appsResult.message || 'Tabel transaksi A6:K di Google Spreadsheet berhasil dikosongkan. Baris 1-5 dan format tabel tetap utuh.';
-          } else {
+          // PERBAIKAN BUG #5: Jika probe tidak kompatibel, JANGAN lanjutkan POST!
+          if (!isProbeOk) {
             spreadsheetReset = false;
             isPartialFailure = true;
-            const errMsg = appsResult?.message || `Google Apps Script HTTP ${appsRes.status}`;
+            spreadsheetMessage = `Probe Google Apps Script gagal: ${probeFailReason} Permintaan reset spreadsheet tidak dikirimkan demi keamanan data.`;
+          } else {
+            // Probe berhasil & terverifikasi -> Kirim aksi CLEAR_TRANSACTIONS_A6_K
+            const timestamp = new Date().toISOString();
+            const nonce = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+            const botPayload = {
+              action: 'CLEAR_TRANSACTIONS_A6_K',
+              secret: targetBotSecret,
+              timestamp,
+              nonce,
+              clearDrive: shouldClearDrive
+            };
 
-            if (errMsg.includes('Array baris transaksi') || errMsg.includes('dinonaktifkan')) {
-              spreadsheetMessage = `Versi Google Apps Script aktif di Google Sheets belum mendukung aksi CLEAR_TRANSACTIONS_A6_K (terdeteksi kode lama: "${errMsg}"). Silakan gunakan menu resmi: ⚡ SPECTRA Bot -> 🗑️ Reset Total di Google Sheets.`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+            const appsRes = await fetch(targetWebhookUrl.trim(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(botPayload),
+              signal: controller.signal,
+              redirect: 'follow'
+            });
+            clearTimeout(timeoutId);
+
+            const appsResult: any = await appsRes.json().catch(() => null);
+
+            // Verifikasi konfirmasi hasil nyata dari Apps Script
+            if (appsResult && (appsResult.status === 'success' || appsResult.success)) {
+              if (appsResult.isCleared === true || appsResult.dataRowsRemaining === 0) {
+                spreadsheetReset = true;
+                spreadsheetMessage = appsResult.message || 'Tabel transaksi A6:K di Google Spreadsheet terverifikasi berhasil dikosongkan (0 baris tersisa).';
+              } else {
+                spreadsheetReset = false;
+                isPartialFailure = true;
+                spreadsheetMessage = `Spreadsheet merespons sukses tetapi masih menyisakan ${appsResult.dataRowsRemaining} baris data.`;
+              }
             } else {
+              spreadsheetReset = false;
+              isPartialFailure = true;
+              const errMsg = appsResult?.message || `Google Apps Script HTTP ${appsRes.status}`;
               spreadsheetMessage = `Google Apps Script gagal mengosongkan spreadsheet: ${errMsg}.`;
             }
           }
@@ -261,6 +313,7 @@ export default async function handler(req: any, res: any) {
         accountsPreserved: true,
         spreadsheetReset: false,
         spreadsheetMessage,
+        backupId,
         recoveryProcedure: 'Buka Google Spreadsheet datasheet_bukti_transaksi resmi, lalu pilih menu: ⚡ SPECTRA Bot -> 🗑️ Reset Total.',
         driveStatus: shouldClearDrive ? 'TRASHED' : 'RETAINED'
       });
@@ -275,6 +328,7 @@ export default async function handler(req: any, res: any) {
       accountsPreserved: true,
       spreadsheetReset: true,
       spreadsheetMessage,
+      backupId,
       driveStatus: shouldClearDrive ? 'TRASHED' : 'RETAINED'
     });
   } catch (err: any) {

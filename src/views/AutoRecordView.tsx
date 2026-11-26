@@ -174,7 +174,7 @@ export const AutoRecordView: React.FC<AutoRecordViewProps> = ({ setActiveTab }) 
     setIsResettingTransactions(true);
     setResetFeedback(null);
     try {
-      const res = await resetAllTransactions();
+      const res = await resetAllTransactions({ clearDrive: false, zeroAccounts: true });
 
       // Fail-closed guard: jika status FAILED atau bukan sukses dan bukan partial
       if (res.status === 'FAILED' || (!res.success && res.status !== 'PARTIAL_FAILURE')) {

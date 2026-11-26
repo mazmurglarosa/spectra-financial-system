@@ -1269,11 +1269,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     spreadsheetReset?: boolean;
     recoveryProcedure?: string;
   }> => {
-    // Panggil mesin reset terkoordinasi
+    // Panggil mesin reset terkoordinasi (KONSISTEN: zeroAccounts default true untuk reset penuh)
     const res = await resetWithPin(securityPin, {
       confirmCode: 'RESET-SPECTRA',
       clearDrive: options?.clearDrive === true,
-      zeroAccounts: options?.zeroAccounts ?? false
+      zeroAccounts: options?.zeroAccounts !== false
     });
 
     return {
