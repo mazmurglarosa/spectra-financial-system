@@ -211,6 +211,11 @@ export default async function handler(req: any, res: any) {
         spreadsheetReset = false;
         isPartialFailure = true;
         spreadsheetMessage = `Webhook Google Apps Script belum disetel pada server (${envCtx.environmentName.toUpperCase()}). SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET kosong.`;
+      } else if (targetWebhookUrl.includes('AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT')) {
+        // PROTEKSI IMS: Larang keras memanggil skrip kontrol penomoran dokumen IMS
+        spreadsheetReset = false;
+        isPartialFailure = true;
+        spreadsheetMessage = 'Webhook yang terkonfigurasi saat ini mengarah ke proyek IMS Document Control, bukan SPECTRA Bot Spreadsheet. Proyek IMS dilindungi aman tanpa modifikasi. Silakan pasang deployment SPECTRA Bot terpisah.';
       } else {
         try {
           // Probe Read-Only via GET (timeout 5 detik)

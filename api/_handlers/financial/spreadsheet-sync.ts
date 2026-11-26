@@ -2,6 +2,11 @@ import { authenticateFinancialRequest } from '../../_lib/financialAuth.js';
 import { checkRateLimitCentralized, getClientIp } from '../../_lib/rateLimit.js';
 import crypto from 'crypto';
 
+// Proyek Apps Script IMS (Document Control & Penomoran) — DILINDUNGI & DILARANG DIGUNAKAN UNTUK SPECTRA BOT
+const FORBIDDEN_IMS_DEPLOYMENT_IDS = new Set([
+  'AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT'
+]);
+
 // Known Production Webhook Identifiers (Blacklist untuk lingkungan non-produksi)
 const KNOWN_PRODUCTION_DEPLOYMENT_IDS = new Set([
   'AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT'
@@ -271,6 +276,14 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({
       success: false,
       error: 'URL Webhook Google Apps Script di environment server tidak valid.'
+    });
+  }
+
+  // Proteksi Khusus IMS: Cegah salah sasaran ke proyek IMS Document Control
+  if (FORBIDDEN_IMS_DEPLOYMENT_IDS.has(deploymentId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Endpoint yang terkonfigurasi adalah proyek IMS Document Control, bukan SPECTRA Bot Spreadsheet. Proyek IMS dilindungi aman. Gunakan URL deployment SPECTRA Bot terpisah.'
     });
   }
 

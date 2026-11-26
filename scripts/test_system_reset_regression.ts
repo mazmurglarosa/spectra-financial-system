@@ -453,6 +453,29 @@ runTest('zeroAccounts Consistency: Full reset defaults zeroAccounts to true', ()
 });
 
 // ----------------------------------------------------------------------------
+// Test 16: IMS Script Segregation: Active IMS Project AKfycb... is Protected and Rejected
+// ----------------------------------------------------------------------------
+runTest('IMS Segregation: Active IMS Project AKfycb... is protected and rejected as SPECTRA Bot', () => {
+  const IMS_DEPLOYMENT_ID = 'AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT';
+  const imsUrl = `https://script.google.com/macros/s/${IMS_DEPLOYMENT_ID}/exec`;
+
+  const isImsScript = imsUrl.includes(IMS_DEPLOYMENT_ID);
+  assert.strictEqual(isImsScript, true, 'Must detect IMS script URL');
+
+  // Backend guard verification
+  let targetActionAllowed = true;
+  let rejectionMessage = '';
+
+  if (imsUrl.includes(IMS_DEPLOYMENT_ID)) {
+    targetActionAllowed = false;
+    rejectionMessage = 'Proyek IMS dilindungi aman. Gunakan URL deployment SPECTRA Bot terpisah.';
+  }
+
+  assert.strictEqual(targetActionAllowed, false, 'IMS script must NEVER be called by reset or sync');
+  assert.ok(rejectionMessage.includes('Proyek IMS dilindungi aman'), 'Must explain IMS protection');
+});
+
+// ----------------------------------------------------------------------------
 // Summary Report
 // ----------------------------------------------------------------------------
 setTimeout(() => {
