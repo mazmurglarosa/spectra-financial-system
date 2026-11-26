@@ -87,7 +87,8 @@ export default async function handler(req: any, res: any) {
           action: 'READ_BACKUP_JSON',
           secret: targetBotSecret,
           fileId: fileId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          nonce: crypto.randomBytes(16).toString('hex')
         }),
         signal: readCtrl.signal,
         redirect: 'follow'

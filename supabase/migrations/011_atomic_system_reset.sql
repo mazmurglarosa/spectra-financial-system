@@ -12,14 +12,17 @@
 -- 4. RPC Security Lockdown: Hak EXECUTE hanya diberikan kepada service_role (backend server).
 -- =========================================================================================
 
--- 1. PROSEDUR RPC: reset_spectra_system (ATOMIK & TERKUNCI)
+-- 1. PROSEDUR RPC: reset_spectra_system (ATOMIK, TERKUNCI & TERVALIDASI KETAT)
+DROP FUNCTION IF EXISTS public.reset_spectra_system(text, boolean, text, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.reset_spectra_system(
   p_confirm_code text,
   p_zero_accounts boolean DEFAULT true,
   p_actor_username text DEFAULT 'system_admin',
   p_actor_fullname text DEFAULT 'Administrator',
   p_actor_position text DEFAULT 'Otoritas Keuangan',
-  p_backup_id text DEFAULT NULL
+  p_backup_id text DEFAULT NULL,
+  p_expected_tx_count integer DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -37,9 +40,13 @@ BEGIN
     RAISE EXCEPTION 'Konfirmasi keamanan tidak valid: wajib memasukkan kode "RESET-SPECTRA".';
   END IF;
 
-  -- 2. Validasi identifier backup Google Drive terverifikasi
+  -- 2. Validasi identifier backup Google Drive terverifikasi (Format Kriptografis Wajib)
   IF p_backup_id IS NULL OR trim(p_backup_id) = '' THEN
     RAISE EXCEPTION 'ID berkas backup Google Drive terverifikasi wajib disertakan sebelum reset.';
+  END IF;
+
+  IF NOT (p_backup_id ~ '^drive:[a-zA-Z0-9_\-]+:sha256:[a-f0-9]{64}$') THEN
+    RAISE EXCEPTION 'Format ID backup tidak valid: wajib mengikuti pola "drive:<fileId>:sha256:<checksum64>". Nilai: %', p_backup_id;
   END IF;
 
   -- 3. Kunci tabel transaksi, akun, dan rekanan secara eksklusif (Mencegah race condition)
@@ -50,10 +57,15 @@ BEGIN
   -- 4. Hitung jumlah transaksi aktif saat ini di database
   SELECT count(*) INTO v_tx_count FROM public.transactions;
 
-  -- 5. Hapus SELURUH baris transaksi
+  -- 5. Cegah perubahan data antara snapshot dan eksekusi reset (Consistency Guard)
+  IF p_expected_tx_count IS NOT NULL AND v_tx_count <> p_expected_tx_count THEN
+    RAISE EXCEPTION 'Deteksi perubahan data: Jumlah transaksi aktif saat ini (%) tidak cocok dengan snapshot cadangan (%). Reset dibatalkan demi keselamatan data.', v_tx_count, p_expected_tx_count;
+  END IF;
+
+  -- 6. Hapus SELURUH baris transaksi
   DELETE FROM public.transactions WHERE id IS NOT NULL;
 
-  -- 6. Nol-kan saldo awal akun jika p_zero_accounts = true (76 COA tetap utuh)
+  -- 7. Nol-kan saldo awal akun jika p_zero_accounts = true (76 COA tetap utuh)
   IF p_zero_accounts IS NOT FALSE THEN
     UPDATE public.accounts 
     SET debet_awal = 0, 
@@ -64,13 +76,13 @@ BEGIN
     SELECT count(*) INTO v_acc_count FROM public.accounts;
   END IF;
 
-  -- 7. Nol-kan saldo rekanan
+  -- 8. Nol-kan saldo rekanan
   UPDATE public.contacts 
   SET balance = 0 
   WHERE id IS NOT NULL;
   GET DIAGNOSTICS v_con_count = ROW_COUNT;
 
-  -- 8. Catat jejak audit resmi secara atomik ke activity_logs (HANYA metadata minimal, tanpa payload JSON besar)
+  -- 9. Catat jejak audit resmi secara atomik ke activity_logs (HANYA metadata minimal, tanpa payload JSON besar)
   v_log_id := 'log-reset-' || floor(extract(epoch from now()) * 1000)::text || '-' || substr(md5(random()::text), 1, 8);
   INSERT INTO public.activity_logs (
     id,
@@ -203,8 +215,8 @@ END;
 $$;
 
 -- 3. LEAST PRIVILEGE LOCKDOWN
-REVOKE EXECUTE ON FUNCTION public.reset_spectra_system(text, boolean, text, text, text, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.reset_spectra_system(text, boolean, text, text, text, text) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.reset_spectra_system(text, boolean, text, text, text, text, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reset_spectra_system(text, boolean, text, text, text, text, integer) TO service_role;
 
 REVOKE EXECUTE ON FUNCTION public.restore_spectra_from_snapshot(jsonb, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.restore_spectra_from_snapshot(jsonb, text) TO service_role;

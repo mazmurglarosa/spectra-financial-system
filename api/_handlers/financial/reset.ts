@@ -118,13 +118,18 @@ export default async function handler(req: any, res: any) {
     const backupFileName = `spectra-backup-pre-reset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`;
     let driveBackupId = '';
 
-    // Wajib simpan cadangan ke Google Drive sebelum reset jika ada transaksi aktif (Fail-Closed)
-    if (txCount > 0) {
+    // Deteksi data finansial aktif (transaksi > 0, atau saldo akun != 0, atau saldo rekanan != 0)
+    const hasNonZeroAccounts = accList.some((a: any) => Number(a.debet_awal || a.debetAwal || 0) !== 0 || Number(a.kredit_awal || a.kreditAwal || 0) !== 0);
+    const hasNonZeroContacts = conList.some((c: any) => Number(c.balance || 0) !== 0);
+    const hasOperationalData = txCount > 0 || hasNonZeroAccounts || hasNonZeroContacts;
+
+    // Wajib simpan cadangan ke Google Drive sebelum reset jika ada transaksi aktif atau saldo non-nol (Fail-Closed)
+    if (hasOperationalData) {
       if (!targetWebhookUrl || !targetBotSecret) {
         return res.status(500).json({
           success: false,
           status: 'FAILED',
-          error: `Gagal membuat snapshot Google Drive: Webhook Google Apps Script belum disetel (${envCtx.environmentName.toUpperCase()}). SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET kosong. Operasi reset dibatalkan demi keselamatan ${txCount} data transaksi aktif (Fail-Closed).`,
+          error: `Gagal membuat snapshot Google Drive: Webhook Google Apps Script belum disetel (${envCtx.environmentName.toUpperCase()}). SPECTRA_SPREADSHEET_WEBHOOK_URL atau SPECTRA_BOT_SECRET kosong. Operasi reset dibatalkan demi keselamatan ${txCount} data transaksi & saldo operasional (Fail-Closed).`,
           databaseReset: false
         });
       }
@@ -141,6 +146,8 @@ export default async function handler(req: any, res: any) {
       try {
         const saveCtrl = new AbortController();
         const saveTimeout = setTimeout(() => saveCtrl.abort(), 20000);
+        const backupNonce = crypto.randomBytes(16).toString('hex');
+        const backupTimestamp = new Date().toISOString();
 
         const saveRes = await fetch(targetWebhookUrl.trim(), {
           method: 'POST',
@@ -148,12 +155,13 @@ export default async function handler(req: any, res: any) {
           body: JSON.stringify({
             action: 'SAVE_BACKUP_JSON',
             secret: targetBotSecret,
+            nonce: backupNonce,
+            timestamp: backupTimestamp,
             fileName: backupFileName,
             content: serializedSnapshot,
             sha256: checksum,
             transactionsCount: txCount,
-            createdBy: dbUser.username,
-            timestamp: new Date().toISOString()
+            createdBy: dbUser.username
           }),
           signal: saveCtrl.signal,
           redirect: 'follow'
@@ -184,38 +192,55 @@ export default async function handler(req: any, res: any) {
         });
       }
     } else {
-      // 0 transaksi aktif saat ini di database
+      // 0 transaksi aktif dan seluruh saldo sudah 0 di database
       if (targetWebhookUrl && targetBotSecret && !targetWebhookUrl.includes('AKfycbweEADkAMfpyBXO4j1dBqPTACdrjkR5Pke90h9YxNRGchvA25xP_6JKXHl8e5LPd6bT')) {
         try {
           const saveCtrl = new AbortController();
           const saveTimeout = setTimeout(() => saveCtrl.abort(), 10000);
+          const backupNonce = crypto.randomBytes(16).toString('hex');
+          const backupTimestamp = new Date().toISOString();
+
           const saveRes = await fetch(targetWebhookUrl.trim(), {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'SAVE_BACKUP_JSON',
               secret: targetBotSecret,
+              nonce: backupNonce,
+              timestamp: backupTimestamp,
               fileName: backupFileName,
               content: serializedSnapshot,
               sha256: checksum,
               transactionsCount: 0,
-              createdBy: dbUser.username,
-              timestamp: new Date().toISOString()
+              createdBy: dbUser.username
             }),
             signal: saveCtrl.signal,
             redirect: 'follow'
           });
           clearTimeout(saveTimeout);
           const saveResult: any = await saveRes.json().catch(() => null);
-          if (saveResult?.fileId) {
+          if (saveResult && (saveResult.status === 'success' || saveResult.success) && saveResult.fileId) {
             driveBackupId = `drive:${saveResult.fileId}:sha256:${checksum}`;
+          } else {
+            const errMsg = saveResult?.message || `HTTP ${saveRes.status}`;
+            return res.status(500).json({
+              success: false,
+              status: 'FAILED',
+              error: `Gagal membuat snapshot Google Drive: ${errMsg}. Operasi reset dibatalkan (Fail-Closed).`,
+              databaseReset: false
+            });
           }
-        } catch (e) {
-          // ignore error since txCount is 0
+        } catch (backupZeroErr: any) {
+          return res.status(500).json({
+            success: false,
+            status: 'FAILED',
+            error: `Gagal menghubungi Google Drive bot: ${backupZeroErr.message || 'Timeout'}. Operasi reset dibatalkan (Fail-Closed).`,
+            databaseReset: false
+          });
         }
       }
       if (!driveBackupId) {
-        driveBackupId = `drive:empty-0-tx-${Date.now()}:sha256:${checksum}`;
+        driveBackupId = `drive:empty-zero-state:sha256:${checksum}`;
       }
     }
 
@@ -230,7 +255,8 @@ export default async function handler(req: any, res: any) {
       p_actor_username: dbUser.username,
       p_actor_fullname: dbUser.fullName,
       p_actor_position: dbUser.position,
-      p_backup_id: driveBackupId
+      p_backup_id: driveBackupId,
+      p_expected_tx_count: txCount
     });
 
     if (rpcErr) {

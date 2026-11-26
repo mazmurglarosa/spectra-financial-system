@@ -128,7 +128,7 @@ async function run() {
     console.log('[PASS] Snapshot data disiapkan dengan checksum SHA-256:', validChecksum);
 
     // 2. NEGATIVE TEST: Tolak reset tanpa backup_id
-    console.log('\n[2/7] Menguji validasi: Tolak reset jika p_backup_id kosong...');
+    console.log('\n[2/9] Menguji validasi: Tolak reset jika p_backup_id kosong...');
     const { error: errNoBackup } = await supabase.rpc('reset_spectra_system', {
       p_confirm_code: 'RESET-SPECTRA',
       p_zero_accounts: true,
@@ -140,28 +140,59 @@ async function run() {
     assert.ok(errNoBackup, 'Reset wajib ditolak jika p_backup_id kosong');
     console.log('[PASS] Ditolak fail-closed dengan pesan:', errNoBackup.message);
 
-    // 3. NEGATIVE TEST: Tolak reset jika konfirmasi keamanan salah
-    console.log('\n[3/7] Menguji validasi: Tolak reset jika kode konfirmasi tidak tepat...');
+    // 3. NEGATIVE TEST: Tolak reset jika format backup_id sembarangan (tidak regex kriptografis)
+    console.log('\n[3/9] Menguji validasi: Tolak reset jika p_backup_id bukan format sah drive:<fileId>:sha256:<hash64>...');
+    const { error: errMalformedBackup } = await supabase.rpc('reset_spectra_system', {
+      p_confirm_code: 'RESET-SPECTRA',
+      p_zero_accounts: true,
+      p_actor_username: 'staging_tester',
+      p_actor_fullname: 'QA Tester',
+      p_actor_position: 'Auditor',
+      p_backup_id: 'random-string-id-12345'
+    });
+    assert.ok(errMalformedBackup, 'Reset wajib ditolak jika p_backup_id tidak mengikuti pola kriptografis');
+    assert.ok(errMalformedBackup.message.includes('Format ID backup tidak valid'), 'Pesan error harus menjelaskan format');
+    console.log('[PASS] Ditolak fail-closed dengan pesan:', errMalformedBackup.message);
+
+    // 4. NEGATIVE TEST: Tolak reset jika transaksi berubah (expected_tx_count mismatch)
+    console.log('\n[4/9] Menguji validasi: Tolak reset jika expected_tx_count tidak cocok dengan data nyata di DB...');
+    const { error: errCountMismatch } = await supabase.rpc('reset_spectra_system', {
+      p_confirm_code: 'RESET-SPECTRA',
+      p_zero_accounts: true,
+      p_actor_username: 'staging_tester',
+      p_actor_fullname: 'QA Tester',
+      p_actor_position: 'Auditor',
+      p_backup_id: validDriveBackupId,
+      p_expected_tx_count: txCountBefore + 999 // Mismatch!
+    });
+    assert.ok(errCountMismatch, 'Reset wajib ditolak jika data berubah antara snapshot dan reset');
+    assert.ok(errCountMismatch.message.includes('Deteksi perubahan data'), 'Pesan error harus mendeteksi perubahan data');
+    console.log('[PASS] Ditolak fail-closed dengan pesan:', errCountMismatch.message);
+
+    // 5. NEGATIVE TEST: Tolak reset jika konfirmasi keamanan salah
+    console.log('\n[5/9] Menguji validasi: Tolak reset jika kode konfirmasi tidak tepat...');
     const { error: errWrongCode } = await supabase.rpc('reset_spectra_system', {
       p_confirm_code: 'WRONG-CODE',
       p_zero_accounts: true,
       p_actor_username: 'staging_tester',
       p_actor_fullname: 'QA Tester',
       p_actor_position: 'Auditor',
-      p_backup_id: validDriveBackupId
+      p_backup_id: validDriveBackupId,
+      p_expected_tx_count: txCountBefore
     });
     assert.ok(errWrongCode, 'Reset wajib ditolak jika p_confirm_code salah');
     console.log('[PASS] Ditolak fail-closed dengan pesan:', errWrongCode.message);
 
-    // 4. POSITIVE TEST: Eksekusi Reset Atomik dengan Google Drive backup ID valid
-    console.log('\n[4/7] Mengeksekusi reset_spectra_system dengan Google Drive backup ID valid...');
+    // 6. POSITIVE TEST: Eksekusi Reset Atomik dengan Google Drive backup ID valid & count cocok
+    console.log('\n[6/9] Mengeksekusi reset_spectra_system dengan Google Drive backup ID valid & count cocok...');
     const { data: resetResult, error: resetErr } = await supabase.rpc('reset_spectra_system', {
       p_confirm_code: 'RESET-SPECTRA',
       p_zero_accounts: true,
       p_actor_username: 'staging_tester',
       p_actor_fullname: 'QA Tester',
       p_actor_position: 'Auditor',
-      p_backup_id: validDriveBackupId
+      p_backup_id: validDriveBackupId,
+      p_expected_tx_count: txCountBefore
     });
     assert.ifError(resetErr);
     assert.strictEqual(resetResult.success, true);
@@ -178,8 +209,8 @@ async function run() {
     assert.strictEqual(Number(checkCon.balance), 0, 'Saldo kontak harus 0 setelah reset');
     console.log('[PASS] Terverifikasi: Transaksi = 0, Saldo Akun = 0, Saldo Kontak = 0.');
 
-    // 5. NEGATIVE TEST: Tolak restore dari snapshot null/kosong
-    console.log('\n[5/7] Menguji validasi: Tolak restore_spectra_from_snapshot jika payload kosong...');
+    // 7. NEGATIVE TEST: Tolak restore dari snapshot null/kosong
+    console.log('\n[7/9] Menguji validasi: Tolak restore_spectra_from_snapshot jika payload kosong...');
     const { error: errBadRestore } = await supabase.rpc('restore_spectra_from_snapshot', {
       p_snapshot_data: null,
       p_actor_username: 'staging_tester'
@@ -187,8 +218,8 @@ async function run() {
     assert.ok(errBadRestore, 'Restore wajib ditolak jika snapshot kosong');
     console.log('[PASS] Ditolak dengan pesan:', errBadRestore.message);
 
-    // 6. POSITIVE TEST: Eksekusi Restore Lengkap dari muatan snapshot JSON Google Drive
-    console.log('\n[6/7] Mengeksekusi restore_spectra_from_snapshot dari snapshot JSON Google Drive...');
+    // 8. POSITIVE TEST: Eksekusi Restore Lengkap dari muatan snapshot JSON Google Drive
+    console.log('\n[8/9] Mengeksekusi restore_spectra_from_snapshot dari snapshot JSON Google Drive...');
     const { data: restoreResult, error: restoreErr } = await supabase.rpc('restore_spectra_from_snapshot', {
       p_snapshot_data: snapshotPayload,
       p_actor_username: 'staging_tester'
@@ -208,8 +239,8 @@ async function run() {
     assert.strictEqual(Number(checkConRestored.balance), 420000, 'Saldo kontak harus dipulihkan ke 420000');
     console.log('[PASS] Terverifikasi: Transaksi, Saldo Akun, dan Saldo Kontak berhasil direstorasi 100%!');
 
-    // 7. CLEANUP STAGING (Membersihkan data dummy uji coba)
-    console.log('\n[7/7] Membersihkan data uji coba dari Staging...');
+    // 9. CLEANUP STAGING (Membersihkan data dummy uji coba)
+    console.log('\n[9/9] Membersihkan data uji coba dari Staging...');
     await supabase.from('transactions').delete().eq('id', testTrxId);
     await supabase.from('contacts').delete().eq('id', testContactId);
     await supabase.from('accounts').update({ debet_awal: 0, kredit_awal: 0 }).eq('id', targetAccId);

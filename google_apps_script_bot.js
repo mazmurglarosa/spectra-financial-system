@@ -92,31 +92,160 @@ function doGet(e) {
 }
 
 /**
- * Endpoint HTTP POST (Menerima data JSON dari SPECTRA SIKEU2)
+ * Mengambil secret bot yang dikonfigurasi pada Script Properties.
+ * File > Project Properties > Script Properties (Key: SPECTRA_BOT_SECRET).
+ */
+function getBotSecret() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('SPECTRA_BOT_SECRET') ||
+               props.getProperty('BOT_SECRET') ||
+               props.getProperty('SECRET_KEY');
+  return secret ? secret.trim() : '';
+}
+
+/**
+ * Menghitung hash SHA-256 hex string dari konten teks
+ */
+function computeSha256Hex(contentStr) {
+  var rawBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, contentStr, Utilities.Charset.UTF_8);
+  var hex = '';
+  for (var i = 0; i < rawBytes.length; i++) {
+    var b = rawBytes[i];
+    var val = (b < 0 ? b + 256 : b).toString(16);
+    hex += (val.length === 1 ? '0' : '') + val;
+  }
+  return hex.toLowerCase();
+}
+
+/**
+ * Endpoint HTTP POST (Menerima data JSON dari SPECTRA SIKEU2 dengan Validasi Keamanan Ketat)
  */
 function doPost(e) {
   try {
     var rawContent = e.postData ? e.postData.contents : '';
     if (!rawContent) {
-      throw new Error('Payload kosong / tidak ada data yang dikirim.');
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'EMPTY_PAYLOAD',
+        message: 'Payload kosong / tidak ada data yang dikirim.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var payload = JSON.parse(rawContent);
+    var payload;
+    try {
+      payload = JSON.parse(rawContent);
+    } catch (parseErr) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'INVALID_JSON',
+        message: 'Format payload bukan JSON valid: ' + parseErr.message,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // =========================================================================
-    // ACTION: Simpan Backup JSON ke Google Drive (SAVE_BACKUP_JSON)
+    // 1. VALIDASI SECRET (WAJIB COCOK DENGAN SCRIPT PROPERTIES)
     // =========================================================================
-    if (payload.action === 'SAVE_BACKUP_JSON') {
+    var expectedSecret = getBotSecret();
+    if (!expectedSecret) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'SERVER_MISCONFIGURED',
+        message: 'OTORISASI GAGAL: SPECTRA_BOT_SECRET belum dikonfigurasi di Script Properties Google Apps Script.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (!payload.secret || typeof payload.secret !== 'string' || payload.secret.trim() !== expectedSecret) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'UNAUTHORIZED',
+        message: 'Otorisasi ditolak: Secret SPECTRA Bot tidak valid atau tidak disertakan.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // 2. VALIDASI TIMESTAMP & REPLAY ATTACK PREVENTION (NONCE)
+    // =========================================================================
+    if (!payload.timestamp || typeof payload.timestamp !== 'string') {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'MISSING_TIMESTAMP',
+        message: 'Parameter timestamp ISO wajib disertakan.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var clientTime = new Date(payload.timestamp).getTime();
+    var now = new Date().getTime();
+    if (isNaN(clientTime) || Math.abs(now - clientTime) > 5 * 60 * 1000) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'EXPIRED_OR_INVALID_TIMESTAMP',
+        message: 'Permintaan ditolak: Timestamp kedaluwarsa atau di luar toleransi 5 menit.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (!payload.nonce || typeof payload.nonce !== 'string' || payload.nonce.trim().length < 8) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'INVALID_NONCE',
+        message: 'Parameter nonce kriptografis (min 8 karakter) wajib disertakan untuk mencegah serangan replay.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var cache = CacheService.getScriptCache();
+    var nonceKey = 'spectra_nonce_' + payload.nonce.trim();
+    if (cache.get(nonceKey)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        code: 'REPLAY_ATTACK_DETECTED',
+        message: 'Replay terdeteksi: Nonce ini sudah pernah diproses sebelumnya.',
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    // Simpan nonce selama 10 menit (600 detik)
+    cache.put(nonceKey, '1', 600);
+
+    // =========================================================================
+    // 3. ROUTING AKSI DENGAN NAMA KANONIKAL KETAT (TANPA ALIAS)
+    // =========================================================================
+    var action = payload.action;
+
+    // Aksi 1: Simpan Backup JSON ke Google Drive (SAVE_BACKUP_JSON)
+    if (action === 'SAVE_BACKUP_JSON') {
       var fileName = payload.fileName || ('spectra-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json');
       var contentStr = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content, null, 2);
+      
+      if (!contentStr || contentStr.trim().length === 0) {
+        throw new Error('Konten snapshot backup kosong.');
+      }
+
       var backupFolder = getOrCreateBackupFolder();
       var file = backupFolder.createFile(fileName, contentStr, MimeType.PLAIN_TEXT);
       var fileId = file.getId();
       var fileSize = file.getSize();
-      
-      // Verifikasi file terbaca ulang (Readable & Non-empty)
+
+      // Verifikasi ulang dengan membaca konten langsung dari Drive
       var checkContent = file.getBlob().getDataAsString();
-      var isVerifiedReadable = checkContent.length > 0 && checkContent.length === contentStr.length;
+      if (!checkContent || checkContent.length === 0) {
+        file.setTrashed(true);
+        throw new Error('Gagal membaca ulang berkas snapshot yang baru dibuat di Google Drive.');
+      }
+
+      // Verifikasi integritas kriptografis SHA-256
+      var computedHash = computeSha256Hex(checkContent);
+      if (payload.sha256) {
+        var expectedHash = payload.sha256.trim().toLowerCase();
+        if (computedHash !== expectedHash) {
+          file.setTrashed(true);
+          throw new Error('Integritas snapshot gagal: SHA-256 Drive (' + computedHash + ') tidak cocok dengan muatan (' + expectedHash + '). Berkas dibatalkan.');
+        }
+      }
 
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
@@ -125,37 +254,59 @@ function doPost(e) {
         fileName: fileName,
         fileSize: fileSize,
         fileUrl: file.getUrl(),
-        isVerifiedReadable: isVerifiedReadable,
-        sha256: payload.sha256 || null,
+        isVerifiedReadable: true,
+        sha256: computedHash,
         timestamp: new Date().toISOString()
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // =========================================================================
-    // ACTION: Baca Backup JSON dari Google Drive (READ_BACKUP_JSON)
-    // =========================================================================
-    if (payload.action === 'READ_BACKUP_JSON') {
-      if (!payload.fileId) {
+    // Aksi 2: Baca Backup JSON dari Google Drive (Dibatasi HANYA folder backup resmi)
+    if (action === 'READ_BACKUP_JSON') {
+      if (!payload.fileId || typeof payload.fileId !== 'string') {
         throw new Error('fileId wajib disertakan untuk membaca backup.');
       }
-      var targetFile = DriveApp.getFileById(payload.fileId);
+
+      var fileIdToRead = payload.fileId.trim();
+      var targetFile = DriveApp.getFileById(fileIdToRead);
+      var backupFolder = getOrCreateBackupFolder();
+      var backupFolderId = backupFolder.getId();
+
+      // Verifikasi kepemilikan parent folder: wajib berada di dalam SPECTRA_SYSTEM_BACKUPS
+      var parents = targetFile.getParents();
+      var isInsideOfficialBackupFolder = false;
+      while (parents.hasNext()) {
+        if (parents.next().getId() === backupFolderId) {
+          isInsideOfficialBackupFolder = true;
+          break;
+        }
+      }
+
+      if (!isInsideOfficialBackupFolder) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'error',
+          code: 'FORBIDDEN_FILE_ACCESS',
+          message: 'Akses ditolak: Berkas bukan berada di dalam folder backup resmi SPECTRA (' + CONFIG.BACKUP_FOLDER_NAME + '). Akses diblokir demi keamanan.',
+          timestamp: new Date().toISOString()
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
       var readContent = targetFile.getBlob().getDataAsString();
+      var readSha256 = computeSha256Hex(readContent);
 
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
         action: 'READ_BACKUP_JSON',
-        fileId: payload.fileId,
+        fileId: fileIdToRead,
         fileName: targetFile.getName(),
         fileSize: targetFile.getSize(),
+        sha256: readSha256,
         content: readContent,
         timestamp: new Date().toISOString()
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // =========================================================================
-    // ACTION: Reset Total Sistem / Kosongkan Baris A6:K (Administrator Reset)
-    // =========================================================================
-    if (payload.action === 'CLEAR_TRANSACTIONS_A6_K' || payload.action === 'resetSystem' || payload.action === 'wipeData' || payload.action === 'clearAll') {
+    // Aksi 3: Kosongkan Baris A6:K (Hanya aksi kanonikal CLEAR_TRANSACTIONS_A6_K, tanpa alias)
+    if (action === 'CLEAR_TRANSACTIONS_A6_K') {
       var shouldClearDrive = payload.clearDrive === true;
       var resetResult = eksekusiResetTotal(shouldClearDrive);
       var resetResponse = {
@@ -172,10 +323,8 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // =========================================================================
-    // ACTION: Verifikasi Kekosongan Tabel (VERIFY_EMPTY)
-    // =========================================================================
-    if (payload.action === 'VERIFY_EMPTY' || payload.action === 'checkEmpty') {
+    // Aksi 4: Verifikasi Kekosongan Tabel (Hanya aksi kanonikal VERIFY_EMPTY)
+    if (action === 'VERIFY_EMPTY') {
       var sheetVerify = getTargetSheet();
       var currentLastRow = sheetVerify.getLastRow();
       var remaining = Math.max(0, currentLastRow - CONFIG.START_ROW + 1);
@@ -190,13 +339,12 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // =========================================================================
-    // ACTION: Migrasi / Pindahkan Berkas Transaksi Lama ke Data Hasil Transaksi
-    // =========================================================================
-    if (payload.action === 'moveOldReceipts' || payload.action === 'migrateReceipts') {
+    // Aksi 5: Migrasi Berkas Lama (Hanya aksi kanonikal moveOldReceipts)
+    if (action === 'moveOldReceipts') {
       var moveResult = pindahkanBuktiTransaksiKeDataHasilInternal();
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
+        action: 'moveOldReceipts',
         message: 'Berhasil memindahkan ' + moveResult.movedCount + ' berkas ke folder Data Hasil Transaksi.',
         movedCount: moveResult.movedCount,
         files: moveResult.movedNames,
@@ -204,34 +352,43 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // =========================================================================
-    // ACTION DEFAULT: Append Rows Transaksi
-    // =========================================================================
-    var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
+    // Aksi 6: Append Rows Transaksi (Kanonikal appendRows)
+    if (action === 'appendRows' || (!action && payload.rows)) {
+      var rows = payload.rows || (Array.isArray(payload) ? payload : [payload]);
+      if (!rows || rows.length === 0) {
+        throw new Error('Array baris transaksi (rows) kosong.');
+      }
 
-    if (!rows || rows.length === 0) {
-      throw new Error('Array baris transaksi (rows) kosong.');
+      var sheet = getTargetSheet();
+      var insertResult = insertTransactionRows(sheet, rows);
+
+      var response = {
+        status: 'success',
+        action: 'appendRows',
+        message: 'Berhasil menyinkronkan ' + rows.length + ' baris transaksi ke Google Spreadsheet mulai dari baris A' + insertResult.startRow + ' hingga K' + insertResult.endRow + '!',
+        insertedCount: rows.length,
+        startRow: insertResult.startRow,
+        endRow: insertResult.endRow,
+        cellRange: 'A' + insertResult.startRow + ':K' + insertResult.endRow,
+        timestamp: new Date().toISOString()
+      };
+
+      return ContentService.createTextOutput(JSON.stringify(response))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
-    var sheet = getTargetSheet();
-    var insertResult = insertTransactionRows(sheet, rows);
-
-    var response = {
-      status: 'success',
-      message: 'Berhasil menyinkronkan ' + rows.length + ' baris transaksi ke Google Spreadsheet mulai dari baris A' + insertResult.startRow + ' hingga K' + insertResult.endRow + '!',
-      insertedCount: rows.length,
-      startRow: insertResult.startRow,
-      endRow: insertResult.endRow,
-      cellRange: 'A' + insertResult.startRow + ':K' + insertResult.endRow,
+    // Aksi tidak dikenal / alias tidak diizinkan -> Ditolak keras (Fail-Closed)
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      code: 'UNKNOWN_OR_UNAUTHORIZED_ACTION',
+      message: 'Aksi "' + action + '" tidak diizinkan atau tidak dikenali oleh SPECTRA Bot.',
       timestamp: new Date().toISOString()
-    };
-
-    return ContentService.createTextOutput(JSON.stringify(response))
-      .setMimeType(ContentService.MimeType.JSON);
+    })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
     var errorResponse = {
       status: 'error',
+      code: 'EXECUTION_ERROR',
       message: 'Gagal memproses data: ' + err.toString(),
       timestamp: new Date().toISOString()
     };
@@ -392,49 +549,24 @@ function eksekusiResetTotal(shouldClearDrive) {
 
   var deletedFilesCount = 0;
 
-  // 2. Kosongkan berkas di folder "Data Hasil Transaksi" HANYA jika shouldClearDrive === true
+  // 2. Kosongkan berkas bukti transaksi di folder "Data Hasil Transaksi" HANYA jika shouldClearDrive === true
+  // File cadangan snapshot (spectra-backup-*) dan folder cadangan DIKECUALIKAN & DILINDUNGI PENUH!
   if (shouldClearDrive === true) {
     try {
       var transFolder = DriveApp.getFolderById(CONFIG.TRANSACTIONS_FOLDER_ID);
       var transFiles = transFolder.getFiles();
       while (transFiles.hasNext()) {
         var f = transFiles.next();
+        var name = f.getName();
+        // Proteksi mutlak file cadangan snapshot
+        if (name.indexOf('spectra-backup') === 0 || name.indexOf('.json') !== -1) {
+          continue;
+        }
         f.setTrashed(true);
         deletedFilesCount++;
       }
     } catch (e1) {
       Logger.log('Error cleaning trans folder: ' + e1);
-    }
-
-    // Bersihkan berkas transaksi (BT/...) yang tersisa di folder "data_web"
-    // Berkas web (background, logo, settings) TETAP AMAN tidak dihapus!
-    try {
-      var webFolder = DriveApp.getFolderById(CONFIG.WEB_DATA_FOLDER_ID);
-      var webFiles = webFolder.getFiles();
-      while (webFiles.hasNext()) {
-        var wf = webFiles.next();
-        var name = wf.getName();
-        var isTransactionFile = name.indexOf('BT') !== -1 ||
-                                name.indexOf('Bukti Transfer') !== -1 ||
-                                name.indexOf('Nota') !== -1 ||
-                                name.indexOf('Struk') !== -1;
-
-        var isWebAsset = name.indexOf('SPECTRA-SETTINGS') !== -1 ||
-                         name.indexOf('SPECTRA-STORAGE') !== -1 ||
-                         name.indexOf('SPECTRA-OFFLOAD-TEST') !== -1 ||
-                         name.indexOf('spectra_test_sync') !== -1 ||
-                         name.indexOf('background') !== -1 ||
-                         name.indexOf('corporate') !== -1 ||
-                         name.indexOf('booting') !== -1 ||
-                         name.indexOf('login') !== -1;
-
-        if (isTransactionFile && !isWebAsset) {
-          wf.setTrashed(true);
-          deletedFilesCount++;
-        }
-      }
-    } catch (e2) {
-      Logger.log('Error cleaning misplaced files in web folder: ' + e2);
     }
   }
 
